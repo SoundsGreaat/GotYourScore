@@ -7,6 +7,7 @@ Importing this package ensures every model module is loaded so that
 from app.models.enums import CaseTypeEnum, RoleEnum
 from app.models.assignment import QAAssignment
 from app.models.review import Review
+from app.models.scorecard import ScorecardItem, ScorecardTemplate
 from app.models.user import User
 
 __all__ = [
@@ -14,5 +15,7 @@ __all__ = [
     "RoleEnum",
     "QAAssignment",
     "Review",
+    "ScorecardItem",
+    "ScorecardTemplate",
     "User",
 ]

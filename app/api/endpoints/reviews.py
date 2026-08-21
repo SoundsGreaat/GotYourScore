@@ -102,6 +102,7 @@ async def create_review(
         support_agent_id=agent.id,
         qa_id=current_user.id,
         case_type=payload.case_type,
+        case_number=payload.case_number,
         scorecard_data=scorecard_data,
         notes=payload.notes,
         final_score=final_score,
@@ -177,16 +178,22 @@ async def auto_score_review(
             },
         )
 
-    # End the read transaction so the pooled DB connection is released
-    # for the (multi-second) AI call instead of sitting idle-in-
-    # transaction; the session re-acquires a connection on the insert.
+    # End the quota-check read transaction. The AI service re-reads the
+    # scorecard rules on the same session and commits again after those
+    # reads, so the pooled connection is released for the multi-second
+    # LLM call itself and re-acquired on the insert.
     await db.commit()
 
     # AI analysis. Nothing is saved when this fails: ValueError means
     # the API key is unset (503); AnalyzeError means the call or the
-    # response parsing failed (502).
+    # response parsing failed (502). The session was committed above,
+    # so the rules query inside the service starts a fresh (read-only)
+    # transaction; the connection may sit idle during the network call
+    # — accepted trade-off, see analyze_support_ticket.
     try:
-        raw_scorecard = await ai_service.analyze_support_ticket(payload.transcript)
+        raw_scorecard = await ai_service.analyze_support_ticket(
+            payload.transcript, payload.case_type, db
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -209,6 +216,7 @@ async def auto_score_review(
         support_agent_id=agent.id,
         qa_id=current_user.id,
         case_type=payload.case_type,
+        case_number=payload.case_number,
         scorecard_data=scorecard_data,
         # Keep the (truncated) transcript as the audit trail for the
         # AI-produced deductions.

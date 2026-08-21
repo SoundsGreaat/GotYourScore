@@ -24,6 +24,8 @@ class ReviewCreate(BaseModel):
 
     support_agent_id: int
     case_type: CaseTypeEnum
+    # Optional reference to the reviewed case in the ticketing system.
+    case_number: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     raw_scorecard: dict[str, int] | None = None
 
@@ -89,6 +91,8 @@ class AutoScoreCreate(BaseModel):
     # Upper bound guards against unbounded per-request LLM cost.
     transcript: str = Field(min_length=1, max_length=50_000)
     case_type: CaseTypeEnum = CaseTypeEnum.SERVICE_REQUEST
+    # Optional reference to the reviewed case in the ticketing system.
+    case_number: str | None = Field(default=None, max_length=255)
 
     @field_validator("transcript")
     @classmethod
@@ -125,6 +129,7 @@ class ReviewRead(BaseModel):
     support_agent_id: int
     qa_id: int
     case_type: CaseTypeEnum
+    case_number: str | None = None
     scorecard_data: dict[str, dict[str, int]] | None = None
     notes: str | None = None
     final_score: int | None = None

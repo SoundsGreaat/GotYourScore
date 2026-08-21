@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    String,
     Text,
     func,
 )
@@ -49,6 +50,8 @@ class Review(Base):
         ),
         nullable=False,
     )
+    # Optional reference to the reviewed case in the ticketing system.
+    case_number: Mapped[str | None] = mapped_column(String(255), nullable=True)
     scorecard_data: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True
     )

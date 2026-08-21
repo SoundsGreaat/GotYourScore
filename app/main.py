@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.endpoints.ai import router as ai_router
 from app.api.endpoints.pages import router as pages_router
 from app.api.endpoints.reviews import router as reviews_router
 from app.core.config import get_settings
@@ -62,8 +63,10 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(auth_router)
-# Business endpoints live under /api (reviews: creation, quota, lookup).
+# Business endpoints live under /api (reviews: creation, quota, lookup;
+# ai: notes refactoring and preview scoring).
 app.include_router(reviews_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
 # Server-rendered HTML pages (login, dashboard) at the application root.
 app.include_router(pages_router)
 

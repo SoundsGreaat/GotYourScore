@@ -10,8 +10,10 @@ from app.models.enums import CaseTypeEnum
 class QAAssignmentBase(BaseModel):
     """Shared assignment fields.
 
-    Exactly one of ``support_agent_id`` (General assignment) or
-    ``specialized_case_type`` (Specialized assignment) must be provided.
+    At least one of ``support_agent_id`` (General assignment) or
+    ``specialized_case_type`` (Specialized assignment) must be
+    provided; providing both creates a Hybrid assignment (the QA is
+    scoped to one agent AND one case type).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -21,11 +23,11 @@ class QAAssignmentBase(BaseModel):
     specialized_case_type: CaseTypeEnum | None = None
 
     @model_validator(mode="after")
-    def validate_exactly_one_target(self) -> "QAAssignmentBase":
-        """Ensure the assignment is either General or Specialized, not both/neither."""
-        if (self.support_agent_id is None) == (self.specialized_case_type is None):
+    def validate_at_least_one_target(self) -> "QAAssignmentBase":
+        """Ensure the assignment targets an agent, a case type, or both."""
+        if self.support_agent_id is None and self.specialized_case_type is None:
             raise ValueError(
-                "Exactly one of 'support_agent_id' (General) or "
+                "At least one of 'support_agent_id' (General) or "
                 "'specialized_case_type' (Specialized) must be provided."
             )
         return self

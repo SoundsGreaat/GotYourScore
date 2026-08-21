@@ -1,4 +1,13 @@
-"""AI auto-scoring service (OpenRouter via the official OpenAI SDK).
+"""AI services (OpenRouter via the official OpenAI SDK).
+
+Two capabilities:
+- ``analyze_support_ticket``: score rich-text (HTML) QA notes against
+  the scorecard rules configured for the case type (ScorecardTemplate
+  / ScorecardItem), falling back to a generic error list when no
+  rules are configured;
+- ``refactor_qa_notes``: rewrite QA notes for clarity, grammar and
+  professional tone while preserving the HTML markup and embedded
+  images.
 
 OpenRouter exposes an OpenAI-compatible API, so the official ``openai``
 package is used with a ``base_url`` override. The client is created
@@ -6,7 +15,7 @@ lazily and cached — mirroring ``app.core.security.get_oauth`` — so
 importing this module never crashes when ``OPENROUTER_API_KEY`` is
 unset.
 
-Error contract for callers (see the reviews endpoint):
+Error contract for callers (see the reviews/ai endpoints):
 - ``ValueError``: the API key is not configured -> HTTP 503.
 - ``AnalyzeError``: the API call failed or the model response could
   not be parsed -> HTTP 502.
@@ -20,10 +29,14 @@ import json
 import math
 import re
 from functools import lru_cache
+from typing import Sequence
 
 from openai import APIError, AsyncOpenAI
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate
 
 # OpenRouter's OpenAI-compatible endpoint.
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -51,7 +64,8 @@ _CODE_FENCE_RE = re.compile(
 SYSTEM_PROMPT = """\
 You are a QA scoring assistant for a customer support team.
 
-You will receive the transcript of a support agent's ticket. Analyze the
+You will receive the QA notes (rich text/HTML) about a support agent's
+ticket, or the ticket transcript itself. Analyze the
 agent's performance and identify quality errors such as:
 - late_response: the agent replied too slowly or missed the response-time
   target;
@@ -76,6 +90,69 @@ to integer deduction points, e.g. {"late_response": 5, "poor_tone": 3}:
 - Markdown code fences, prose, explanations, and nested structures are all
   forbidden: output a single flat JSON object and nothing else.
 """
+
+REFACTOR_SYSTEM_PROMPT = """\
+You are a QA writing assistant.
+
+You will receive the HTML-formatted QA notes written by a quality
+analyst about a support agent's case. Rewrite them to improve clarity,
+grammar, and professional tone.
+
+Strict rules:
+- PRESERVE the HTML structure: keep every tag, attribute, and
+  formatting element exactly as provided (headings, paragraphs, lists,
+  tables, bold/italic, links, ...).
+- PRESERVE all embedded images: keep every <img> tag with its src (and
+  all other attributes) untouched.
+- Do not add, remove, or reorder content beyond what clarity and
+  grammar fixes require; do not translate; do not change facts, names,
+  numbers, or scores.
+- Output ONLY the improved HTML — no markdown code fences, no
+  commentary, no explanations.
+"""
+
+
+def _build_scoring_prompt(rules: Sequence[tuple[str, str, int]]) -> str:
+    """Build the scoring system prompt from configured scorecard rules.
+
+    ``rules`` is a sequence of ``(error_name, display_name,
+    penalty_points)`` tuples. With no rules the generic fallback
+    prompt (``SYSTEM_PROMPT``) is returned unchanged.
+    """
+    if not rules:
+        return SYSTEM_PROMPT
+
+    rule_lines = [
+        f"- {error_name} ({display_name}): deduct {penalty} point(s) when violated."
+        for error_name, display_name, penalty in rules
+    ]
+    penalty_map = ", ".join(f"{name}: {points}" for name, _, points in rules)
+    return (
+        "You are a QA scoring assistant for a customer support team.\n"
+        "\n"
+        "You will receive the rich-text (HTML) QA notes about a support agent's\n"
+        "case. Analyze the agent's performance and judge each of the configured\n"
+        "scoring rules below:\n"
+        "\n"
+        + "\n".join(rule_lines)
+        + "\n"
+        "\n"
+        "Think step-by-step, carefully and in depth, about what the customer\n"
+        "needed, what the agent actually did, and which rules were violated,\n"
+        "BEFORE producing the final answer. Keep that reasoning internal: it\n"
+        "must NOT appear in the output.\n"
+        "\n"
+        "The final output must be ONLY a JSON object mapping snake_case error\n"
+        'names to integer deduction points, e.g. {"late_response": 5}:\n'
+        "- Keys are restricted to the error names listed above: unknown keys\n"
+        "  are forbidden.\n"
+        "- Values MUST match the configured penalty points exactly\n"
+        f"  ({penalty_map}); do not invent or adjust deductions.\n"
+        "- Use 0 for a rule you considered but found not to be violated.\n"
+        "- If no rule was violated, output an empty object: {}.\n"
+        "- Markdown code fences, prose, explanations, and nested structures\n"
+        "  are all forbidden: output a single flat JSON object and nothing else.\n"
+    )
 
 
 class AnalyzeError(Exception):
@@ -193,13 +270,27 @@ def _sanitize_scorecard(data: dict) -> dict[str, int]:
     return sanitized
 
 
-async def analyze_support_ticket(transcript: str) -> dict[str, int]:
-    """Analyze a support ticket transcript into a raw scorecard.
+async def analyze_support_ticket(
+    notes_html: str,
+    case_type: CaseTypeEnum,
+    db_session: AsyncSession,
+) -> dict[str, int]:
+    """Analyze rich-text (HTML) QA notes into a raw scorecard.
 
-    Sends the transcript to the OpenRouter-hosted scoring model with
-    JSON mode enforced, then parses and sanitizes the response into
+    Loads the active scorecard rules configured for ``case_type``
+    (ScorecardTemplate -> ScorecardItem) and builds the scoring prompt
+    from them; with no configured rules the generic fallback prompt
+    (``SYSTEM_PROMPT``) is used. The notes HTML is then sent to the
+    OpenRouter-hosted scoring model with JSON mode enforced, and the
+    response is parsed and sanitized into
     ``{snake_case_error: deduction_points}`` (whole numbers >= 0; an
-    empty dict means "no errors found").
+    empty dict means "no errors found"). When rules are configured,
+    the result is additionally filtered to the configured error names
+    (the prompt forbids unknown keys; this enforces it server-side).
+
+    The rules queries run first (fast DB reads) and the read
+    transaction is then committed so the pooled connection is
+    released for the (multi-second) network call.
 
     Raises:
         ValueError: ``OPENROUTER_API_KEY`` is not configured (the
@@ -207,6 +298,31 @@ async def analyze_support_ticket(transcript: str) -> dict[str, int]:
         AnalyzeError: the API call failed or the response could not be
             parsed (the endpoint maps this to HTTP 502).
     """
+    stmt = (
+        select(ScorecardItem)
+        .join(ScorecardTemplate, ScorecardItem.template_id == ScorecardTemplate.id)
+        .where(
+            ScorecardTemplate.case_type == case_type,
+            ScorecardItem.is_active.is_(True),
+        )
+        .order_by(ScorecardTemplate.id, ScorecardItem.error_name)
+    )
+    items = list((await db_session.execute(stmt)).scalars().all())
+    # Multiple templates may exist for one case type; keep the first
+    # occurrence of each error_name so the rule list never contains
+    # conflicting duplicates.
+    rules_by_key: dict[str, tuple[str, str, int]] = {}
+    for item in items:
+        rules_by_key.setdefault(
+            item.error_name, (item.error_name, item.display_name, item.penalty_points)
+        )
+    rules = list(rules_by_key.values())
+    system_prompt = _build_scoring_prompt(rules)
+
+    # End the read transaction: the pooled connection goes back while
+    # the multi-second LLM call runs.
+    await db_session.commit()
+
     # Raises ValueError when the key is unset — before any network I/O.
     client = get_openrouter_client()
 
@@ -214,10 +330,13 @@ async def analyze_support_ticket(transcript: str) -> dict[str, int]:
         response = await client.chat.completions.create(
             model=AI_SCORING_MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {
                     "role": "user",
-                    "content": f"Support ticket transcript:\n\n{transcript}",
+                    "content": (
+                        f"Case type: {case_type.value}\n\n"
+                        f"QA notes (HTML):\n\n{notes_html}"
+                    ),
                 },
             ],
             response_format={"type": "json_object"},
@@ -237,4 +356,54 @@ async def analyze_support_ticket(transcript: str) -> dict[str, int]:
         )
 
     parsed = _extract_json(content)
-    return _sanitize_scorecard(parsed)
+    sanitized = _sanitize_scorecard(parsed)
+    if rules:
+        # Rules-based prompts forbid unknown keys; enforce it here too
+        # so hallucinated keys never reach the scorecard.
+        allowed = set(rules_by_key)
+        sanitized = {key: value for key, value in sanitized.items() if key in allowed}
+    return sanitized
+
+
+async def refactor_qa_notes(raw_html: str) -> str:
+    """Rewrite QA notes (HTML) for clarity, grammar, and tone.
+
+    Sends the notes HTML to the OpenRouter-hosted model with
+    ``REFACTOR_SYSTEM_PROMPT`` (markup and embedded images must be
+    preserved verbatim) and returns the improved HTML. The response is
+    NOT requested in JSON mode — the output is HTML — but markdown
+    code fences are stripped defensively via ``_strip_code_fences``
+    should the model wrap its output anyway.
+
+    Raises:
+        ValueError: ``OPENROUTER_API_KEY`` is not configured (the
+            endpoint maps this to HTTP 503).
+        AnalyzeError: the API call failed or the response was empty
+            (the endpoint maps this to HTTP 502).
+    """
+    # Raises ValueError when the key is unset — before any network I/O.
+    client = get_openrouter_client()
+
+    try:
+        response = await client.chat.completions.create(
+            model=AI_SCORING_MODEL,
+            messages=[
+                {"role": "system", "content": REFACTOR_SYSTEM_PROMPT},
+                {"role": "user", "content": raw_html},
+            ],
+            temperature=0,  # deterministic rewriting
+        )
+    except APIError as exc:
+        raise AnalyzeError(f"OpenRouter API error: {exc}") from exc
+    except Exception as exc:  # network errors, timeouts, SDK failures
+        raise AnalyzeError(
+            f"OpenRouter request failed: {type(exc).__name__}: {exc}"
+        ) from exc
+
+    content = response.choices[0].message.content if response.choices else None
+    if not content:
+        raise AnalyzeError(
+            "OpenRouter returned an empty response (no message content)."
+        )
+
+    return _strip_code_fences(content)

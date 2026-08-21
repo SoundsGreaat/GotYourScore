@@ -1,12 +1,14 @@
 """QAAssignment ORM model.
 
-A Supervisor assigns a QA either:
+A Supervisor assigns a QA:
 - to a specific Support Agent (General): ``support_agent_id`` is set,
   ``specialized_case_type`` is NULL;
 - to a specific Case Type across all agents (Specialized):
-  ``specialized_case_type`` is set, ``support_agent_id`` is NULL.
+  ``specialized_case_type`` is set, ``support_agent_id`` is NULL;
+- to a specific Support Agent AND Case Type (Hybrid): both are set —
+  the QA is scoped to that agent for that case type.
 
-Exactly one of the two must be set — enforced at the DB level via a
+At least one of the two must be set — enforced at the DB level via a
 CHECK constraint using PostgreSQL's ``num_nonnulls``.
 """
 
@@ -30,13 +32,15 @@ if TYPE_CHECKING:
 
 
 class QAAssignment(Base):
-    """Assignment of a QA to a support agent (General) or case type (Specialized)."""
+    """Assignment of a QA to a support agent (General), a case type
+    (Specialized), or both (Hybrid).
+    """
 
     __tablename__ = "qa_assignments"
     __table_args__ = (
         CheckConstraint(
-            "num_nonnulls(support_agent_id, specialized_case_type) = 1",
-            name="ck_qa_assignments_exactly_one_target",
+            "num_nonnulls(support_agent_id, specialized_case_type) >= 1",
+            name="ck_qa_assignments_at_least_one_target",
         ),
     )
 
