@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import CaseTypeEnum
 
@@ -63,6 +63,50 @@ class ReviewCreate(BaseModel):
             raise ValueError(
                 "Reviews with case_type='No Cases' must have a null or empty "
                 "raw_scorecard."
+            )
+        return self
+
+
+class AutoScoreCreate(BaseModel):
+    """Payload for AI auto-scoring (POST /api/reviews/auto-score).
+
+    The caller submits a raw ticket transcript; the AI model derives
+    the raw scorecard (see ``app.services.ai_service``), which then
+    flows through the same progressive multiplier and monthly quota
+    rules as a manual review. ``qa_id`` is injected server-side from
+    the authenticated caller, exactly like ``ReviewCreate``.
+
+    ``case_type`` is a documented deviation from the minimal spec
+    (``agent_id`` + ``transcript`` only): ``reviews.case_type`` is
+    NOT NULL and the auto-score flow receives no explicit case type,
+    so it defaults to SERVICE_REQUEST and callers may override it
+    per request.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: int
+    # Upper bound guards against unbounded per-request LLM cost.
+    transcript: str = Field(min_length=1, max_length=50_000)
+    case_type: CaseTypeEnum = CaseTypeEnum.SERVICE_REQUEST
+
+    @field_validator("transcript")
+    @classmethod
+    def reject_blank_transcript(cls, value: str) -> str:
+        """Whitespace-only transcripts carry nothing to score."""
+        if not value.strip():
+            raise ValueError("transcript must not be blank.")
+        return value
+
+    @model_validator(mode="after")
+    def reject_no_cases(self) -> "AutoScoreCreate":
+        """'No Cases' reviews have null scores by definition and are
+        submitted manually — an auto-scored review always analyzes a
+        real transcript, so NO_CASES is rejected here.
+        """
+        if self.case_type is CaseTypeEnum.NO_CASES:
+            raise ValueError(
+                "case_type 'No Cases' cannot be used with auto-scoring."
             )
         return self
 

@@ -6,7 +6,7 @@ from app.schemas.assignment import (
     QAAssignmentCreate,
     QAAssignmentRead,
 )
-from app.schemas.review import QuotaRead, ReviewCreate, ReviewRead
+from app.schemas.review import AutoScoreCreate, QuotaRead, ReviewCreate, ReviewRead
 from app.schemas.user import UserBase, UserCreate, UserRead
 
 __all__ = [
@@ -18,6 +18,7 @@ __all__ = [
     "QAAssignmentBase",
     "QAAssignmentCreate",
     "QAAssignmentRead",
+    "AutoScoreCreate",
     "QuotaRead",
     "ReviewCreate",
     "ReviewRead",
