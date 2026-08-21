@@ -27,8 +27,19 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
 
+    # Secret used to sign session cookies (Starlette SessionMiddleware).
+    # The default is an INSECURE dev-only value; override it in .env /
+    # the environment with a strong random string in production.
+    SECRET_KEY: str = "dev-insecure-secret-key-change-me"
+
     # Google OAuth domain restriction for the internal support team.
     ALLOWED_DOMAIN: str = "example.com"
+
+    # Session cookie hardening: set SESSION_COOKIE_SECURE=true in production
+    # (HTTPS-only cookies). SESSION_MAX_AGE bounds cookie lifetime in
+    # seconds (None = browser-session cookie).
+    SESSION_COOKIE_SECURE: bool = False
+    SESSION_MAX_AGE: int | None = None
 
     # Global QA quota: strictly 6 cases per support agent per month.
     # Calculated dynamically from the Review table; kept here for
