@@ -17,6 +17,9 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,
     pool_pre_ping=True,
+    # Pin the session timezone to UTC so SQL-side date/time handling
+    # (e.g. EXTRACT from created_at) always agrees with Python's UTC.
+    connect_args={"server_settings": {"TimeZone": "UTC"}},
 )
 
 async_session_factory = async_sessionmaker(

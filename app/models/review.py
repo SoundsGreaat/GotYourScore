@@ -13,8 +13,8 @@ from datetime import datetime
 
 from sqlalchemy import (
     DateTime,
-    Float,
     ForeignKey,
+    Integer,
     Text,
     func,
 )
@@ -53,7 +53,9 @@ class Review(Base):
         JSONB, nullable=True
     )
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
-    final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Whole numbers only: deductions, multipliers and the final score
+    # are integers per business rules.
+    final_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Indexed: monthly quota queries filter on created_at.
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

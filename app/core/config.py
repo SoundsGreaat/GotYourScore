@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -45,6 +46,20 @@ class Settings(BaseSettings):
     # Calculated dynamically from the Review table; kept here for
     # validation and potential configurability.
     MONTHLY_QUOTA: int = 6
+
+    @field_validator(
+        "OPENROUTER_API_KEY",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "SESSION_MAX_AGE",
+        mode="before",
+    )
+    @classmethod
+    def _empty_str_to_none(cls, value: object) -> object:
+        """Treat empty env values (e.g. ``KEY=`` in .env) as unset."""
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 @lru_cache
