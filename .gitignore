@@ -1,0 +1,11 @@
+.idea
+.venv
+
+# Environment files (keep .env.example tracked)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]

@@ -1,0 +1,1 @@
+"""GotYourScore application package."""
