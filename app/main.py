@@ -1,14 +1,17 @@
 """GotYourScore FastAPI application entrypoint."""
 
 import math
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.endpoints.pages import router as pages_router
 from app.api.endpoints.reviews import router as reviews_router
 from app.core.config import get_settings
 
@@ -52,9 +55,17 @@ app.add_middleware(
     max_age=settings.SESSION_MAX_AGE,
 )
 
+# Static assets (CSS/JS) served under /static.
+# Anchored to this file so static assets resolve regardless of the CWD
+# the app is launched from.
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
 app.include_router(auth_router)
 # Business endpoints live under /api (reviews: creation, quota, lookup).
 app.include_router(reviews_router, prefix="/api")
+# Server-rendered HTML pages (login, dashboard) at the application root.
+app.include_router(pages_router)
 
 
 @app.get("/ping")

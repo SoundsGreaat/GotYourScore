@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}GotYourScore{% endblock %}</title>
+
+    <!-- Set the theme before first paint to avoid a flash of the wrong theme. -->
+    <script>
+        (function () {
+            var stored = null;
+            try { stored = localStorage.getItem('theme'); } catch (e) { /* storage blocked */ }
+            var theme = (stored === 'light' || stored === 'dark')
+                ? stored
+                : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            document.documentElement.dataset.theme = theme;
+        })();
+    </script>
+
+    <!-- Theme toggle icons follow the data-theme attribute managed by Alpine (see <body>). -->
+    <style>
+        html[data-theme='light'] .theme-icon-moon { display: none; }
+        html[data-theme='dark'] .theme-icon-sun { display: none; }
+    </style>
+
+    <!-- DaisyUI components + Tailwind CSS utilities (CDN, no build step). -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- HTMX -->
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
+
+    <!-- Alpine.js (deferred) -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+
+<body class="min-h-screen bg-base-200 text-base-content"
+      x-data="{
+          theme: 'light',
+          init() {
+              var stored = null;
+              try { stored = localStorage.getItem('theme'); } catch (e) { /* storage blocked */ }
+              this.theme = (stored === 'light' || stored === 'dark')
+                  ? stored
+                  : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+              this.applyTheme();
+          },
+          applyTheme() {
+              document.documentElement.dataset.theme = this.theme;
+          },
+          toggleTheme() {
+              this.theme = (this.theme === 'dark') ? 'light' : 'dark';
+              try { localStorage.setItem('theme', this.theme); } catch (e) { /* storage blocked */ }
+              this.applyTheme();
+          }
+      }">
+    {% block content %}{% endblock %}
+</body>
+</html>

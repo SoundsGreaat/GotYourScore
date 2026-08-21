@@ -43,7 +43,7 @@ async def auth_callback(
         logger.warning("OAuth token exchange failed: %s", exc)
         request.session.clear()
         return RedirectResponse(
-            url="/auth/login?error=oauth_failed",
+            url="/login?error=oauth_failed",
             status_code=status.HTTP_303_SEE_OTHER,
         )
 
@@ -95,7 +95,7 @@ async def auth_callback(
 async def auth_logout(request: Request) -> RedirectResponse:
     """Log the user out."""
     request.session.clear()
-    return RedirectResponse(url="/auth/login", status_code=status.HTTP_303_SEE_OTHER)
+    return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
 
 @router.get("/me", response_model=UserRead, summary="Current authenticated user")
