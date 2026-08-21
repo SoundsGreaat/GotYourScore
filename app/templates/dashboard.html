@@ -50,36 +50,31 @@
             </div>
         </div>
 
-        <!-- Main content (HTMX swaps sidebar partials in here) -->
+        <!-- Main content: tracker chrome (header, tabs, drawer mount) lives
+             OUTSIDE the sidebar's swap target so navigation between views
+             never destroys it. -->
         <main id="main-content" class="flex-1 p-4 md:p-6 lg:p-8">
-            <div class="mb-6">
-                <h1 class="text-2xl font-bold md:text-3xl">Welcome, {{ current_user.name }}</h1>
-                <p class="mt-1 text-base-content/70">Overview of your QA reviews and team quotas.</p>
+            <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+                <h1 class="text-2xl font-bold">QA Tracker</h1>
+                <button type="button" class="btn btn-primary btn-sm"
+                        hx-get="/partials/review-drawer"
+                        hx-target="#drawer-container"
+                        hx-swap="innerHTML">
+                    New Review
+                </button>
             </div>
 
-            <div class="grid gap-6 md:grid-cols-2">
-                <!-- My Reviews placeholder -->
-                <section id="my-reviews" class="card bg-base-100 shadow-sm">
-                    <div class="card-body">
-                        <h2 class="card-title">My Reviews</h2>
-                        <p class="text-base-content/70">Reviews assigned to you will appear here.</p>
-                        <div class="mt-4 rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-                            No reviews yet
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Team Quotas placeholder -->
-                <section id="team-quotas" class="card bg-base-100 shadow-sm">
-                    <div class="card-body">
-                        <h2 class="card-title">Team Quotas</h2>
-                        <p class="text-base-content/70">Your team's review quota usage will appear here.</p>
-                        <div class="mt-4 rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-                            No quota data yet
-                        </div>
-                    </div>
-                </section>
+            <div role="tablist" class="tabs tabs-box">
+                <input type="radio" name="tracker_tabs" class="tab" aria-label="QA Score" checked="checked" />
+                <input type="radio" name="tracker_tabs" class="tab" aria-label="Bad Feedback" disabled />
+                <input type="radio" name="tracker_tabs" class="tab" aria-label="Refund Check" disabled />
             </div>
+
+            <!-- Sidebar navigation swaps view content here; the matrix is
+                 the initial view. -->
+            <div id="view-container" class="mt-5" hx-get="/partials/qa-matrix" hx-trigger="load" hx-swap="innerHTML"></div>
+            <!-- Drawer mount survives sidebar navigation. -->
+            <div id="drawer-container"></div>
         </main>
     </div>
 
@@ -96,7 +91,15 @@
             <nav class="p-3">
                 <ul class="menu w-full p-0">
                     <li>
-                        <a href="#" hx-get="/partials/my-reviews" hx-target="#main-content" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                        <a href="#" hx-get="/partials/qa-matrix" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+                            </svg>
+                            <span>QA Tracker</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" hx-get="/partials/my-reviews" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                             </svg>
@@ -104,7 +107,7 @@
                         </a>
                     </li>
                     <li>
-                        <a href="#" hx-get="/partials/team-quotas" hx-target="#main-content" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                        <a href="#" hx-get="/partials/team-quotas" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                             </svg>

@@ -1,0 +1,212 @@
+<link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" />
+
+<div class="drawer drawer-end">
+    <input id="review-drawer-toggle" type="checkbox" class="drawer-toggle" />
+    <div class="drawer-content"></div>
+    <div class="drawer-side">
+        <label for="review-drawer-toggle" aria-label="close drawer" class="drawer-overlay"></label>
+        <aside class="flex min-h-full w-[28rem] max-w-full flex-col bg-base-100">
+            <div class="flex items-center justify-between border-b border-base-300 p-4">
+                <h2 class="text-lg font-semibold">New Review</h2>
+                <label for="review-drawer-toggle" class="btn btn-ghost btn-sm">Close</label>
+            </div>
+
+            <div class="overflow-y-auto p-4 space-y-4">
+                <fieldset class="fieldset">
+                    <legend class="fieldset-legend">Assignment</legend>
+                    <label class="label" for="review-agent">Agent</label>
+                    <select id="review-agent" class="select select-sm w-full">
+                        <option disabled selected>Select agent…</option>
+                        {% for agent in agents %}
+                        <option value="{{ agent.id }}">{{ agent.name }}</option>
+                        {% endfor %}
+                    </select>
+                </fieldset>
+
+                <fieldset class="fieldset">
+                    <label class="label" for="case-number">Case number</label>
+                    <input id="case-number" type="text" class="input input-sm w-full" placeholder="CASE-1234" />
+                </fieldset>
+
+                <fieldset class="fieldset">
+                    <legend class="fieldset-legend">Case details</legend>
+                    <label class="label" for="case-type">Case type</label>
+                    <select id="case-type" class="select select-sm w-full">
+                        {% for case_type in case_types %}
+                        <option value="{{ case_type }}"{% if case_type == 'Service Request' %} selected{% endif %}>{{ case_type }}</option>
+                        {% endfor %}
+                    </select>
+                </fieldset>
+
+                <fieldset class="fieldset">
+                    <legend class="fieldset-legend">Review notes</legend>
+                    <label class="label" for="quill-editor">Notes</label>
+                    <div id="quill-editor" class="min-h-48 bg-base-100"></div>
+                </fieldset>
+
+                <div id="ai-score-result" class="card hidden bg-base-200 shadow-sm">
+                    <div class="card-body p-4">
+                        <h3 class="card-title text-base">Score result</h3>
+                        <div id="ai-score-content"></div>
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-primary btn-block" disabled>Save Review</button>
+                <p class="text-center text-sm text-base-content/70">Saving is wired up in the next iteration</p>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<div id="ai-context-menu" class="menu absolute z-50 hidden w-52 rounded-box border border-base-300 bg-base-100 shadow-lg">
+    <li><button id="ai-refactor-action" type="button" class="text-primary font-medium">✨ Refactor Notes</button></li>
+    <li><button id="ai-score-action" type="button" class="text-primary font-medium">✨ Generate Score</button></li>
+</div>
+
+<script>
+(function () {
+    var editorContainer = document.getElementById('quill-editor');
+    var menu = document.getElementById('ai-context-menu');
+    var drawerToggle = document.getElementById('review-drawer-toggle');
+    if (!editorContainer || !menu) return;
+
+    // Per-instance listener cleanup: aborting the previous controller
+    // (from an earlier HTMX swap of this partial) detaches its stale
+    // document-level listeners.
+    if (window._reviewDrawerAbort) window._reviewDrawerAbort.abort();
+    var controller = new AbortController();
+    window._reviewDrawerAbort = controller;
+
+    function showToast(message) {
+        var toast = document.createElement('div');
+        toast.setAttribute('role', 'alert');
+        toast.className = 'alert alert-error fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg';
+        toast.textContent = message;
+        window.setTimeout(function () { toast.remove(); }, 3500);
+    }
+
+    // Model-returned HTML is untrusted: sanitize before it touches the
+    // DOM (falls back to the raw string only if DOMPurify failed to load).
+    function sanitizeHtml(html) {
+        return window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
+    }
+
+    function init(quill) {
+        // Quill.find returns the instance bound to this exact element,
+        // preventing double initialization across re-swaps.
+        if (window.Quill.find(editorContainer)) return;
+
+        function hideMenu() { menu.classList.add('hidden'); }
+        function setLoading(button, label, loading) {
+            button.disabled = loading;
+            button.textContent = loading ? label : button.dataset.label;
+            if (loading) {
+                button.insertAdjacentHTML('beforeend', ' <span class="loading loading-spinner loading-xs"></span>');
+            }
+        }
+
+        var refactorButton = document.getElementById('ai-refactor-action');
+        var scoreButton = document.getElementById('ai-score-action');
+        refactorButton.dataset.label = '✨ Refactor Notes';
+        scoreButton.dataset.label = '✨ Generate Score';
+
+        editorContainer.addEventListener('contextmenu', function (event) {
+            if (!event.target.closest('.ql-editor')) return;
+            event.preventDefault();
+            menu.classList.remove('hidden');
+            var left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8);
+            var top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8);
+            menu.style.left = Math.max(8, left + window.scrollX) + 'px';
+            menu.style.top = Math.max(8, top + window.scrollY) + 'px';
+        });
+
+        menu.addEventListener('click', function (event) { event.stopPropagation(); });
+        document.addEventListener('click', hideMenu, { signal: controller.signal });
+        document.addEventListener('keydown', function (event) { if (event.key === 'Escape') hideMenu(); }, { signal: controller.signal });
+        window.addEventListener('scroll', hideMenu, { capture: true, signal: controller.signal });
+
+        refactorButton.addEventListener('click', async function () {
+            setLoading(refactorButton, 'Refactoring…', true);
+            try {
+                var response = await fetch('/api/ai/refactor', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ html: quill.root.innerHTML })
+                });
+                if (!response.ok) throw new Error('Refactor request failed');
+                quill.root.innerHTML = sanitizeHtml((await response.json()).html);
+                hideMenu();
+            } catch (error) {
+                showToast('Unable to refactor notes.');
+            } finally {
+                setLoading(refactorButton, 'Refactoring…', false);
+            }
+        });
+
+        scoreButton.addEventListener('click', async function () {
+            setLoading(scoreButton, 'Scoring…', true);
+            try {
+                var response = await fetch('/api/ai/score', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ html: quill.root.innerHTML, case_type: document.getElementById('case-type').value })
+                });
+                if (!response.ok) throw new Error('Score request failed');
+                var result = await response.json();
+                var resultPanel = document.getElementById('ai-score-result');
+                var content = document.getElementById('ai-score-content');
+                var entries = Object.entries(result.scorecard || {}).map(function (entry) {
+                    return '<li class="flex justify-between gap-4 border-b border-base-300 py-1"><span>' + escapeHtml(entry[0]) + '</span><span class="badge badge-sm">' + escapeHtml(String(entry[1])) + '</span></li>';
+                }).join('');
+                content.innerHTML = '<p class="text-sm text-base-content/70">Final Score</p><p class="text-3xl font-bold text-primary">' + escapeHtml(String(result.final_score)) + '</p>' +
+                    '<ul class="mt-2 text-sm">' + (entries || '<li class="text-base-content/70">No deductions</li>') + '</ul>' +
+                    '<p class="mt-3 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(result.total_deduction)) + '</p>';
+                resultPanel.classList.remove('hidden');
+                hideMenu();
+            } catch (error) {
+                showToast('Unable to generate a score.');
+            } finally {
+                setLoading(scoreButton, 'Scoring…', false);
+            }
+        });
+    }
+
+    function escapeHtml(value) {
+        var element = document.createElement('span');
+        element.textContent = value;
+        return element.innerHTML;
+    }
+
+    function loadScript(src, marker, onload) {
+        var existing = document.querySelector('script[data-' + marker + ']');
+        if (existing) return;
+        var script = document.createElement('script');
+        script.src = src;
+        script.dataset[marker] = 'true';
+        script.addEventListener('load', onload, { once: true });
+        document.head.appendChild(script);
+    }
+
+    function loadQuill() {
+        if (window.Quill) {
+            // Bind to the element instance, not the selector: repeated
+            // swaps create new #quill-editor elements and the selector
+            // could resolve to a stale one.
+            init(new window.Quill(editorContainer, { theme: 'snow', modules: { toolbar: [['bold', 'italic', 'underline'], [{ color: [] }], ['image', 'code-block']] } }));
+            return;
+        }
+        loadScript('https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.js', 'quillLoader', function () { loadQuill(); });
+    }
+
+    function loadPurify() {
+        if (window.DOMPurify) return;
+        loadScript('https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js', 'purifyLoader', function () {});
+    }
+
+    loadPurify();
+    loadQuill();
+    if (drawerToggle) drawerToggle.checked = true;
+})();
+</script>

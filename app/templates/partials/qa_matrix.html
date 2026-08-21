@@ -1,0 +1,44 @@
+<section>
+    <h2 class="mb-4 text-lg font-semibold">QA Matrix</h2>
+    {% if agents %}
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Agent</th>
+                            <th>Quota</th>
+                            <th>Slots</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for agent in agents %}
+                        <tr>
+                            <th class="font-medium">{{ agent.name }}</th>
+                            <td class="min-w-44">
+                                <div class="flex items-center gap-3">
+                                    <progress class="progress progress-primary w-28" value="{{ agent.completed }}" max="{{ agent.target }}"></progress>
+                                    <span class="text-sm text-base-content/70">{{ agent.completed }}/{{ agent.target }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                <div class="flex min-w-max gap-1" aria-label="{{ agent.completed }} of {{ agent.target }} slots completed">
+                                    {% for i in range(agent.target) %}
+                                    <span class="inline-block h-2.5 w-2.5 rounded-full {{ 'bg-primary' if i < agent.completed else 'border border-base-300' }}"></span>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+        No agents available
+    </div>
+    {% endif %}
+</section>
