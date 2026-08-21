@@ -1,9 +1,14 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}GotYourScore{% endblock %}</title>
+
+    <!-- Google Inter font (application-wide typeface). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
     <!-- Set the theme before first paint to avoid a flash of the wrong theme. -->
     <script>
@@ -17,20 +22,86 @@
         })();
     </script>
 
-    <!-- Theme toggle icons follow the data-theme attribute managed by Alpine (see <body>). -->
-    <style>
-        html[data-theme='light'] .theme-icon-moon { display: none; }
-        html[data-theme='dark'] .theme-icon-sun { display: none; }
+    <!-- DaisyUI v5 components + Tailwind v4 utilities (CDN, no build step). -->
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+    <!-- Apply Inter as the default sans typeface (Tailwind v4 theme token:
+         preflight renders it on <html>, utilities like font-bold keep working). -->
+    <style type="text/tailwindcss">
+        @theme {
+            --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+        }
     </style>
 
-    <!-- DaisyUI components + Tailwind CSS utilities (CDN, no build step). -->
-    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.14/dist/full.min.css" rel="stylesheet" type="text/css" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Dark mode follows the data-theme attribute managed by Alpine,
-         not the OS media query. -->
-    <script>
-        tailwind.config = { darkMode: ['selector', '[data-theme="dark"]'] };
-    </script>
+    <!-- Custom brand themes for daisyUI v5 (CDN pattern: plain CSS custom properties only).
+         Light: white surfaces, deep-navy text, mint primary. Dark: charcoal surfaces with daisyUI dark
+         elevation (base-200 = gray-900 page background, base-100 = gray-800 card surface), gray-100 text. -->
+    <style>
+        :where(:root),
+        [data-theme="light"] {
+          color-scheme: light;
+          --color-base-100: oklch(100% 0 0);
+          --color-base-200: oklch(98.5% 0.002 248.7);
+          --color-base-300: oklch(92.8% 0.006 264.4);
+          --color-base-content: oklch(33.3% 0.047 288.6);
+          --color-primary: oklch(76.6% 0.158 166.7);
+          --color-primary-content: oklch(33.3% 0.047 288.6);
+          --color-secondary: oklch(80.2% 0.117 357.2);
+          --color-secondary-content: oklch(33.3% 0.047 288.6);
+          --color-accent: oklch(93.8% 0.174 118.3);
+          --color-accent-content: oklch(33.3% 0.047 288.6);
+          --color-neutral: oklch(33.3% 0.047 288.6);
+          --color-neutral-content: oklch(100% 0 0);
+          --color-info: oklch(62.3% 0.214 259.8);
+          --color-info-content: oklch(100% 0 0);
+          --color-success: oklch(69.6% 0.17 162.5);
+          --color-success-content: oklch(100% 0 0);
+          --color-warning: oklch(76.9% 0.188 70.1);
+          --color-warning-content: oklch(33.3% 0.047 288.6);
+          --color-error: oklch(64.7% 0.222 16.4);
+          --color-error-content: oklch(100% 0 0);
+          --radius-selector: 0.5rem;
+          --radius-field: 0.5rem;
+          --radius-box: 1rem;
+          --size-selector: 0.25rem;
+          --size-field: 0.25rem;
+          --border: 1px;
+          --depth: 0;
+          --noise: 0;
+        }
+        [data-theme="dark"] {
+          color-scheme: dark;
+          --color-base-100: oklch(27.8% 0.03 256.9);
+          --color-base-200: oklch(21% 0.032 264.7);
+          --color-base-300: oklch(13% 0.027 261.7);
+          --color-base-content: oklch(96.7% 0.003 264.4);
+          --color-primary: oklch(76.6% 0.158 166.7);
+          --color-primary-content: oklch(21% 0.032 264.7);
+          --color-secondary: oklch(80.2% 0.117 357.2);
+          --color-secondary-content: oklch(21% 0.032 264.7);
+          --color-accent: oklch(93.8% 0.174 118.3);
+          --color-accent-content: oklch(21% 0.032 264.7);
+          --color-neutral: oklch(13% 0.027 261.7);
+          --color-neutral-content: oklch(87.2% 0.009 258.4);
+          --color-info: oklch(70% 0.165 254.6);
+          --color-info-content: oklch(21% 0.032 264.7);
+          --color-success: oklch(69.6% 0.17 162.5);
+          --color-success-content: oklch(21% 0.032 264.7);
+          --color-warning: oklch(76.9% 0.188 70.1);
+          --color-warning-content: oklch(21% 0.032 264.7);
+          --color-error: oklch(64.7% 0.222 16.4);
+          --color-error-content: oklch(100% 0 0);
+          --radius-selector: 0.5rem;
+          --radius-field: 0.5rem;
+          --radius-box: 1rem;
+          --size-selector: 0.25rem;
+          --size-field: 0.25rem;
+          --border: 1px;
+          --depth: 0;
+          --noise: 0;
+        }
+    </style>
 
     <!-- HTMX -->
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
@@ -39,7 +110,7 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 </head>
 
-<body class="min-h-screen bg-gray-50 text-[#35324d] dark:bg-gray-900 dark:text-gray-100"
+<body class="min-h-screen bg-base-200 text-base-content"
       x-data="{
           theme: 'light',
           init() {
