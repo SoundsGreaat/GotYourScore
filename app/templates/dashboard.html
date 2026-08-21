@@ -10,9 +10,9 @@
     <div class="drawer-content flex min-h-screen flex-col">
 
         <!-- Top navbar -->
-        <header class="navbar sticky top-0 z-10 border-b border-base-300 bg-base-100">
+        <header class="navbar sticky top-0 z-10 bg-[#35324d] text-white dark:bg-gray-950 dark:text-gray-100">
             <div class="flex-none">
-                <label for="app-drawer" class="btn btn-square btn-ghost drawer-button lg:hidden" aria-label="Open menu">
+                <label for="app-drawer" class="btn btn-square btn-ghost drawer-button text-white hover:bg-white/10 lg:hidden dark:text-gray-300" aria-label="Open menu">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                     </svg>
@@ -25,11 +25,11 @@
 
             <div class="flex-none">
                 <div class="flex items-center gap-2">
-                    <span class="badge badge-ghost hidden sm:inline-flex">{{ current_user.name }}</span>
-                    <span class="badge badge-primary badge-outline">{{ current_user.role.value if current_user.role.value else current_user.role }}</span>
+                    <span class="hidden rounded-full border border-white/30 px-3 py-1 text-sm sm:inline-flex dark:border-gray-600 dark:text-gray-300">{{ current_user.name }}</span>
+                    <span class="rounded-full bg-[#00d29d] px-3 py-1 text-sm font-medium text-[#35324d]">{{ current_user.role.value if current_user.role.value else current_user.role }}</span>
 
                     <!-- Theme toggle (wired to the Alpine theme state in base.html) -->
-                    <button type="button" class="btn btn-circle btn-ghost" @click="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">
+                    <button type="button" class="btn btn-circle btn-ghost text-white hover:bg-white/10 dark:text-gray-300 dark:hover:bg-white/5" @click="toggleTheme()" aria-label="Toggle dark mode" title="Toggle dark mode">
                         <!-- Sun icon (light mode) -->
                         <svg class="theme-icon-sun h-5 w-5 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
                             <path d="M5.64,17l-.71.71a1,1,0,0,0,0,1.41,1,1,0,0,0,1.41,0l.71-.71A1,1,0,0,0,5.64,17ZM5,12a1,1,0,0,0-1-1H3a1,1,0,0,0,0,2H4A1,1,0,0,0,5,12Zm7-7a1,1,0,0,0,1-1V3a1,1,0,0,0-2,0V4A1,1,0,0,0,12,5ZM5.64,7.05a1,1,0,0,0,.7.29,1,1,0,0,0,.71-.29,1,1,0,0,0,0-1.41l-.71-.71A1,1,0,0,0,4.93,6.34Zm12,.29a1,1,0,0,0,.7-.29l.71-.71a1,1,0,1,0-1.41-1.41L17,5.64a1,1,0,0,0,0,1.41A1,1,0,0,0,17.66,7.34ZM21,11H20a1,1,0,0,0,0,2h1a1,1,0,0,0,0-2Zm-9,8a1,1,0,0,0-1,1v1a1,1,0,0,0,2,0V20A1,1,0,0,0,12,19ZM18.36,17A1,1,0,0,0,17,18.36l.71.71a1,1,0,0,0,1.41,0,1,1,0,0,0,0-1.41ZM12,6.5A5.5,5.5,0,1,0,17.5,12,5.51,5.51,0,0,0,12,6.5Zm0,9A3.5,3.5,0,1,1,15.5,12,3.5,3.5,0,0,1,12,15.5Z"/>
@@ -40,38 +40,34 @@
                         </svg>
                     </button>
 
-                    <a href="/auth/logout" class="btn btn-ghost">Logout</a>
+                    <a href="/auth/logout" class="btn btn-ghost text-white hover:bg-white/10 dark:text-gray-300 dark:hover:bg-white/5">Logout</a>
                 </div>
             </div>
         </header>
 
-        <!-- Main content -->
-        <main class="flex-1 p-4 md:p-6 lg:p-8">
+        <!-- Main content (HTMX swaps sidebar partials in here) -->
+        <main id="main-content" class="flex-1 p-4 text-[#35324d] dark:text-gray-100 md:p-6 lg:p-8">
             <div class="mb-6">
                 <h1 class="text-2xl font-bold md:text-3xl">Welcome, {{ current_user.name }}</h1>
-                <p class="mt-1 text-base-content/70">Overview of your QA reviews and team quotas.</p>
+                <p class="mt-1 text-[#35324d]/70 dark:text-gray-400">Overview of your QA reviews and team quotas.</p>
             </div>
 
             <div class="grid gap-6 md:grid-cols-2">
                 <!-- My Reviews placeholder -->
-                <section id="my-reviews" class="card border border-base-300 bg-base-100 shadow-sm">
-                    <div class="card-body">
-                        <h2 class="card-title">My Reviews</h2>
-                        <p class="text-base-content/70">Reviews assigned to you will appear here.</p>
-                        <div class="mt-4 rounded-lg border border-dashed border-base-300 p-10 text-center text-base-content/50">
-                            No reviews yet
-                        </div>
+                <section id="my-reviews" class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+                    <h2 class="mb-2 text-lg font-semibold">My Reviews</h2>
+                    <p class="text-[#35324d]/70 dark:text-gray-400">Reviews assigned to you will appear here.</p>
+                    <div class="mt-4 rounded-lg border border-dashed border-gray-300 p-10 text-center text-[#35324d]/70 dark:border-gray-600 dark:text-gray-400">
+                        No reviews yet
                     </div>
                 </section>
 
                 <!-- Team Quotas placeholder -->
-                <section id="team-quotas" class="card border border-base-300 bg-base-100 shadow-sm">
-                    <div class="card-body">
-                        <h2 class="card-title">Team Quotas</h2>
-                        <p class="text-base-content/70">Your team's review quota usage will appear here.</p>
-                        <div class="mt-4 rounded-lg border border-dashed border-base-300 p-10 text-center text-base-content/50">
-                            No quota data yet
-                        </div>
+                <section id="team-quotas" class="rounded-xl border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+                    <h2 class="mb-2 text-lg font-semibold">Team Quotas</h2>
+                    <p class="text-[#35324d]/70 dark:text-gray-400">Your team's review quota usage will appear here.</p>
+                    <div class="mt-4 rounded-lg border border-dashed border-gray-300 p-10 text-center text-[#35324d]/70 dark:border-gray-600 dark:text-gray-400">
+                        No quota data yet
                     </div>
                 </section>
             </div>
@@ -81,14 +77,16 @@
     <!-- Sidebar -->
     <div class="drawer-side z-30">
         <label for="app-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
-        <aside class="min-h-full w-64 border-r border-base-300 bg-base-200">
-            <div class="border-b border-base-300 px-5 py-4">
-                <span class="text-lg font-bold text-primary">GotYourScore</span>
+        <aside class="min-h-full w-64 bg-[#35324d] text-white dark:bg-gray-950 dark:text-gray-300">
+            <div class="flex items-center gap-2 border-b border-white/10 px-5 py-4 dark:border-gray-800">
+                <span class="h-2.5 w-2.5 rounded-full bg-[#00d29d]"></span>
+                <span class="text-lg font-bold text-white dark:text-gray-100">GotYourScore</span>
             </div>
             <nav class="p-3">
-                <ul class="menu w-full">
+                <ul class="menu w-full p-0">
                     <li>
-                        <a href="#">
+                        <a href="#" hx-get="/partials/my-reviews" hx-target="#main-content" hx-swap="innerHTML"
+                           class="text-white hover:bg-white/10 hover:text-[#00d29d] dark:text-gray-300 dark:hover:bg-white/5">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                             </svg>
@@ -96,7 +94,8 @@
                         </a>
                     </li>
                     <li>
-                        <a href="#">
+                        <a href="#" hx-get="/partials/team-quotas" hx-target="#main-content" hx-swap="innerHTML"
+                           class="text-white hover:bg-white/10 hover:text-[#00d29d] dark:text-gray-300 dark:hover:bg-white/5">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                             </svg>
@@ -105,6 +104,10 @@
                     </li>
                 </ul>
             </nav>
+            <div class="px-5 pt-4">
+                <span class="inline-block h-1.5 w-10 rounded-full bg-[#e0fa65]"></span>
+                <span class="ml-2 inline-block h-1.5 w-5 rounded-full bg-[#fb9ebf]"></span>
+            </div>
         </aside>
     </div>
 </div>

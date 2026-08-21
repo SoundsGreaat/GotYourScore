@@ -3,13 +3,14 @@
 {% block title %}Login · GotYourScore{% endblock %}
 
 {% block content %}
-<div class="hero min-h-screen bg-base-200">
+<div class="hero min-h-screen bg-gray-50 dark:bg-gray-900">
     <div class="hero-content">
-        <div class="card w-full max-w-md bg-base-100 shadow-xl">
+        <div class="card w-full max-w-md overflow-hidden border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
+            <div class="h-1.5 w-full bg-[#00d29d]"></div>
             <div class="card-body items-center gap-6 p-8 text-center md:p-10">
                 <div>
-                    <h1 class="text-4xl font-extrabold tracking-tight text-primary">GotYourScore</h1>
-                    <p class="mt-3 text-base-content/70">Internal QA and support review platform.</p>
+                    <h1 class="text-4xl font-extrabold tracking-tight text-[#35324d] dark:text-gray-100">GotYourScore</h1>
+                    <p class="mt-3 text-[#35324d]/70 dark:text-gray-400">Internal QA and support review platform.</p>
                 </div>
 
                 {% if error %}
@@ -18,12 +19,12 @@
                 </div>
                 {% endif %}
 
-                <a href="/auth/login" class="btn btn-primary btn-lg btn-block">
-                    <span class="flex h-6 w-6 items-center justify-center rounded-md bg-white font-bold text-primary">G</span>
+                <a href="/auth/login" class="btn btn-lg w-full border-none bg-[#00d29d] text-[#35324d] hover:bg-[#00b889] hover:text-[#35324d] dark:text-gray-900 dark:hover:text-gray-900">
+                    <span class="flex h-6 w-6 items-center justify-center rounded-md bg-[#35324d] font-bold text-[#e0fa65]">G</span>
                     Login with Google
                 </a>
 
-                <p class="text-xs text-base-content/60">Use your company Google account to continue.</p>
+                <p class="text-xs text-[#35324d]/70 dark:text-gray-400">Use your company Google account to continue.</p>
             </div>
         </div>
     </div>

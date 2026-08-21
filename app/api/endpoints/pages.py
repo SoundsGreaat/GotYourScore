@@ -1,9 +1,12 @@
-"""Server-rendered HTML pages (Jinja2).
+﻿"""Server-rendered HTML pages (Jinja2).
 
 - GET /login: public login page; visitors holding a valid session
   are redirected straight to the dashboard.
 - GET /: dashboard; unauthenticated visitors are redirected to
   /login instead of receiving a 401 JSON error.
+- GET /partials/my-reviews and GET /partials/team-quotas: small HTML
+  fragments swapped into the dashboard by HTMX; protected like the
+  dashboard (303 redirect to /login when unauthenticated).
 """
 
 from pathlib import Path
@@ -90,4 +93,63 @@ async def dashboard(request: Request, auth: PageUser) -> Response:
         request=request,
         name="dashboard.html",
         context={"current_user": auth},
+    )
+
+
+def _htmx_redirect_if_needed(auth: object, request: Request) -> Response | None:
+    """Adapt an auth RedirectResponse for HTMX requests.
+
+    A plain 303 would make HTMX follow the redirect and swap the whole
+    login page into #main-content; the HX-Redirect header instead makes
+    the browser navigate to /login properly. Returns None when the
+    request is authenticated and rendering should proceed.
+    """
+    if not isinstance(auth, RedirectResponse):
+        return None
+    if request.headers.get("HX-Request"):
+        return Response(status_code=status.HTTP_200_OK, headers={"HX-Redirect": "/login"})
+    return auth
+
+
+@router.get(
+    "/partials/my-reviews",
+    name="partial_my_reviews",
+    summary="My Reviews partial",
+    include_in_schema=False,
+)
+async def partial_my_reviews(request: Request, auth: PageUser) -> Response:
+    """Render the 'My Reviews' HTMX partial for authenticated users.
+
+    A bare HTML fragment (no base layout) swapped into the
+    dashboard's #main-content container.
+    """
+    redirect = _htmx_redirect_if_needed(auth, request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/my_reviews.html",
+        context={},
+    )
+
+
+@router.get(
+    "/partials/team-quotas",
+    name="partial_team_quotas",
+    summary="Team Quotas partial",
+    include_in_schema=False,
+)
+async def partial_team_quotas(request: Request, auth: PageUser) -> Response:
+    """Render the 'Team Quotas' HTMX partial for authenticated users.
+
+    A bare HTML fragment (no base layout) swapped into the
+    dashboard's #main-content container.
+    """
+    redirect = _htmx_redirect_if_needed(auth, request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/team_quotas.html",
+        context={},
     )
