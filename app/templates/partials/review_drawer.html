@@ -108,6 +108,22 @@
             Generate Score
         </button>
     </li>
+    <li>
+        <button id="score-notes-action" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+            </svg>
+            Score → Notes
+        </button>
+    </li>
+    <li>
+        <button id="copy-all-action" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" />
+            </svg>
+            Copy All
+        </button>
+    </li>
 </ul>
 
 <script>
@@ -153,11 +169,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var draftTimer;
     var quill;
 
-    function showToast(message) {
+    function showToast(message, kind) {
         var toast = document.createElement('div');
         toast.setAttribute('role', 'alert');
-        toast.className = 'alert alert-error fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg';
+        toast.className = 'alert ' + (kind || 'alert-error') + ' fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg';
         toast.textContent = message;
+        document.body.appendChild(toast);
         window.setTimeout(function () { toast.remove(); }, 3500);
     }
 
@@ -165,7 +182,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
     }
 
-    function hideMenu() { menu.classList.add('hidden'); }
+    var menuOpenedAt = 0;
+    function hideMenu(force) {
+        if (!force && Date.now() - menuOpenedAt < 250) return;
+        menu.classList.add('hidden');
+    }
     function setLoading(button, label, loading) {
         button.disabled = loading;
         if (loading) {
@@ -243,9 +264,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     var refactorButton = document.getElementById('ai-refactor-action');
     var scoreButton = document.getElementById('ai-score-action');
+    var notesButton = document.getElementById('score-notes-action');
     var saveButton = document.getElementById('save-review');
     refactorButton.dataset.labelHtml = refactorButton.innerHTML;
     scoreButton.dataset.labelHtml = scoreButton.innerHTML;
+    notesButton.dataset.labelHtml = notesButton.innerHTML;
     saveButton.dataset.labelHtml = saveButton.innerHTML;
 
     function updateSaveState() {
@@ -362,6 +385,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     editorContainer.addEventListener('contextmenu', function (event) {
         if (!event.target.closest('.ql-editor')) return;
         event.preventDefault();
+        menuOpenedAt = Date.now();
         menu.classList.remove('hidden');
         var left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8);
         var top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8);
@@ -370,9 +394,16 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     });
 
     menu.addEventListener('click', function (event) { event.stopPropagation(); });
-    document.addEventListener('click', hideMenu, { signal: controller.signal });
+    document.addEventListener('click', function (event) {
+        if (Date.now() - menuOpenedAt < 200) return;
+        hideMenu();
+    }, { signal: controller.signal });
     document.addEventListener('keydown', function (event) { if (event.key === 'Escape') hideMenu(); }, { signal: controller.signal });
-    window.addEventListener('scroll', hideMenu, { capture: true, signal: controller.signal });
+    window.addEventListener('scroll', function (event) {
+        var target = event.target;
+        if (target instanceof Element && target.closest('.drawer-content')) return;
+        hideMenu();
+    }, { capture: true, signal: controller.signal });
 
     refactorButton.addEventListener('click', async function () {
         setLoading(refactorButton, 'Refactoring…', true);
@@ -386,7 +417,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             if (!response.ok) throw new Error('Refactor request failed');
             quill.root.innerHTML = sanitizeHtml((await response.json()).html);
             saveDraft();
-            hideMenu();
+            hideMenu(true);
         } catch (error) {
             showToast('Unable to refactor notes.');
         } finally {
@@ -421,13 +452,65 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 }
             });
             if (!matched) showToast('No matching scorecard rules for the AI findings.');
-            hideMenu();
+            hideMenu(true);
             window.clearTimeout(previewTimer);
             recalcScore();
         } catch (error) {
             showToast('Unable to generate a score.');
         } finally {
             setLoading(scoreButton, 'Scoring…', false);
+        }
+    });
+
+    document.getElementById('copy-all-action').addEventListener('click', function () {
+        var source = quill.root; // the .ql-editor element
+        var selection = window.getSelection();
+        if (!selection) return;
+        selection.removeAllRanges();
+        var range = document.createRange();
+        range.selectNodeContents(source);
+        selection.addRange(range);
+        var copied = false;
+        try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+        selection.removeAllRanges();
+    if (!copied && navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(source.innerText).then(function () {
+            showToast('Copied to clipboard.', 'alert-success');
+        }, function () { showToast('Unable to copy.'); });
+    } else {
+        showToast(copied ? 'Copied to clipboard.' : 'Unable to copy.',
+                  copied ? 'alert-success' : undefined);
+    }
+        hideMenu(true);
+    });
+
+    document.getElementById('score-notes-action').addEventListener('click', async function () {
+        var button = this;
+        hideMenu(true);
+        setLoading(button, 'Drafting…', true);
+        try {
+            var response = await fetch('/api/ai/notes-from-score', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    case_type: document.getElementById('case-type').value,
+                    raw_scorecard: collectDeductions()
+                })
+            });
+            var data = await response.json().catch(function () { return {}; });
+            if (!response.ok) throw new Error(data.detail || 'AI note drafting failed');
+            var clean = DOMPurify.sanitize(data.notes_html || '', { ALLOWED_TAGS: ['p','ul','ol','li','strong','em','br'], KEEP_CONTENT: true });
+            if (!clean.trim()) throw new Error('The AI returned an empty note');
+            quill.deleteText(0, quill.getLength());
+            quill.clipboard.dangerouslyPasteHTML(0, clean);
+            quill.setSelection(quill.getLength());
+        saveDraft();
+        showToast('Notes drafted from the current score.', 'alert-success');
+        } catch (error) {
+            showToast(error.message || 'AI note drafting failed');
+        } finally {
+            setLoading(button, '', false);
         }
     });
 

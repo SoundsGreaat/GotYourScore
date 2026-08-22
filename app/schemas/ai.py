@@ -1,5 +1,7 @@
 """AI assistant Pydantic schemas."""
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import CaseTypeEnum
@@ -64,3 +66,37 @@ class ScoreOut(BaseModel):
     total_deduction: int
     base_score: int
     final_score: int
+
+
+class NotesFromScoreIn(BaseModel):
+    """Payload for POST /api/ai/notes-from-score (drafting only, nothing saved).
+
+    ``raw_scorecard`` maps error keys to the deducted points the QA
+    ticked; keys unknown to the case type's active rules are skipped by
+    the service. Same shape as ScorePreviewRequest: whole numbers >= 1
+    (booleans are rejected by pydantic's int rules) and a size cap
+    against pathological request sizes.
+
+    ``case_type='No Cases'`` is rejected by the ENDPOINT with 400 (not
+    here) because there is no scorecard to reference — a schema-level
+    validator would produce a 422 instead.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_type: CaseTypeEnum
+    raw_scorecard: dict[str, Annotated[int, Field(ge=1)]] = Field(
+        max_length=60
+    )
+
+
+class NotesFromScoreOut(BaseModel):
+    """Response for POST /api/ai/notes-from-score.
+
+    ``notes_html`` is an UNsanitized-on-server HTML fragment (allowed
+    tags <p>, <ul>, <ol>, <li>, <strong>, <em>, <br>); the client must
+    sanitize it with DOMPurify before insertion — same trust boundary
+    as POST /api/ai/refactor.
+    """
+
+    notes_html: str

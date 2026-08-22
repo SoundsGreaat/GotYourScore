@@ -45,6 +45,17 @@ PROMPT_SLOTS = [
             "Receives the raw HTML notes and must return improved HTML."
         ),
     },
+    {
+        "key": "notes_from_score",
+        "title": "Notes from Score",
+        "description": (
+            "System prompt used when drafting review notes from the ticked "
+            "scorecard deductions. The deducted rules (display names, "
+            "categories, points) are supplied automatically — write the "
+            "reviewer voice, structure and tone, and demand a sanitized "
+            "HTML fragment as the output."
+        ),
+    },
 ]
 
 

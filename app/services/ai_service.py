@@ -7,7 +7,10 @@ Two capabilities:
   rules are configured;
 - ``refactor_qa_notes``: rewrite QA notes for clarity, grammar and
   professional tone while preserving the HTML markup and embedded
-  images.
+  images;
+- ``draft_notes_from_score``: draft the review notes (a sanitized HTML
+  fragment) that justify an already-ticked raw scorecard, using the
+  active rules of the case type to render human-readable deductions.
 
 OpenRouter exposes an OpenAI-compatible API, so the official ``openai``
 package is used with a ``base_url`` override. The client is created
@@ -42,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate, SystemPrompt
+from app.services.scorecard_service import get_active_rules
 
 
 logger = logging.getLogger(__name__)
@@ -63,6 +67,10 @@ SCORING_PROMPT_KEY = "ai_scoring"
 # SystemPrompt key whose newest active row replaces the hardcoded
 # refactor system prompt (see refactor_qa_notes).
 REFACTOR_PROMPT_KEY = "notes_refactor"
+
+# SystemPrompt key whose newest active row replaces the hardcoded
+# notes-from-score system prompt (see draft_notes_from_score).
+NOTES_FROM_SCORE_PROMPT_KEY = "notes_from_score"
 
 # OpenRouter provider routing:
 # - "latency" = prefer the provider with the lowest latency;
@@ -156,6 +164,33 @@ Strict rules:
   numbers, or scores.
 - Output ONLY the improved HTML — no markdown code fences, no
   commentary, no explanations.
+"""
+
+
+NOTES_FROM_SCORE_SYSTEM_PROMPT = """\
+You are a support QA reviewer writing the official review notes for an
+internal quality-assurance record.
+
+You will receive the case type, the scorecard rules that were DEDUCTED
+(each as its human-readable rule name, its category, and the deducted
+points), and how many rules stayed clean. Write the review NOTES that
+justify the resulting score: the notes must read as if a professional
+QA analyst had written them by hand about the agent's case.
+
+Strict output rules:
+- Reply with ONLY a sanitized HTML fragment. Allowed tags: <p>, <ul>,
+  <ol>, <li>, <strong>, <em>, <br>. No markdown, no code fences, no
+  headings, no tables, no tag attributes.
+- Write 2-4 short paragraphs.
+- Mention every deduction naturally in prose: group related rules into
+  the same sentence or paragraph instead of listing one rule per line,
+  unless a standalone deduction genuinely deserves its own paragraph.
+- Never invent violations, details, names, or numbers that were not
+  provided.
+- When nothing was deducted, write a brief positive all-clear note
+  referencing the clean review.
+- Keep a neutral, factual tone suitable for an internal QA record: no
+  greetings, no signatures, no filler.
 """
 
 
@@ -608,3 +643,118 @@ async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
         )
 
     return _strip_code_fences(content)
+
+
+# ---------------------------------------------------------------------------
+# Notes from score
+# ---------------------------------------------------------------------------
+
+async def draft_notes_from_score(
+    case_type: CaseTypeEnum,
+    raw_scorecard: dict[str, int],
+    db_session: AsyncSession,
+) -> str:
+    """Draft review notes (sanitized HTML fragment) from ticked deductions.
+
+    The base system prompt is the newest ACTIVE SystemPrompt row for
+    ``NOTES_FROM_SCORE_PROMPT_KEY``; the hardcoded
+    ``NOTES_FROM_SCORE_SYSTEM_PROMPT`` constant is only the fallback
+    (identical behavior to the other AI capabilities).
+
+    Deduction keys missing from the active rules of ``case_type`` are
+    skipped silently so stale client payloads cannot crash the call.
+    The output is NOT sanitized server-side — the client sanitizes it
+    with DOMPurify before insertion (same trust boundary as
+    ``refactor_qa_notes``).
+    """
+    rules_snapshot = await get_active_rules(case_type, db_session)
+    items = rules_snapshot["items"]
+    rules_by_key = {item["error_name"]: item for item in items}
+
+    total_rules = len(items)
+    deducted_lines: list[str] = []
+
+    for error_key, deduction in raw_scorecard.items():
+        rule = rules_by_key.get(error_key)
+        if rule is None:
+            continue
+        category = str(rule.get("category") or "").strip() or "General"
+        # Pass the deducted amount exactly as sent; no capping.
+        deducted_lines.append(
+            f"- {rule['display_name']} ({category}) −{deduction}"
+        )
+
+    clean_count = total_rules - len(deducted_lines)
+
+    user_parts = [f"Case type: {case_type.value}"]
+    if deducted_lines:
+        user_parts.append("Deducted rules:")
+        user_parts.extend(deducted_lines)
+    else:
+        user_parts.append(
+            "No violations were ticked: the raw scorecard is empty."
+        )
+    user_parts.append(f"{clean_count} of {total_rules} rules stayed clean.")
+
+    # DB-stored prompt wins; the hardcoded constant is only a fallback.
+    db_prompt = await _active_system_prompt(NOTES_FROM_SCORE_PROMPT_KEY, db_session)
+    system_prompt = db_prompt if db_prompt else NOTES_FROM_SCORE_SYSTEM_PROMPT
+
+    # Release the DB connection before the multi-second network request
+    # (same commit-then-call pattern as the scoring/refactor flows).
+    await db_session.commit()
+
+    client = get_openrouter_client()
+
+    try:
+        response = await client.chat.completions.create(
+            model=AI_SCORING_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": "\n".join(user_parts),
+                },
+            ],
+            temperature=0,
+            extra_body={
+                "provider": OPENROUTER_PROVIDER,
+            },
+        )
+
+    except APIError as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter API error: {exc}"
+        ) from exc
+
+    except Exception as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter request failed: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not response.choices:
+        raise AnalyzeError(
+            "OpenRouter returned no choices."
+        )
+
+    content = response.choices[0].message.content
+
+    if not content:
+        raise AnalyzeError(
+            "OpenRouter returned an empty response."
+        )
+
+    notes_html = _strip_code_fences(content)
+
+    if not notes_html:
+        raise AnalyzeError(
+            "OpenRouter returned an empty response."
+        )
+
+    return notes_html

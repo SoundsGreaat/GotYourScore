@@ -6,6 +6,9 @@
   type's configured scorecard rules — returns the raw deductions and
   a multiplier-free base score; nothing is persisted (saving goes
   through POST /api/reviews/auto-score).
+- POST /api/ai/notes-from-score: draft the review notes (a sanitized
+  HTML fragment) that justify an already-ticked raw scorecard; nothing
+  is persisted.
 
 All routes require an authenticated user with the QA, Supervisor or
 Admin role.
@@ -18,8 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import RoleChecker
 from app.db.database import get_db
-from app.models import RoleEnum, User
-from app.schemas.ai import RefactorIn, RefactorOut, ScoreIn, ScoreOut
+from app.models import CaseTypeEnum, RoleEnum, User
+from app.schemas.ai import (
+    NotesFromScoreIn,
+    NotesFromScoreOut,
+    RefactorIn,
+    RefactorOut,
+    ScoreIn,
+    ScoreOut,
+)
 from app.services import ai_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -108,3 +118,50 @@ async def score_notes(
         base_score=100,
         final_score=max(0, 100 - total_deduction),
     )
+
+
+@router.post("/notes-from-score", response_model=NotesFromScoreOut)
+async def notes_from_score(
+    payload: NotesFromScoreIn,
+    db: DbSession,
+    _current_user: AiUser,
+) -> NotesFromScoreOut:
+    """Draft review notes (HTML) from ticked scorecard deductions.
+
+    The deducted rules are rendered with the case type's ACTIVE
+    scorecard rules (human-readable display names, categories and the
+    deducted points); deduction keys unknown to those rules are skipped.
+    The system prompt is the newest ACTIVE ``notes_from_score``
+    SystemPrompt row (hardcoded fallback when none exists). The response
+    fragment is not sanitized server-side — the client sanitizes it with
+    DOMPurify before insertion (same trust boundary as /refactor).
+
+    - 400 when ``case_type`` is 'No Cases' (no scorecard to reference).
+    - 503 when ``OPENROUTER_API_KEY`` is not configured.
+    - 502 when the AI call fails or returns an empty response.
+    """
+    if payload.case_type is CaseTypeEnum.NO_CASES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "case_type 'No Cases' has no scorecard to draft notes from."
+            ),
+        )
+    try:
+        notes_html = await ai_service.draft_notes_from_score(
+            payload.case_type, payload.raw_scorecard, db
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
+                "in the environment or the .env file to enable AI features."
+            ),
+        ) from exc
+    except ai_service.AnalyzeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI note drafting failed: {exc}",
+        ) from exc
+    return NotesFromScoreOut(notes_html=notes_html)
