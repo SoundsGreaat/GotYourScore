@@ -50,10 +50,13 @@
             <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <h1 class="text-2xl font-bold">QA Tracker</h1>
                 {% if can_review %}
-                <button type="button" class="btn btn-primary btn-sm"
+                <button type="button" class="btn btn-primary"
                         hx-get="/partials/review-drawer"
                         hx-target="#drawer-container"
                         hx-swap="innerHTML">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
                     New Review
                 </button>
                 {% endif %}

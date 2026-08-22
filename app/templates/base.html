@@ -180,6 +180,26 @@
         .ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke-miter {
             stroke: var(--color-primary);
         }
+        .ql-snow .ql-toolbar button,
+        .ql-snow.ql-toolbar button {
+            border-radius: var(--radius-selector);
+            width: 28px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.15s ease;
+        }
+        .ql-snow.ql-toolbar button:hover,
+        .ql-snow .ql-toolbar button:hover,
+        .ql-snow.ql-toolbar button:focus,
+        .ql-snow .ql-toolbar button:focus {
+            background-color: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+        }
+        .ql-snow.ql-toolbar button.ql-active,
+        .ql-snow .ql-toolbar button.ql-active {
+            background-color: color-mix(in oklab, var(--color-primary) 15%, transparent);
+        }
         .ql-snow.ql-toolbar button:hover,
         .ql-snow .ql-toolbar button:hover,
         .ql-snow.ql-toolbar button:focus,

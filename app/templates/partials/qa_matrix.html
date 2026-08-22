@@ -12,7 +12,7 @@
                         <tr>
                             <th>Agent</th>
                             <th>Quota</th>
-                            <th>Slots</th>
+                            <th>Avg score</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -26,11 +26,11 @@
                                 </div>
                             </td>
                             <td>
-                                <div class="flex min-w-max gap-1" aria-label="{{ agent.completed }} of {{ agent.target }} slots completed">
-                                    {% for i in range(agent.target) %}
-                                    <span class="inline-block h-2.5 w-2.5 rounded-full {{ 'bg-primary' if i < agent.completed else 'border border-base-300' }}"></span>
-                                    {% endfor %}
-                                </div>
+                                {% if agent.avg_score is none %}
+                                <span class="text-base-content/50">&mdash;</span>
+                                {% else %}
+                                <span class="font-semibold">{{ agent.avg_score }}</span>
+                                {% endif %}
                             </td>
                         </tr>
                         {% endfor %}

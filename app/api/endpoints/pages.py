@@ -26,7 +26,7 @@ from fastapi.responses import (
     Response,
 )
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
@@ -327,11 +327,13 @@ async def partial_qa_matrix(
     """Render the 'QA Matrix' HTMX partial for authenticated users.
 
     Context: every Support agent with their current REPORTING-period
-    quota (26th→25th, named after the closing month) as
-    ``{"id", "name", "completed", "target"}``. Global data: reviewer
-    roles only — Support-only users get a bare 403 (no redirect). The
-    per-agent quota lookups are N+1 queries — acceptable for a small
-    team.
+    quota (26th→25th, named after the closing month) and their
+    lifetime average final score as
+    ``{"id", "name", "completed", "target", "avg_score"}`` (avg_score
+    is None when the agent has no scored reviews). Global data:
+    reviewer roles only — Support-only users get a bare 403 (no
+    redirect). The per-agent quota lookups are N+1 queries —
+    acceptable for a small team; averages are one grouped query.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -342,8 +344,22 @@ async def partial_qa_matrix(
     period_start, period_end, closing_year, closing_month = (
         reporting_period.reporting_period_for(datetime.now(timezone.utc))
     )
+    support_users = await _support_agents(db)
+    agent_ids = [user.id for user in support_users]
+    avgs: dict[int, float] = {}
+    if agent_ids:
+        result = await db.execute(
+            select(Review.support_agent_id, func.avg(Review.final_score))
+            .where(
+                Review.support_agent_id.in_(agent_ids),
+                Review.final_score.is_not(None),
+            )
+            .group_by(Review.support_agent_id)
+        )
+        avgs = {agent_id: round(float(avg), 1) for agent_id, avg in result.all()}
+
     agents = []
-    for user in await _support_agents(db):
+    for user in support_users:
         quota = await quota_service.get_agent_quota(
             user.id, closing_year, closing_month, db
         )
@@ -353,6 +369,7 @@ async def partial_qa_matrix(
                 "name": user.name,
                 "completed": quota["completed"],
                 "target": quota["target"],
+                "avg_score": avgs.get(user.id),
             }
         )
 
