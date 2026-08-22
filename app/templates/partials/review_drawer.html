@@ -167,6 +167,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var drawerMount = editorContainer.closest('.drawer').parentElement;
     var draftKey = 'gotyourscore:review-draft:new';
     var draftTimer;
+    var pendingDeductions;
     var quill;
 
     function showToast(message, kind) {
@@ -207,11 +208,23 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         window.clearTimeout(draftTimer);
         draftTimer = window.setTimeout(function () {
             try {
-                var html = sanitizeHtml(quill.root.innerHTML);
-                if (quill.getText().trim()) {
-                    window.localStorage.setItem(draftKey, html);
-                } else {
+                var pristine = !quill.getText().trim()
+                    && !document.getElementById('review-agent').value
+                    && !document.getElementById('case-number').value
+                    && document.getElementById('case-type').value === 'Service Request'
+                    && Object.keys(collectDeductions()).length === 0;
+                if (pristine) {
                     window.localStorage.removeItem(draftKey);
+                } else {
+                    window.localStorage.setItem(draftKey, JSON.stringify({
+                        v: 1,
+                        notes_html: sanitizeHtml(quill.root.innerHTML),
+                        agent_id: document.getElementById('review-agent').value,
+                        agent_name: document.getElementById('review-agent-display').textContent,
+                        case_number: document.getElementById('case-number').value,
+                        case_type: document.getElementById('case-type').value,
+                        deductions: collectDeductions()
+                    }));
                 }
             } catch (error) {
                 // Storage can be unavailable in private browsing or restricted frames.
@@ -219,15 +232,17 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }, 300);
     }
 
-    function restoreDraft() {
+    function loadDraft() {
+        var raw = null;
+        try { raw = window.localStorage.getItem(draftKey); } catch (error) { return null; }
+        if (!raw) return null;
         try {
-            var draft = window.localStorage.getItem(draftKey);
-            if (draft && !quill.getText().trim()) {
-                quill.clipboard.dangerouslyPasteHTML(sanitizeHtml(draft), 'silent');
-            }
+            var parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') return parsed;
         } catch (error) {
-            // Storage can be unavailable in private browsing or restricted frames.
+            // Drafts written before v1 stored the bare notes HTML string.
         }
+        return { notes_html: raw };
     }
 
     function clearDraft() {
@@ -259,7 +274,30 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         theme: 'snow',
         modules: { toolbar: [['bold', 'italic', 'underline'], [{ color: [] }], ['image', 'code-block']] }
     });
-    restoreDraft();
+    var draft = loadDraft();
+    if (draft && draft.notes_html && !quill.getText().trim()) {
+        quill.clipboard.dangerouslyPasteHTML(sanitizeHtml(draft.notes_html), 'silent');
+    }
+    if (draft) {
+        if (draft.agent_id) {
+            document.getElementById('review-agent').value = draft.agent_id;
+            var agentDisplay = document.getElementById('review-agent-display');
+            agentDisplay.textContent = draft.agent_name || '';
+            agentDisplay.classList.remove('text-base-content/70');
+            document.querySelectorAll('#review-agent-menu button').forEach(function (btn) {
+                if (btn.textContent.trim() === draft.agent_name) btn.classList.add('active');
+            });
+        }
+        document.getElementById('case-number').value = draft.case_number || '';
+        if (draft.case_type) {
+            document.getElementById('case-type').value = draft.case_type;
+            document.getElementById('case-type-display').textContent = draft.case_type;
+            document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
+                btn.classList.toggle('active', btn.textContent.trim() === draft.case_type);
+            });
+        }
+        if (draft.deductions && typeof draft.deductions === 'object') pendingDeductions = draft.deductions;
+    }
     quill.on('text-change', saveDraft);
 
     var refactorButton = document.getElementById('ai-refactor-action');
@@ -275,6 +313,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         saveButton.disabled = !document.getElementById('review-agent').value;
     }
     document.addEventListener('review-agent-change', updateSaveState, { signal: controller.signal });
+    document.addEventListener('review-agent-change', saveDraft, { signal: controller.signal });
     updateSaveState();
 
     var rulesArea = document.getElementById('manual-score-area');
@@ -282,6 +321,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     async function loadCaseRules() {
         var value = document.getElementById('case-type').value;
         if (!value || value === 'No Cases') {
+            pendingDeductions = null;
             rulesArea.innerHTML = '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
             renderPreview(null);
             return;
@@ -293,6 +333,19 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             rulesArea.innerHTML = await response.text();
         } catch (error) {
             rulesArea.innerHTML = '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
+        }
+        if (pendingDeductions) {
+            Object.entries(pendingDeductions).forEach(function (entry) {
+                var box = rulesArea.querySelector('input[data-error-name="' + CSS.escape(entry[0]) + '"]');
+                if (!box) return;
+                box.checked = true;
+                var deduction = box.closest('[data-rule-row]').querySelector('[data-deduction]');
+                if (deduction) {
+                    deduction.disabled = false;
+                    deduction.value = String(entry[1]);
+                }
+            });
+            pendingDeductions = null;
         }
         recalcScore();
     }
@@ -370,7 +423,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     document.addEventListener('case-type-change', loadCaseRules, { signal: controller.signal });
+    document.addEventListener('case-type-change', saveDraft, { signal: controller.signal });
     document.addEventListener('review-agent-change', schedulePreview, { signal: controller.signal });
+    document.addEventListener('review-agent-change', saveDraft, { signal: controller.signal });
+    document.getElementById('case-number').addEventListener('input', saveDraft);
     rulesArea.addEventListener('change', function (event) {
         if (event.target.matches && event.target.matches('input[data-error-name]')) {
             // Enable the points input only while the violation is ticked.
@@ -379,6 +435,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             if (event.target.checked && !deduction.value) deduction.value = event.target.dataset.penalty;
         }
         schedulePreview();
+        saveDraft();
     }, { signal: controller.signal });
     loadCaseRules();
 
