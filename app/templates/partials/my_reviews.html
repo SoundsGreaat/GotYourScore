@@ -1,2 +1,42 @@
-<h2>My Reviews</h2>
-<p>Your assigned reviews will appear here.</p>
+<section>
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-lg font-semibold">My Reviews</h2>
+        <span class="text-sm text-base-content/70">{% if perspective == 'reviewer' %}Reviews you performed{% else %}Reviews about you{% endif %}</span>
+    </div>
+    {% if rows %}
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Person</th>
+                            <th>Case type</th>
+                            <th>Case #</th>
+                            <th>Score</th>
+                            <th>Notes</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr>
+                            <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
+                            <th class="font-medium">{{ row.person_name }}</th>
+                            <td>{{ row.case_type.value }}</td>
+                            <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td>{% if row.final_score is none %}<span class="text-base-content/50">&mdash;</span>{% else %}<span class="font-bold">{{ row.final_score }}</span>{% endif %}</td>
+                            <td class="max-w-60">{{ (row.notes or '')|truncate(80) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+        Nothing here yet
+    </div>
+    {% endif %}
+</section>

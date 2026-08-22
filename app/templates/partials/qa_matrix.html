@@ -1,5 +1,8 @@
 <section>
-    <h2 class="mb-4 text-lg font-semibold">QA Matrix</h2>
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-lg font-semibold">QA Matrix</h2>
+        <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} · {{ period_range }}</span>
+    </div>
     {% if agents %}
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">

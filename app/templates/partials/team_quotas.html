@@ -1,2 +1,53 @@
-<h2>Team Quotas</h2>
-<p>Team quota usage will appear here.</p>
+<section>
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-lg font-semibold">Team Quotas</h2>
+        <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} · {{ period_range }}</span>
+    </div>
+    {% if rows %}
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>QA</th>
+                            <th>Pacing</th>
+                            <th>Deficit</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr>
+                            <th class="font-medium">{{ row.name }}</th>
+                            <td class="min-w-44">
+                                {% if row.required > 0 %}
+                                <div class="flex items-center gap-3">
+                                    <progress class="progress w-28" value="{{ row.completed }}" max="{{ row.required }}"></progress>
+                                    <span class="text-sm text-base-content/70">{{ row.completed }}/{{ row.required }}</span>
+                                </div>
+                                {% else %}
+                                <span class="text-base-content/50">&mdash;</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.required == 0 %}
+                                <span class="text-base-content/50">No assignments</span>
+                                {% elif row.deficit > 0 %}
+                                <span class="badge badge-sm badge-error">&minus;{{ row.deficit }}</span>
+                                {% else %}
+                                <span class="badge badge-sm badge-success">On pace</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+        No QA analysts yet
+    </div>
+    {% endif %}
+</section>

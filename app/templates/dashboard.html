@@ -24,7 +24,7 @@
             <div class="flex-none">
                 <div class="flex items-center gap-2">
                     <span class="hidden text-sm sm:inline-flex">{{ current_user.name }}</span>
-                    <span class="badge badge-primary">{{ current_user.role.value if current_user.role.value else current_user.role }}</span>
+                    <span class="badge badge-primary hidden sm:inline-flex">{{ current_user.roles | map(attribute='value') | join(', ') }}</span>
 
                     <!-- text-neutral-content keeps the thumb visible on the navbar;
                          text-neutral keeps the icons visible on the light thumb. -->
@@ -49,21 +49,25 @@
         <main id="main-content" class="flex-1 p-4 md:p-6 lg:p-8">
             <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <h1 class="text-2xl font-bold">QA Tracker</h1>
+                {% if can_review %}
                 <button type="button" class="btn btn-primary btn-sm"
                         hx-get="/partials/review-drawer"
                         hx-target="#drawer-container"
                         hx-swap="innerHTML">
                     New Review
                 </button>
+                {% endif %}
             </div>
 
+            {% if can_review %}
             <div role="tablist" class="tabs tabs-box">
                 <input type="radio" name="tracker_tabs" class="tab" aria-label="QA Score" checked="checked" />
                 <input type="radio" name="tracker_tabs" class="tab" aria-label="Bad Feedback" disabled />
                 <input type="radio" name="tracker_tabs" class="tab" aria-label="Refund Check" disabled />
             </div>
+            {% endif %}
 
-            <div id="view-container" class="mt-5" hx-get="/partials/qa-matrix" hx-trigger="load" hx-swap="innerHTML"></div>
+            <div id="view-container" class="mt-5" hx-get="{{ '/partials/qa-matrix' if can_review else '/partials/my-reviews' }}" hx-trigger="load" hx-swap="innerHTML"></div>
             <!-- Drawer mount survives sidebar navigation. -->
             <div id="drawer-container"></div>
         </main>
@@ -80,6 +84,7 @@
             </div>
             <nav class="p-3">
                 <ul class="menu w-full p-0">
+                    {% if not is_support_only %}
                     <li>
                         <a href="#" hx-get="/partials/qa-matrix" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -88,6 +93,7 @@
                             <span>QA Tracker</span>
                         </a>
                     </li>
+                    {% endif %}
                     <li>
                         <a href="#" hx-get="/partials/my-reviews" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -96,6 +102,7 @@
                             <span>My Reviews</span>
                         </a>
                     </li>
+                    {% if not is_support_only %}
                     <li>
                         <a href="#" hx-get="/partials/team-quotas" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -104,6 +111,7 @@
                             <span>Team Quotas</span>
                         </a>
                     </li>
+                    {% endif %}
                 </ul>
             </nav>
             <div class="px-5 pt-4">
