@@ -90,6 +90,13 @@ class ScorecardItem(Base):
     # snake_case key used in scorecards, e.g. "late_response".
     error_name: Mapped[str] = mapped_column(String(100), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Taxonomy label rendered as section headers in the AI scoring
+    # prompt and used to group rules in the admin editor. Rows that
+    # predate the column are backfilled with "General" by the server
+    # default (see migration b4f8e2a6c9d1).
+    category: Mapped[str] = mapped_column(
+        String(200), nullable=False, default="General", server_default=text("'General'")
+    )
     penalty_points: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=text("true")

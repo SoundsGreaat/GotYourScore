@@ -1,0 +1,243 @@
+{# Scorecard rule editor partial (swapped into #scorecard-editor).
+   Context: t=ScorecardTemplate, groups=[{category, items}],
+   case_types=[CaseTypeEnum], error=str|None, saved=bool.
+   NOTE: groups entries are plain dicts — read the item list as
+   ``group['items']`` (``group.items`` resolves to the dict METHOD).
+
+   The save is built by hand (indexed display_name_{i} / category_{i} /
+   penalty_{i} / active_{i} / item_id_{i} rows + removed_ids) and sent
+   via htmx.ajax so row indices are computed at click time, not render
+   time. Validation failures return HTTP 400 with an alert-fragment
+   body that HTMX will NOT swap (non-2xx); the document-level
+   htmx:responseError listener below injects it into #editor-alert. #}
+<div id="editor-root">
+    <script>
+        if (!window.__adminEditorInit) {
+            window.__adminEditorInit = true;
+            document.body.addEventListener("htmx:responseError", function (evt) {
+                var xhr = evt.detail.xhr;
+                if (
+                    xhr.status === 400 &&
+                    evt.detail.target &&
+                    evt.detail.target.id === "scorecard-editor"
+                ) {
+                    var slot = document.getElementById("editor-alert");
+                    if (slot) slot.innerHTML = xhr.responseText;
+                }
+            });
+        }
+        window.__editorRemoved = [];
+
+        window.__buildRow = function (category) {
+            var row = document.createElement("div");
+            row.className = "flex flex-wrap sm:flex-nowrap items-center gap-2 py-1";
+            row.dataset.row = "";
+            row.dataset.itemId = "";
+
+            var display = document.createElement("input");
+            display.className = "input input-sm min-w-48 grow";
+            display.dataset.display = "";
+            display.maxLength = 255;
+            display.placeholder = "Rule name";
+            display.setAttribute("aria-label", "Rule display name");
+
+            var penalty = document.createElement("input");
+            penalty.type = "number";
+            penalty.min = "1";
+            penalty.max = "100";
+            penalty.value = "1";
+            penalty.className = "input input-sm w-20 tabular-nums";
+            penalty.dataset.penalty = "";
+            penalty.setAttribute("aria-label", "Penalty points");
+
+            var categoryInput = document.createElement("input");
+            categoryInput.className = "input input-sm w-44";
+            categoryInput.dataset.category = "";
+            categoryInput.value = category || "";
+            categoryInput.setAttribute("list", "cat-options");
+            categoryInput.setAttribute("aria-label", "Category");
+
+            var active = document.createElement("input");
+            active.type = "checkbox";
+            active.checked = true;
+            active.className = "toggle toggle-sm";
+            active.dataset.active = "";
+            active.setAttribute("aria-label", "Rule active");
+
+            var remove = document.createElement("button");
+            remove.type = "button";
+            remove.className = "btn btn-square btn-ghost btn-sm";
+            remove.setAttribute("aria-label", "Remove rule");
+            remove.innerHTML =
+                '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">' +
+                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" ' +
+                'd="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />' +
+                "</svg>";
+            remove.addEventListener("click", function () { __removeRow(remove); });
+
+            row.append(display, penalty, categoryInput, active, remove);
+            return row;
+        };
+
+        window.__addRow = function (groupEl, category) {
+            if (!groupEl) return;
+            var rows = groupEl.querySelector("[data-rows]") || groupEl;
+            var row = __buildRow(category);
+            rows.appendChild(row);
+            row.querySelector("[data-display]").focus();
+        };
+
+        window.__addGroup = function () {
+            var host = document.getElementById("editor-groups");
+            if (!host) return;
+            var wrap = document.createElement("div");
+            wrap.className = "mb-3 mt-4";
+            wrap.dataset.group = "";
+
+            var header = document.createElement("div");
+            header.className = "mb-1 flex items-center justify-end gap-2";
+            var addBtn = document.createElement("button");
+            addBtn.type = "button";
+            addBtn.className = "btn btn-ghost btn-xs";
+            addBtn.textContent = "+ Add rule";
+            addBtn.addEventListener("click", function () { __addRow(wrap, ""); });
+            header.appendChild(addBtn);
+
+            var rows = document.createElement("div");
+            rows.className = "space-y-1";
+            rows.dataset.rows = "";
+
+            wrap.append(header, rows);
+            host.appendChild(wrap);
+
+            var row = __buildRow("");
+            rows.appendChild(row);
+            row.querySelector("[data-display]").focus();
+        };
+
+        window.__removeRow = function (btn) {
+            var row = btn.closest("[data-row]");
+            if (!row) return;
+            if (row.dataset.itemId) window.__editorRemoved.push(row.dataset.itemId);
+            row.remove();
+        };
+
+        window.__saveForm = function (form) {
+            var values = {};
+            var index = 0;
+            form.querySelectorAll("[data-row]").forEach(function (row) {
+                values["item_id_" + index] = row.dataset.itemId || "";
+                values["display_name_" + index] = row.querySelector("[data-display]").value.trim();
+                values["category_" + index] = row.querySelector("[data-category]").value.trim() || "General";
+                values["penalty_" + index] = row.querySelector("[data-penalty]").value || "1";
+                if (row.querySelector("[data-active]").checked) values["active_" + index] = "on";
+                index += 1;
+            });
+            values.name = form.querySelector("[data-name]").value;
+            values.case_type = form.querySelector("[data-case]").value;
+            values.removed_ids = window.__editorRemoved.join(",");
+            htmx.ajax("POST", form.getAttribute("data-url"), {
+                values: values,
+                target: "#scorecard-editor",
+                swap: "innerHTML",
+            });
+        };
+    </script>
+
+    <div id="editor-alert" class="space-y-2">
+        {% if error %}<div role="alert" class="alert alert-error"><span>{{ error }}</span></div>{% endif %}
+        {% if saved %}<div role="status" class="alert alert-success alert-soft"><span>Saved.</span></div>{% endif %}
+    </div>
+
+    <form data-url="/admin/scorecards/{{ t.id }}/save" onsubmit="return false"
+          class="card rounded-box mt-3 bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 gap-3 p-3 sm:p-4">
+            <div class="flex flex-wrap items-center gap-2">
+                <input data-name value="{{ t.name }}" maxlength="200" required
+                       class="input input-sm min-w-48 grow font-medium sm:max-w-xs"
+                       aria-label="Template name" />
+                {% set current_case = t.case_type.value | default(t.case_type) | string %}
+                <!-- daisyUI v5 popover-API dropdown styled like the
+                     review drawer's case-type picker. -->
+                <div class="w-44 max-w-full">
+                    <button type="button" popovertarget="editor-case-menu"
+                            style="anchor-name:--editor-case-anchor"
+                            class="select select-sm w-full flex items-center">
+                        <span id="editor-case-display" class="pointer-events-none truncate">{{ current_case }}</span>
+                    </button>
+                    <ul id="editor-case-menu" popover style="position-anchor:--editor-case-anchor"
+                        class="dropdown menu menu-sm w-44 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                        {% for ct in case_types %}
+                        <li>
+                            <button type="button"
+                                    onclick="adminSetDropdown('editor-case', 'editor-case-display', '{{ ct.value }}', '{{ ct.value }}', this)"
+                                    class="{% if ct.value | string == current_case %}active{% endif %}">
+                                {{ ct.value }}
+                            </button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <input type="hidden" data-case id="editor-case" value="{{ current_case }}" />
+                </div>
+                <span class="badge badge-sm {{ 'badge-success' if t.is_active else 'badge-ghost' }}">
+                    {{ 'Active' if t.is_active else 'Inactive' }}
+                </span>
+                <span class="badge badge-ghost badge-sm">#{{ t.id }}</span>
+            </div>
+
+            <datalist id="cat-options">
+                {% for c in groups | map(attribute='category') | list %}
+                <option value="{{ c }}"></option>
+                {% endfor %}
+            </datalist>
+
+            <div id="editor-groups">
+                {% for group in groups %}
+                <div data-group class="mb-3">
+                    <div class="mb-1 mt-4 flex items-center justify-between gap-2">
+                        <h3 class="text-sm font-semibold">{{ group['category'] }}</h3>
+                        <button type="button" class="btn btn-ghost btn-xs"
+                                data-category="{{ group['category'] }}"
+                                onclick="__addRow(this.closest('[data-group]'), this.dataset.category)">+ Add rule</button>
+                    </div>
+                    <div class="space-y-1" data-rows>
+                        {% for item in group['items'] %}
+                        <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 py-1" data-row data-item-id="{{ item.id }}">
+                            <input data-display value="{{ item.display_name }}" maxlength="255"
+                                   class="input input-sm min-w-48 grow" aria-label="Rule display name" />
+                            <input data-penalty type="number" min="1" max="100" value="{{ item.penalty_points }}"
+                                   class="input input-sm w-20 tabular-nums" aria-label="Penalty points" />
+                            <input data-category value="{{ item.category }}" list="cat-options"
+                                   class="input input-sm w-44" aria-label="Category" />
+                            <input type="checkbox" class="toggle toggle-sm" data-active {{ 'checked' if item.is_active }}
+                                   aria-label="Rule active" />
+                            <button type="button" class="btn btn-square btn-ghost btn-sm"
+                                    onclick="__removeRow(this)" aria-label="Remove rule">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="rounded-box border border-dashed border-base-300 p-6 text-center text-sm text-base-content/70">
+                    This template has no rules yet &mdash; add the first one below.
+                </div>
+                {% endfor %}
+            </div>
+
+            <button type="button" class="btn btn-ghost btn-xs mt-1 self-start" onclick="__addGroup()">
+                + Add rule (new category)
+            </button>
+
+            <div class="mt-2 flex flex-wrap items-center gap-3 border-t border-base-300 pt-3">
+                <button type="button" class="btn btn-primary" onclick="__saveForm(this.closest('form'))">Save rules</button>
+                <p class="text-xs text-base-content/60">
+                    Saving snapshots current rules into future reviews only &mdash; past reviews keep their original scores.
+                </p>
+            </div>
+        </div>
+    </form>
+</div>

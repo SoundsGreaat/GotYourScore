@@ -36,15 +36,19 @@ AiUser = Annotated[
 @router.post("/refactor", response_model=RefactorOut)
 async def refactor_notes(
     payload: RefactorIn,
+    db: DbSession,
     _current_user: AiUser,
 ) -> RefactorOut:
     """Rewrite QA notes (HTML) without persisting anything.
+
+    The system prompt is the newest ACTIVE ``notes_refactor``
+    SystemPrompt row (hardcoded fallback when none exists).
 
     - 503 when ``OPENROUTER_API_KEY`` is not configured.
     - 502 when the AI call fails or returns an empty response.
     """
     try:
-        html = await ai_service.refactor_qa_notes(payload.html)
+        html = await ai_service.refactor_qa_notes(payload.html, db)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

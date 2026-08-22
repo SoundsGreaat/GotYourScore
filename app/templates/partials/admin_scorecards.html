@@ -1,0 +1,96 @@
+{# Scorecard templates partial (swapped into #admin-view).
+   Context: templates=[{id, name, case_type, is_active, item_count}],
+   case_types=[CaseTypeEnum], selected_id=int|None, error=str|None.
+   The editor column lazy-fetches the editor partial for selected_id so
+   the list context never needs editor variables. #}
+<div id="scorecards-root">
+    {% if error %}<div role="alert" class="alert alert-error mb-3"><span>{{ error }}</span></div>{% endif %}
+
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
+        <div class="w-full shrink-0 space-y-3 lg:w-80">
+            <div class="card rounded-box bg-base-100 shadow-sm">
+                <div class="card-body gap-3 p-3 sm:p-4">
+                    <h2 class="card-title text-base">New template</h2>
+                    <form hx-post="/admin/scorecards/create" hx-target="#admin-view" hx-swap="innerHTML"
+                          class="flex flex-col gap-2">
+                        <input name="name" required maxlength="200" placeholder="Template name"
+                               class="input input-sm w-full" aria-label="Template name" />
+                        <!-- daisyUI v5 popover-API dropdown styled like the
+                             review drawer's case-type picker. -->
+                        <div class="w-full">
+                            <button type="button" popovertarget="new-case-menu"
+                                    style="anchor-name:--new-case-anchor"
+                                    class="select select-sm w-full flex items-center">
+                                <span id="new-case-display" class="pointer-events-none truncate text-base-content/70">{{ case_types[0].value }}</span>
+                            </button>
+                            <ul id="new-case-menu" popover style="position-anchor:--new-case-anchor"
+                                class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                                    {% for ct in case_types %}
+                                    <li>
+                                        <button type="button"
+                                                onclick="adminSetDropdown('new-case', 'new-case-display', '{{ ct.value }}', '{{ ct.value }}', this)"
+                                                class="{% if loop.first %}active{% endif %}">
+                                            {{ ct.value }}
+                                        </button>
+                                    </li>
+                                    {% endfor %}
+                            </ul>
+                            <input type="hidden" name="case_type" id="new-case" value="{{ case_types[0].value }}" />
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-sm shrink-0">Create</button>
+                    </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                {% for t in templates %}
+                <div class="card rounded-box bg-base-100 shadow-sm {{ 'ring-2 ring-primary' if t.id == selected_id }}">
+                    <div class="card-body flex-col gap-2 p-3 sm:flex-row sm:items-center">
+                        <!-- The whole name zone is one button: the card itself is clickable. -->
+                        <button type="button" class="min-w-0 flex-1 text-left"
+                                hx-get="/admin/partials/scorecard-editor/{{ t.id }}"
+                                hx-target="#scorecard-editor" hx-swap="innerHTML">
+                            <p class="truncate font-medium">{{ t.name }}</p>
+                            <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                                <span class="badge badge-ghost badge-sm">{{ t.case_type.value }}</span>
+                                <span class="badge badge-sm {{ 'badge-success' if t.is_active else 'badge-ghost' }}">
+                                    {{ 'Active' if t.is_active else 'Inactive' }}
+                                </span>
+                                <span class="text-xs text-base-content/60">{{ t.item_count }} rules</span>
+                            </div>
+                        </button>
+                        <div class="flex shrink-0 items-center gap-1">
+                            <label title="{{ 'Deactivate template' if t.is_active else 'Activate template' }}">
+                                <input type="checkbox" class="toggle toggle-sm" {{ 'checked' if t.is_active }}
+                                       aria-label="Toggle template active"
+                                       hx-post="/admin/scorecards/{{ t.id }}/toggle"
+                                       hx-target="#admin-view" hx-swap="innerHTML" />
+                            </label>
+                            <button type="button" class="btn btn-ghost btn-sm"
+                                    hx-get="/admin/partials/scorecard-editor/{{ t.id }}"
+                                    hx-target="#scorecard-editor" hx-swap="innerHTML">Edit</button>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+                    No templates yet &mdash; create one above.
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div class="min-w-0 flex-1">
+            <div id="scorecard-editor">
+                {% if selected_id %}
+                <div hx-get="/admin/partials/scorecard-editor/{{ selected_id }}" hx-trigger="load" hx-swap="innerHTML"></div>
+                {% else %}
+                <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+                    Select a template to edit its rules.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>

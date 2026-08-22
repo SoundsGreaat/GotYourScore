@@ -1,0 +1,73 @@
+{# Users & roles partial (swapped into #admin-view).
+   Context: users=[{u: User, roles: [RoleEnum]}] sorted by name,
+   current_user_id=int, role_choices=[str values], status=str|None,
+   error=str|None. Each card holds its own form so hx-include stays
+   scoped to that user's checkboxes. The own-row Admin checkbox is
+   disabled (disabled fields are never submitted; the server still
+   enforces the rule). #}
+<div id="roles-root" class="space-y-3">
+    {% if error %}<div role="alert" class="alert alert-error"><span>{{ error }}</span></div>{% endif %}
+    {% if status %}<div role="status" class="alert alert-success alert-soft"><span>{{ status }}</span></div>{% endif %}
+
+    <label class="input input-sm w-full sm:w-72 items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+        </svg>
+        <input id="roles-search" type="search" class="grow bg-transparent outline-none"
+               placeholder="Search name or email…" aria-label="Search users by name or email" />
+    </label>
+
+    <div id="roles-list" class="space-y-3">
+        {% for row in users %}
+        <div class="card rounded-box bg-base-100 shadow-sm">
+            <div class="card-body flex-col gap-3 p-3 sm:p-4 sm:flex-row sm:items-center">
+                <div class="min-w-0 shrink-0 sm:w-56">
+                    <p class="flex items-center gap-1.5 font-medium">
+                        <span class="truncate">{{ row.u.name }}</span>
+                        {% if row.u.id == current_user_id %}
+                        <span class="badge badge-ghost badge-sm">(you)</span>
+                        {% endif %}
+                    </p>
+                    <p class="truncate text-xs text-base-content/60">{{ row.u.email }}</p>
+                </div>
+                <form hx-post="/admin/users/{{ row.u.id }}/roles" hx-target="#admin-view" hx-swap="innerHTML"
+                      class="flex flex-1 flex-wrap items-center gap-x-4 gap-y-2">
+                    {% for r in role_choices %}
+                    <label class="flex cursor-pointer items-center gap-1.5 text-xs">
+                        <input type="checkbox" name="roles" value="{{ r }}" class="checkbox checkbox-sm"
+                               {{ 'checked' if r in row.roles | map(attribute='value') | list }}
+                               {{ 'disabled title="You cannot revoke your own Admin access."' if row.u.id == current_user_id and r == 'Admin' }} />
+                        <span>{{ r }}</span>
+                    </label>
+                    {% endfor %}
+                    <button type="submit" class="btn btn-sm ml-auto">Save</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div id="roles-empty" class="hidden rounded-box border border-dashed border-base-300 p-6 text-center text-sm text-base-content/70">
+        No users match your search.
+    </div>
+</div>
+
+<script>
+    if (!window.__rolesSearchInit) {
+        window.__rolesSearchInit = true;
+        document.addEventListener('input', function (event) {
+            if (event.target.id !== 'roles-search') return;
+            var query = event.target.value.trim().toLowerCase();
+            var list = document.getElementById('roles-list');
+            if (!list) return;
+            var visible = 0;
+            Array.prototype.forEach.call(list.children, function (card) {
+                var show = !query || card.textContent.toLowerCase().indexOf(query) !== -1;
+                card.classList.toggle('hidden', !show);
+                if (show) visible += 1;
+            });
+            var empty = document.getElementById('roles-empty');
+            if (empty) empty.classList.toggle('hidden', visible > 0);
+        });
+    }
+</script>

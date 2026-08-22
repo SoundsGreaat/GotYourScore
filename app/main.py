@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
+from app.api.endpoints.admin import router as admin_router
 from app.api.endpoints.ai import router as ai_router
 from app.api.endpoints.pages import router as pages_router
 from app.api.endpoints.reviews import router as reviews_router
@@ -72,6 +73,8 @@ app.include_router(ai_router, prefix="/api")
 app.include_router(system_prompts_router, prefix="/api")
 # Server-rendered HTML pages (login, dashboard) at the application root.
 app.include_router(pages_router)
+# Admin panel pages (HTMX partials, Admin-only) at the application root.
+app.include_router(admin_router)
 
 
 @app.get("/ping")

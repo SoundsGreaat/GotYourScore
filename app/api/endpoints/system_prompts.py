@@ -14,7 +14,7 @@ Support-only users receive 403 from the RoleChecker.
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import RoleChecker
@@ -25,6 +25,7 @@ from app.schemas.system_prompt import (
     SystemPromptRead,
     SystemPromptUpdate,
 )
+from app.services import system_prompt_service
 
 router = APIRouter(prefix="/system-prompts", tags=["system-prompts"])
 
@@ -32,19 +33,6 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 # RoleChecker returns the authenticated User, so the handler receives it.
 AdminUser = Annotated[User, Depends(RoleChecker([RoleEnum.ADMIN]))]
-
-
-async def _deactivate_other_active(
-    db_session: AsyncSession, key: str, exclude_id: int | None = None
-) -> None:
-    """Deactivate every other active row sharing ``key``."""
-    stmt = update(SystemPrompt).where(
-        SystemPrompt.key == key,
-        SystemPrompt.is_active.is_(True),
-    )
-    if exclude_id is not None:
-        stmt = stmt.where(SystemPrompt.id != exclude_id)
-    await db_session.execute(stmt.values(is_active=False))
 
 
 @router.post("", response_model=SystemPromptRead, status_code=status.HTTP_201_CREATED)
@@ -56,7 +44,7 @@ async def create_system_prompt(
     """Create a prompt row; activating it deactivates the previous
     active row of the same key."""
     if payload.is_active:
-        await _deactivate_other_active(db, payload.key)
+        await system_prompt_service.deactivate_other_active(db, payload.key)
 
     prompt = SystemPrompt(
         key=payload.key,
@@ -126,7 +114,9 @@ async def update_system_prompt(
         prompt.content = data["content"]
     if "is_active" in data:
         if data["is_active"]:
-            await _deactivate_other_active(db, prompt.key, exclude_id=prompt.id)
+            await system_prompt_service.deactivate_other_active(
+                db, prompt.key, exclude_id=prompt.id
+            )
         prompt.is_active = data["is_active"]
 
     await db.commit()

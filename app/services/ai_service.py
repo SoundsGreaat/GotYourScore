@@ -60,6 +60,10 @@ AI_SCORING_MODEL = "deepseek/deepseek-v4-flash-0731"
 # scoring system prompt (see analyze_support_ticket).
 SCORING_PROMPT_KEY = "ai_scoring"
 
+# SystemPrompt key whose newest active row replaces the hardcoded
+# refactor system prompt (see refactor_qa_notes).
+REFACTOR_PROMPT_KEY = "notes_refactor"
+
 # OpenRouter provider routing:
 # - "latency" = prefer the provider with the lowest latency;
 # - allow_fallbacks = if the preferred provider fails/unavailable,
@@ -185,7 +189,7 @@ _STEP_BY_STEP_DIRECTIVE = (
 
 
 def _build_scoring_prompt(
-    rules: Sequence[tuple[str, str, int]],
+    rules: Sequence[tuple[str, str, int, str]],
     base_system_text: str | None = None,
 ) -> str:
     """Build the scoring system prompt.
@@ -196,20 +200,35 @@ def _build_scoring_prompt(
     before the system-prompt feature). With configured rules, the rule
     lines and the shared JSON-output contract are appended to the base
     text; with no rules the base text is returned unchanged.
+
+    Each rule is ``(error_name, display_name, penalty_points,
+    category)``. Rule lines are grouped under their category as short
+    section headers so the model sees the taxonomy; blank categories
+    fall under "General". The output contract stays flat: the model
+    still returns a single ``{error_key: deduction}`` object.
     """
     base = base_system_text if base_system_text else SYSTEM_PROMPT
 
     if not rules:
         return base
 
-    rule_lines = [
-        f"- {error_name} ({display_name}): deduct {penalty} point(s) when violated."
-        for error_name, display_name, penalty in rules
-    ]
+    # dict preserves first-appearance order of the categories (rules
+    # arrive ordered by template id, then error name).
+    lines_by_category: dict[str, list[str]] = {}
+    for error_name, display_name, penalty, category in rules:
+        header = category if category and category.strip() else "General"
+        lines_by_category.setdefault(header, []).append(
+            f"- {error_name} ({display_name}): deduct {penalty} point(s) when violated."
+        )
+
+    rule_lines: list[str] = []
+    for category, lines in lines_by_category.items():
+        rule_lines.append(f"{category}:")
+        rule_lines.extend(lines)
 
     penalty_map = ", ".join(
         f"{name}: {points}"
-        for name, _, points in rules
+        for name, _, points, _ in rules
     )
 
     return (
@@ -429,7 +448,7 @@ async def analyze_support_ticket(
         .all()
     )
 
-    rules_by_key: dict[str, tuple[str, str, int]] = {}
+    rules_by_key: dict[str, tuple[str, str, int, str]] = {}
 
     for item in items:
         rules_by_key.setdefault(
@@ -438,6 +457,9 @@ async def analyze_support_ticket(
                 item.error_name,
                 item.display_name,
                 item.penalty_points,
+                # Defensive: rows predating the category column (or a
+                # blank label) are grouped under "General".
+                (item.category or "").strip() or "General",
             ),
         )
 
@@ -523,8 +545,22 @@ async def analyze_support_ticket(
 # Refactor
 # ---------------------------------------------------------------------------
 
-async def refactor_qa_notes(raw_html: str) -> str:
-    """Rewrite QA notes for clarity, grammar and professional tone."""
+async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
+    """Rewrite QA notes for clarity, grammar and professional tone.
+
+    The base system prompt is the newest ACTIVE SystemPrompt row for
+    ``REFACTOR_PROMPT_KEY``; the hardcoded ``REFACTOR_SYSTEM_PROMPT``
+    constant is only the fallback for an empty/inactive table
+    (identical behavior to before the system-prompt feature).
+    """
+    # DB-stored prompt wins; the hardcoded constant is only a fallback.
+    db_prompt = await _active_system_prompt(REFACTOR_PROMPT_KEY, db_session)
+    system_prompt = db_prompt if db_prompt else REFACTOR_SYSTEM_PROMPT
+
+    # Release the DB connection before the multi-second network request
+    # (same commit-then-call pattern as analyze_support_ticket).
+    await db_session.commit()
+
     client = get_openrouter_client()
 
     try:
@@ -533,7 +569,7 @@ async def refactor_qa_notes(raw_html: str) -> str:
             messages=[
                 {
                     "role": "system",
-                    "content": REFACTOR_SYSTEM_PROMPT,
+                    "content": system_prompt,
                 },
                 {
                     "role": "user",

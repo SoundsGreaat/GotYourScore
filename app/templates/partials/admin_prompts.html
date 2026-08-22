@@ -1,0 +1,77 @@
+{# System prompts partial (swapped into #admin-view).
+   Context: slots=[{key, title, description, versions(newest first),
+   active_id(id|None)}], error=str|None, saved=bool.
+   One card per fixed slot: a prefilled editor that saves a NEW active
+   version, plus the key's history (any version can be re-activated
+   or deleted; deleting the active one falls back to the built-in
+   default prompt). #}
+<div id="admin-prompts-root" class="space-y-4">
+    {% if error %}<div role="alert" class="alert alert-error"><span>{{ error }}</span></div>{% endif %}
+    {% if saved %}<div role="status" class="alert alert-success alert-soft"><span>Saved as the active version.</span></div>{% endif %}
+
+    <div class="grid gap-4 lg:grid-cols-2">
+        {% for slot in slots %}
+        {% set active_v = slot.versions | selectattr('id', 'equalto', slot.active_id) | list | first %}
+        <div class="card rounded-box bg-base-100 shadow-sm">
+            <div class="card-body min-w-0 p-3 sm:p-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <h2 class="card-title text-base">{{ slot.title }}</h2>
+                    <span class="badge badge-soft font-mono badge-sm">{{ slot.key }}</span>
+                </div>
+                <p class="text-xs text-base-content/60">{{ slot.description }}</p>
+
+                <form hx-post="/admin/prompts" hx-target="#admin-view" hx-swap="innerHTML" class="mt-1 flex flex-col gap-2">
+                    <input type="hidden" name="key" value="{{ slot.key }}" />
+                    <textarea name="content" required aria-label="Prompt content"
+                              placeholder="Empty &mdash; the built-in default is used until you save a version."
+                              class="textarea textarea-sm h-56 w-full font-mono">{{ active_v.content if active_v else '' }}</textarea>
+                    <button type="submit" class="btn btn-primary btn-sm self-start">Save as active version</button>
+                </form>
+
+                <p class="mt-1 text-xs font-medium text-base-content/70">History ({{ slot.versions | length }})</p>
+                {% if slot.versions %}
+                <div class="max-w-full overflow-x-auto">
+                    <table class="table table-sm">
+                        <thead>
+                            <tr><th>Created</th><th>Preview</th><th>Status</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for v in slot.versions %}
+                            <tr>
+                                <td class="whitespace-nowrap">{{ v.created_at.strftime('%b %d, %Y %H:%M') }}</td>
+                                <td class="max-w-[16rem] truncate font-mono text-xs" title="{{ v.content }}">{{ v.content | truncate(70) }}</td>
+                                <td>
+                                    {% if slot.active_id == v.id %}
+                                    <span class="badge badge-success badge-sm">Active</span>
+                                    {% else %}
+                                    <span class="badge badge-ghost badge-sm">v{{ loop.index }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <div class="flex gap-1">
+                                        {% if slot.active_id != v.id %}
+                                        <button type="button" class="btn btn-xs"
+                                                hx-post="/admin/prompts/{{ v.id }}/activate"
+                                                hx-target="#admin-view" hx-swap="innerHTML">Activate</button>
+                                        {% endif %}
+                                        <button type="button" class="btn btn-outline btn-error btn-xs"
+                                                hx-post="/admin/prompts/{{ v.id }}/delete"
+                                                hx-confirm="Delete this prompt version?"
+                                                hx-target="#admin-view" hx-swap="innerHTML">Delete</button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="rounded-box border border-dashed border-base-300 p-4 text-center text-xs text-base-content/60">
+                    No stored versions yet &mdash; the built-in default prompt is used.
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
