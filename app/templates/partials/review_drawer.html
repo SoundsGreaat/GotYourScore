@@ -59,14 +59,9 @@
                 <fieldset class="fieldset">
                     <span class="label">Review notes</span>
                     <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
-                        <!-- ql-container/ql-snow are Quill's own classes, normally
-                             added at construction. HTMX's settle step re-applies the
-                             fragment's server-side attributes onto inserted elements
-                             whose ids matched the outgoing DOM (cloneAttributes),
-                             which would otherwise strip them AFTER the inline script
-                             built the editor — un-hiding the snow theme's link
-                             tooltip (<input data-formula ...>). Shipping the classes
-                             in the markup keeps the settled value correct. -->
+                        <!-- ql-container/ql-snow must ship in the markup: HTMX's settle step
+                             re-applies server attributes after Quill init and would strip
+                             runtime-added classes, un-hiding the snow theme's link tooltip. -->
                         <div id="quill-editor" class="min-h-48 ql-container ql-snow"></div>
                     </div>
                 </fieldset>
@@ -208,9 +203,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         window.clearTimeout(draftTimer);
         if (quill) {
             quill.off('text-change', saveDraft);
-            // Do NOT call quill.disable() here: the ql-disabled class it
-            // adds would be picked up by HTMX's cloneAttributes and
-            // briefly copied onto the replacement #quill-editor.
+            // Do NOT call quill.disable() here: its ql-disabled class leaks onto the
+            // replacement #quill-editor via HTMX's cloneAttributes.
             var clipboard = editorContainer.querySelector('.ql-clipboard');
             if (clipboard) clipboard.remove();
             quill = null;

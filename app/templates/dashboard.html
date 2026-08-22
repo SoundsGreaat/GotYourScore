@@ -6,10 +6,8 @@
 <div class="drawer lg:drawer-open">
     <input id="app-drawer" type="checkbox" class="drawer-toggle" />
 
-    <!-- Page content -->
     <div class="drawer-content flex min-h-screen flex-col">
 
-        <!-- Top navbar -->
         <div class="navbar sticky top-0 z-10 w-full bg-neutral text-neutral-content">
             <div class="flex-none">
                 <label for="app-drawer" aria-label="Open menu" class="btn btn-square btn-ghost drawer-button text-neutral-content hover:bg-white/10 lg:hidden">
@@ -20,8 +18,6 @@
             </div>
 
             <div class="flex-1 px-2">
-                <!-- Brand shown here only on mobile, where the sidebar
-                     (and its brand block) is tucked off-canvas. -->
                 <span class="text-lg font-bold lg:hidden">GotYourScore</span>
             </div>
 
@@ -30,11 +26,8 @@
                     <span class="hidden text-sm sm:inline-flex">{{ current_user.name }}</span>
                     <span class="badge badge-primary">{{ current_user.role.value if current_user.role.value else current_user.role }}</span>
 
-                    <!-- Theme toggle: daisyUI toggle with icons inside; the thumb slides
-                         left-right and covers one icon. Wired to the Alpine theme state.
-                         text-neutral-content keeps the thumb/border visible on the navbar;
-                         text-neutral (always-dark neutral) keeps the icons visible on the
-                         light thumb in both themes. -->
+                    <!-- text-neutral-content keeps the thumb visible on the navbar;
+                         text-neutral keeps the icons visible on the light thumb. -->
                     <label class="toggle text-neutral-content" aria-label="Toggle dark mode" title="Toggle dark mode">
                         <input type="checkbox" :checked="theme === 'dark'" @change="toggleTheme()" />
                         <svg class="h-4 w-4 fill-current text-neutral" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
@@ -70,15 +63,12 @@
                 <input type="radio" name="tracker_tabs" class="tab" aria-label="Refund Check" disabled />
             </div>
 
-            <!-- Sidebar navigation swaps view content here; the matrix is
-                 the initial view. -->
             <div id="view-container" class="mt-5" hx-get="/partials/qa-matrix" hx-trigger="load" hx-swap="innerHTML"></div>
             <!-- Drawer mount survives sidebar navigation. -->
             <div id="drawer-container"></div>
         </main>
     </div>
 
-    <!-- Sidebar -->
     <div class="drawer-side z-30">
         <label for="app-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
         <aside class="min-h-full w-64 bg-neutral text-neutral-content">

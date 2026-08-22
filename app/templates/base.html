@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}GotYourScore{% endblock %}</title>
 
-    <!-- Google Inter font (application-wide typeface). -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
@@ -22,12 +21,9 @@
         })();
     </script>
 
-    <!-- DaisyUI v5 components + Tailwind v4 utilities (CDN, no build step). -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 
-    <!-- Apply Inter as the default sans typeface (Tailwind v4 theme token:
-         preflight renders it on <html>, utilities like font-bold keep working). -->
     <style type="text/tailwindcss">
         @theme {
             --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -115,13 +111,11 @@
         }
     </style>
 
-    <!-- HTMX -->
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
 
-    <!-- WYSIWYG editor (Quill 2: the full build registers the snow theme;
-     there is no separate themed JS bundle) + HTML sanitizer for the
-     review drawer. Loaded once with the page so HTMX-swapped partials
-     can initialize the editor without dynamic script injection. -->
+    <!-- Quill 2: the full build registers the snow theme (there is no separate
+         themed JS bundle). Loaded once so HTMX-swapped partials can initialize
+         the editor without dynamic script injection. -->
     <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" type="text/css" />
     <style>
         /* Re-skin Quill snow to follow the daisyUI theme tokens. */
@@ -298,7 +292,6 @@
     <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
 
-    <!-- Alpine.js (deferred) -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
 </head>
 
