@@ -6,6 +6,8 @@
 - POST /api/reviews/auto-score: create a review from an AI-analyzed
   ticket transcript (OpenRouter; 503 when unconfigured, 502 when the
   analysis fails).
+- POST /api/reviews/score-preview: read-only preview of the breakdown
+  a save would produce for a raw scorecard (nothing persisted).
 - GET /api/reviews/quota/{agent_id}: quota status for the current (or
   explicitly requested) REPORTING period.
 - GET /api/reviews/quota-compliance/{qa_id}: per-interval quota
@@ -41,6 +43,8 @@ from app.schemas.review import (
     QuotaRead,
     ReviewCreate,
     ReviewRead,
+    ScorePreviewRequest,
+    ScorePreviewResponse,
 )
 from app.services import (
     ai_service,
@@ -181,6 +185,57 @@ async def create_review(
     return ReviewRead.model_validate(review)
 
 
+@router.post("/score-preview", response_model=ScorePreviewResponse)
+async def score_preview(
+    payload: ScorePreviewRequest,
+    db: DbSession,
+    _current_user: ReviewerUser,
+) -> ScorePreviewResponse:
+    """Preview the multiplier-applied score for a raw scorecard.
+
+    Read-only: identical math to what POST /api/reviews will compute
+    at save time (same agent-occurrence scan, same base score), but
+    nothing is inserted and the transaction is never committed.
+
+    - 400 when ``case_type`` is not a valid CaseTypeEnum value or is
+      'No Cases' (no scorecard to preview).
+    - 404 if the target user does not exist; 400 if it holds no
+      Support role (same messages as POST /api/reviews).
+    """
+    try:
+        case_type = CaseTypeEnum(payload.case_type)
+    except ValueError:
+        valid = ", ".join(case.value for case in CaseTypeEnum)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unknown case type {payload.case_type!r}. Valid: {valid}."
+            ),
+        ) from None
+    if case_type is CaseTypeEnum.NO_CASES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "case_type 'No Cases' has no scorecard to preview "
+                "(such reviews carry no scorecard data)."
+            ),
+        )
+
+    # Same 404/400 contract and messages as create_review.
+    agent = await _get_support_agent_or_error(payload.support_agent_id, db)
+
+    breakdown, final_score, total_penalty = (
+        await multiplier_service.calculate_final_score(
+            agent.id, payload.raw_scorecard, db
+        )
+    )
+    return ScorePreviewResponse(
+        breakdown=breakdown,
+        total_penalty=total_penalty,
+        final_score=final_score,
+    )
+
+
 @router.post(
     "/auto-score",
     response_model=ReviewRead,
@@ -206,11 +261,11 @@ async def auto_score_review(
     - 503 when ``OPENROUTER_API_KEY`` is not configured.
     - 502 when the AI analysis call or response parsing fails —
       nothing is persisted in that case.
-    - ``case_type`` defaults to SERVICE_REQUEST (documented deviation:
+    - ``case_type`` defaults to SERVICE_REQUEST because
       ``reviews.case_type`` is NOT NULL and the auto-score flow has no
       explicit case type; callers may override it in the payload, but
       NO_CASES is rejected — auto-scoring always analyzes a real
-      transcript).
+      transcript.
     - ``notes`` stores the (truncated) transcript as an audit trail
       for the AI-produced deductions; ``qa_id`` is injected from the
       authenticated caller.

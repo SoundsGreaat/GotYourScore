@@ -1,7 +1,7 @@
 """Review Pydantic schemas."""
 
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -79,9 +79,8 @@ class AutoScoreCreate(BaseModel):
     rules as a manual review. ``qa_id`` is injected server-side from
     the authenticated caller, exactly like ``ReviewCreate``.
 
-    ``case_type`` is a documented deviation from the minimal spec
-    (``agent_id`` + ``transcript`` only): ``reviews.case_type`` is
-    NOT NULL and the auto-score flow receives no explicit case type,
+    ``case_type`` classifies the reviewed ticket: ``reviews.case_type``
+    is NOT NULL and the auto-score flow receives no explicit case type,
     so it defaults to SERVICE_REQUEST and callers may override it
     per request.
     """
@@ -114,6 +113,40 @@ class AutoScoreCreate(BaseModel):
                 "case_type 'No Cases' cannot be used with auto-scoring."
             )
         return self
+
+
+class ScorePreviewRequest(BaseModel):
+    """Payload for the read-only score preview
+    (POST /api/reviews/score-preview).
+
+    Same inputs a saved review would carry, but nothing is persisted:
+    the response shows exactly what POST /api/reviews would compute for
+    this raw scorecard (progressive multiplier included).
+
+    ``case_type`` is a plain string here so an unknown value yields a
+    400 from the handler (a ``CaseTypeEnum`` field would 422 first);
+    deductions must be >= 1 because a preview only makes sense for
+    entries that will actually be penalized.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    support_agent_id: int
+    case_type: str
+    # Upper bound guards against pathological request sizes; values are
+    # whole numbers >= 1 (booleans are rejected by pydantic's int rules).
+    raw_scorecard: dict[str, Annotated[int, Field(ge=1)]] = Field(
+        max_length=60
+    )
+
+
+class ScorePreviewResponse(BaseModel):
+    """Multiplier-applied preview returned by
+    POST /api/reviews/score-preview (identical math to Save)."""
+
+    breakdown: dict[str, dict[str, int]]
+    total_penalty: int
+    final_score: int
 
 
 class ReviewRead(BaseModel):

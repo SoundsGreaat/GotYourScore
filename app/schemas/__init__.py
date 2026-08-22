@@ -13,6 +13,8 @@ from app.schemas.review import (
     QuotaRead,
     ReviewCreate,
     ReviewRead,
+    ScorePreviewRequest,
+    ScorePreviewResponse,
 )
 from app.schemas.system_prompt import (
     SystemPromptBase,
@@ -37,6 +39,8 @@ __all__ = [
     "QuotaRead",
     "ReviewCreate",
     "ReviewRead",
+    "ScorePreviewRequest",
+    "ScorePreviewResponse",
     "SystemPromptBase",
     "SystemPromptCreate",
     "SystemPromptRead",

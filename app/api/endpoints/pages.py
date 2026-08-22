@@ -19,7 +19,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import (
     PlainTextResponse,
     RedirectResponse,
@@ -31,7 +31,7 @@ from sqlalchemy import func, select
 from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
 from app.models import CaseTypeEnum, Review, RoleEnum, User, UserRole
-from app.services import quota_service, reporting_period
+from app.services import quota_service, reporting_period, scorecard_service
 
 router = APIRouter(tags=["pages"])
 
@@ -136,6 +136,7 @@ async def dashboard(request: Request, auth: PageUser) -> Response:
             "can_review": auth.has_role(
                 RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
             ),
+            "is_admin": auth.has_role(RoleEnum.ADMIN),
         },
     )
 
@@ -423,4 +424,48 @@ async def partial_review_drawer(
                 if case_type is not CaseTypeEnum.NO_CASES
             ],
         },
+    )
+
+
+@router.get(
+    "/partials/case-rules",
+    name="partial_case_rules",
+    summary="Case rules partial",
+    include_in_schema=False,
+)
+async def partial_case_rules(
+    request: Request,
+    auth: PageUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    case_type: str = Query(...),
+) -> Response:
+    """Render the checkbox rules for one case type (HTMX fragment).
+
+    Swapped into the review drawer when the case-type picker changes.
+    ``rules`` is the active-rules item list (None for 'No Cases', which
+    has no scorecard by definition); unknown case types are a bare 404.
+    """
+    redirect = _htmx_redirect_if_needed(auth, request)
+    if redirect is not None:
+        return redirect
+
+    try:
+        case_type_enum = CaseTypeEnum(case_type)
+    except ValueError:
+        return PlainTextResponse(
+            "Not Found", status_code=status.HTTP_404_NOT_FOUND
+        )
+
+    if case_type_enum is CaseTypeEnum.NO_CASES:
+        return templates.TemplateResponse(
+            request=request,
+            name="partials/case_rules.html",
+            context={"rules": None},
+        )
+
+    rules = await scorecard_service.get_active_rules(case_type_enum, db)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/case_rules.html",
+        context={"rules": rules["items"]},
     )

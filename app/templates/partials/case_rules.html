@@ -1,0 +1,42 @@
+{# Case rules partial (swapped into the review drawer by HTMX).
+   Context: rules = list of {error_name, display_name, penalty_points,
+   category} for the selected case type; None for 'No Cases'; [] when
+   the case type has no active rules. Checkboxes carry data-error-name
+   / data-penalty and rows carry a data-deduction number input so the
+   drawer can build the raw scorecard with PARTIAL deductions (the
+   input stays disabled until its violation is ticked). #}
+{% if rules is none %}
+<p class="text-sm text-base-content/60">No scorecard for this case type.</p>
+{% elif not rules %}
+<p class="text-sm text-base-content/60">No active rules configured for this case type.</p>
+{% else %}
+{% set order = namespace(cats=[]) %}
+{% set by_cat = namespace(map={}) %}
+{% for item in rules %}
+    {% if item.category not in by_cat.map %}
+        {% set _ = by_cat.map.update({item.category: []}) %}
+        {% set _ = order.cats.append(item.category) %}
+    {% endif %}
+    {% set _ = by_cat.map[item.category].append(item) %}
+{% endfor %}
+{% for category in order.cats %}
+<div class="mb-3">
+    <h4 class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">{{ category }}</h4>
+    <div class="divide-y divide-base-200">
+        {% for item in by_cat.map[category] %}
+        <div class="flex items-center gap-2 py-1.5" data-rule-row>
+            <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+                <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" data-error-name="{{ item.error_name }}" data-penalty="{{ item.penalty_points }}" />
+                <span class="truncate text-sm">{{ item.display_name }}</span>
+            </label>
+            <input type="number" min="1" max="{{ item.penalty_points }}" value="{{ item.penalty_points }}"
+                   data-deduction disabled aria-label="Deducted points for {{ item.display_name }}"
+                   title="Deducted points (up to {{ item.penalty_points }})"
+                   class="input input-xs w-16 shrink-0 tabular-nums" />
+            <span class="badge badge-ghost badge-xs w-12 shrink-0 justify-center">/ {{ item.penalty_points }}</span>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}

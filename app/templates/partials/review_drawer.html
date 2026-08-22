@@ -13,21 +13,22 @@
 
                 <fieldset class="fieldset">
                     <label class="label" for="review-agent">Agent</label>
-                    <div class="dropdown w-full">
-                        <div tabindex="0" role="button" class="select select-sm w-full flex items-center bg-base-100">
-                            <span id="review-agent-display" class="pointer-events-none truncate text-base-content/70">Select agent…</span>
-                        </div>
-                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[100] mt-1 w-full flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                            {% for agent in agents %}
-                            <li>
-                                <button type="button" onclick="updateCustomDropdown('review-agent', 'review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
-                                    {{ agent.name }}
-                                </button>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                        <input type="hidden" id="review-agent" value="" />
-                    </div>
+                    <button type="button" popovertarget="review-agent-menu"
+                            style="anchor-name:--review-agent-anchor"
+                            class="select select-sm w-full flex items-center">
+                        <span id="review-agent-display" class="pointer-events-none truncate text-base-content/70">Select agent…</span>
+                    </button>
+                    <ul id="review-agent-menu" popover style="position-anchor:--review-agent-anchor"
+                        class="dropdown menu menu-sm w-80 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                        {% for agent in agents %}
+                        <li>
+                            <button type="button" onclick="updateCustomDropdown('review-agent', 'review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
+                                {{ agent.name }}
+                            </button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <input type="hidden" id="review-agent" value="" />
                 </fieldset>
 
                 <fieldset class="fieldset">
@@ -37,23 +38,24 @@
 
                 <fieldset class="fieldset">
                     <label class="label" for="case-type">Case type</label>
-                    <div class="dropdown w-full">
-                        <div tabindex="0" role="button" class="select select-sm w-full flex items-center bg-base-100">
-                            <span id="case-type-display" class="pointer-events-none truncate">Service Request</span>
-                        </div>
-                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[100] mt-1 w-full flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                            {% for case_type in case_types %}
-                            <li>
-                                <button type="button"
-                                        onclick="updateCustomDropdown('case-type', 'case-type-display', '{{ case_type }}', '{{ case_type }}', this)"
-                                        class="{% if case_type == 'Service Request' %}active{% endif %}">
-                                    {{ case_type }}
-                                </button>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                        <input type="hidden" id="case-type" value="Service Request" />
-                    </div>
+                    <button type="button" popovertarget="case-type-menu"
+                            style="anchor-name:--case-type-anchor"
+                            class="select select-sm w-full flex items-center">
+                        <span id="case-type-display" class="pointer-events-none truncate">Service Request</span>
+                    </button>
+                    <ul id="case-type-menu" popover style="position-anchor:--case-type-anchor"
+                        class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                        {% for case_type in case_types %}
+                        <li>
+                            <button type="button"
+                                    onclick="updateCustomDropdown('case-type', 'case-type-display', '{{ case_type }}', '{{ case_type }}', this)"
+                                    class="{% if case_type == 'Service Request' %}active{% endif %}">
+                                {{ case_type }}
+                            </button>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    <input type="hidden" id="case-type" value="Service Request" />
                 </fieldset>
 
                 <fieldset class="fieldset">
@@ -66,9 +68,18 @@
                     </div>
                 </fieldset>
 
+                <fieldset class="fieldset">
+                    <span class="label">Scorecard</span>
+                    <!-- min-w-0: daisyUI v5 .fieldset is a grid, and without it the
+                         auto track grows to the longest rule name (truncate never
+                         kicks in), stretching the whole page horizontally. -->
+                    <div id="manual-score-area" class="min-w-0 rounded-box border border-base-300 bg-base-100 p-3 text-sm text-base-content/70 min-h-12">Loading…</div>
+                    <p class="text-xs text-base-content/60">Tick violations; lower the points for a partial deduction.</p>
+                </fieldset>
+
                 <div id="ai-score-result" class="card hidden bg-base-200 shadow-sm">
                     <div class="card-body p-4">
-                        <h3 class="card-title text-base">Score result</h3>
+                        <h3 class="card-title text-base">Score preview</h3>
                         <div id="ai-score-content"></div>
                     </div>
                 </div>
@@ -112,8 +123,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         buttonElement.classList.add('active');
     }
 
-    document.activeElement.blur();
+    // Popover-API menus stay open after an inner click — close on pick.
+    var pop = buttonElement && buttonElement.closest('[popover]');
+    if (pop && pop.matches(':popover-open')) pop.hidePopover();
+
     document.dispatchEvent(new CustomEvent('review-agent-change'));
+    if (inputId === 'case-type') document.dispatchEvent(new CustomEvent('case-type-change'));
 };
 
 (function () {
@@ -201,6 +216,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     function cleanup() {
         window.clearTimeout(draftTimer);
+        window.clearTimeout(previewTimer);
         if (quill) {
             quill.off('text-change', saveDraft);
             // Do NOT call quill.disable() here: its ql-disabled class leaks onto the
@@ -237,6 +253,111 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
     document.addEventListener('review-agent-change', updateSaveState, { signal: controller.signal });
     updateSaveState();
+
+    var rulesArea = document.getElementById('manual-score-area');
+
+    async function loadCaseRules() {
+        var value = document.getElementById('case-type').value;
+        if (!value || value === 'No Cases') {
+            rulesArea.innerHTML = '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
+            renderPreview(null);
+            return;
+        }
+        rulesArea.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
+        try {
+            var response = await fetch('/partials/case-rules?case_type=' + encodeURIComponent(value), { credentials: 'same-origin' });
+            if (!response.ok) throw new Error('Case rules request failed');
+            rulesArea.innerHTML = await response.text();
+        } catch (error) {
+            rulesArea.innerHTML = '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
+        }
+        recalcScore();
+    }
+
+    function collectDeductions() {
+        var deductions = {};
+        rulesArea.querySelectorAll('input[data-error-name]:checked').forEach(function (box) {
+            var deduction = box.closest('[data-rule-row]').querySelector('[data-deduction]');
+            var penalty = Number(box.dataset.penalty);
+            var pts = parseInt(deduction && deduction.value, 10);
+            if (isNaN(pts)) pts = penalty;
+            // Partial deductions: clamp the typed value to 1..penalty.
+            deductions[box.dataset.errorName] = Math.min(Math.max(pts, 1), penalty);
+        });
+        return deductions;
+    }
+
+    var previewTimer;
+    // Monotonic token: only the LATEST recalcScore may render, otherwise a
+    // slow earlier request (e.g. the zero-deduction call fired right after
+    // the rules fragment loads) can resolve late and overwrite a newer,
+    // correct preview.
+    var previewSeq = 0;
+
+    function schedulePreview() {
+        window.clearTimeout(previewTimer);
+        previewTimer = window.setTimeout(recalcScore, 400);
+    }
+
+    async function recalcScore() {
+        var seq = ++previewSeq;
+        var deductions = collectDeductions();
+        var agentId = document.getElementById('review-agent').value;
+        var caseType = document.getElementById('case-type').value;
+        if (!agentId || caseType === 'No Cases' || !rulesArea.querySelector('[data-error-name]')) {
+            if (seq === previewSeq) renderPreview(null);
+            return;
+        }
+        try {
+            var response = await fetch('/api/reviews/score-preview', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    support_agent_id: Number(agentId),
+                    case_type: caseType,
+                    raw_scorecard: deductions
+                })
+            });
+            if (!response.ok) throw new Error('Score preview failed');
+            var data = await response.json();
+            if (seq === previewSeq) renderPreview(data);
+        } catch (error) {
+            if (seq === previewSeq) renderPreview(null);
+        }
+    }
+
+    function renderPreview(data) {
+        var panel = document.getElementById('ai-score-result');
+        var content = document.getElementById('ai-score-content');
+        if (!data) {
+            panel.classList.add('hidden');
+            content.innerHTML = '';
+            return;
+        }
+        var multipliers = Object.entries(data.breakdown || {})
+            .filter(function (entry) { return Number(entry[1].multiplier) > 1; })
+            .map(function (entry) { return escapeHtml(entry[0]) + ' ×' + escapeHtml(String(entry[1].multiplier)); })
+            .join(', ');
+        content.innerHTML =
+            '<p class="text-3xl font-bold text-primary">' + escapeHtml(String(data.final_score)) + '</p>' +
+            '<p class="mt-1 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(data.total_penalty)) + '</p>' +
+            (multipliers ? '<p class="mt-2 text-xs text-base-content/60">' + multipliers + '</p>' : '');
+        panel.classList.remove('hidden');
+    }
+
+    document.addEventListener('case-type-change', loadCaseRules, { signal: controller.signal });
+    document.addEventListener('review-agent-change', schedulePreview, { signal: controller.signal });
+    rulesArea.addEventListener('change', function (event) {
+        if (event.target.matches && event.target.matches('input[data-error-name]')) {
+            // Enable the points input only while the violation is ticked.
+            var deduction = event.target.closest('[data-rule-row]').querySelector('[data-deduction]');
+            deduction.disabled = !event.target.checked;
+            if (event.target.checked && !deduction.value) deduction.value = event.target.dataset.penalty;
+        }
+        schedulePreview();
+    }, { signal: controller.signal });
+    loadCaseRules();
 
     editorContainer.addEventListener('contextmenu', function (event) {
         if (!event.target.closest('.ql-editor')) return;
@@ -284,16 +405,25 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             });
             if (!response.ok) throw new Error('Score request failed');
             var result = await response.json();
-            var resultPanel = document.getElementById('ai-score-result');
-            var content = document.getElementById('ai-score-content');
-            var entries = Object.entries(result.scorecard || {}).map(function (entry) {
-                return '<li class="flex justify-between gap-4 border-b border-base-300 py-1"><span>' + escapeHtml(entry[0]) + '</span><span class="badge badge-sm">' + escapeHtml(String(entry[1])) + '</span></li>';
-            }).join('');
-            content.innerHTML = '<p class="text-sm text-base-content/70">Final Score</p><p class="text-3xl font-bold text-primary">' + escapeHtml(String(result.final_score)) + '</p>' +
-                '<ul class="mt-2 text-sm">' + (entries || '<li class="text-base-content/70">No deductions</li>') + '</ul>' +
-                '<p class="mt-3 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(result.total_deduction)) + '</p>';
-            resultPanel.classList.remove('hidden');
+            var matched = 0;
+            Object.entries(result.scorecard || {}).forEach(function (entry) {
+                if (Number(entry[1]) <= 0) return;
+                var box = rulesArea.querySelector('input[data-error-name="' + CSS.escape(entry[0]) + '"]');
+                if (box) {
+                    box.checked = true;
+                    var row = box.closest('[data-rule-row]');
+                    var deduction = row.querySelector('[data-deduction]');
+                    if (deduction) {
+                        deduction.disabled = false;
+                        if (!deduction.value) deduction.value = box.dataset.penalty;
+                    }
+                    matched += 1;
+                }
+            });
+            if (!matched) showToast('No matching scorecard rules for the AI findings.');
             hideMenu();
+            window.clearTimeout(previewTimer);
+            recalcScore();
         } catch (error) {
             showToast('Unable to generate a score.');
         } finally {
@@ -314,7 +444,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     case_type: document.getElementById('case-type').value,
                     case_number: document.getElementById('case-number').value || null,
                     notes: sanitizeHtml(quill.root.innerHTML),
-                    raw_scorecard: {}
+                    raw_scorecard: collectDeductions()
                 })
             });
             if (!response.ok) throw new Error('Review save failed');
