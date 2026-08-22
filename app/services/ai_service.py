@@ -15,6 +15,10 @@ lazily and cached — mirroring ``app.core.security.get_oauth`` — so
 importing this module never crashes when ``OPENROUTER_API_KEY`` is
 unset.
 
+Provider routing:
+- prefer the lowest-latency OpenRouter provider;
+- keep automatic fallback providers enabled.
+
 Error contract for callers (see the reviews/ai endpoints):
 - ``ValueError``: the API key is not configured -> HTTP 503.
 - ``AnalyzeError``: the API call failed or the model response could
@@ -26,6 +30,7 @@ be unit-tested without any network access.
 """
 
 import json
+import logging
 import math
 import re
 from functools import lru_cache
@@ -38,28 +43,61 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import get_settings
 from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate
 
-# OpenRouter's OpenAI-compatible endpoint.
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# OpenRouter configuration
+# ---------------------------------------------------------------------------
+
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Exact model identifier required by the spec — do not rename.
 AI_SCORING_MODEL = "deepseek/deepseek-v4-flash-0731"
 
-# Request bounds: fail fast instead of pinning a worker (and its DB
-# connection) on a hanging LLM call; one retry covers transient blips.
+# OpenRouter provider routing:
+# - "latency" = prefer the provider with the lowest latency;
+# - allow_fallbacks = if the preferred provider fails/unavailable,
+#   OpenRouter may try another provider.
+OPENROUTER_PROVIDER = {
+    "sort": "latency",
+    "allow_fallbacks": True,
+}
+
+
+# ---------------------------------------------------------------------------
+# Request configuration
+# ---------------------------------------------------------------------------
+
+# Fail fast instead of pinning a worker on a hanging LLM call.
 REQUEST_TIMEOUT_SECONDS = 60.0
+
+# OpenAI SDK retries transient failures automatically.
 MAX_RETRIES = 1
 
-# Sanitizer bounds: scorecards start at 100 points, so a single error
-# can never cost more than that; longer keys are data pollution.
+
+# ---------------------------------------------------------------------------
+# Sanitizer bounds
+# ---------------------------------------------------------------------------
+
 MAX_DEDUCTION = 100
 MAX_KEY_LENGTH = 64
 
-# A markdown code fence, optionally tagged with a language
-# ("```json ... ```" / "``` ... ```"), captured around the payload.
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 _CODE_FENCE_RE = re.compile(
     r"^```[ \t]*[A-Za-z0-9_-]*[ \t]*\r?\n?(.*?)\r?\n?[ \t]*```$",
     re.DOTALL,
 )
+
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT = """\
 You are a QA scoring assistant for a customer support team.
@@ -91,6 +129,7 @@ to integer deduction points, e.g. {"late_response": 5, "poor_tone": 3}:
   forbidden: output a single flat JSON object and nothing else.
 """
 
+
 REFACTOR_SYSTEM_PROMPT = """\
 You are a QA writing assistant.
 
@@ -112,7 +151,13 @@ Strict rules:
 """
 
 
-def _build_scoring_prompt(rules: Sequence[tuple[str, str, int]]) -> str:
+# ---------------------------------------------------------------------------
+# Prompt builders
+# ---------------------------------------------------------------------------
+
+def _build_scoring_prompt(
+    rules: Sequence[tuple[str, str, int]],
+) -> str:
     """Build the scoring system prompt from configured scorecard rules.
 
     ``rules`` is a sequence of ``(error_name, display_name,
@@ -126,7 +171,12 @@ def _build_scoring_prompt(rules: Sequence[tuple[str, str, int]]) -> str:
         f"- {error_name} ({display_name}): deduct {penalty} point(s) when violated."
         for error_name, display_name, penalty in rules
     ]
-    penalty_map = ", ".join(f"{name}: {points}" for name, _, points in rules)
+
+    penalty_map = ", ".join(
+        f"{name}: {points}"
+        for name, _, points in rules
+    )
+
     return (
         "You are a QA scoring assistant for a customer support team.\n"
         "\n"
@@ -155,27 +205,33 @@ def _build_scoring_prompt(rules: Sequence[tuple[str, str, int]]) -> str:
     )
 
 
+# ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
 class AnalyzeError(Exception):
     """The AI analysis call failed or its response could not be parsed."""
 
+
+# ---------------------------------------------------------------------------
+# OpenRouter client
+# ---------------------------------------------------------------------------
 
 @lru_cache
 def get_openrouter_client() -> AsyncOpenAI:
     """Return the cached AsyncOpenAI client pointed at OpenRouter.
 
-    Created lazily (and cached) so importing this module never crashes
-    when ``OPENROUTER_API_KEY`` is unset — the same pattern as
-    ``app.core.security.get_oauth``. Raises ``ValueError`` when the key
-    is missing so callers (the endpoint) can map it to HTTP 503;
-    ``lru_cache`` does not cache exceptions, so a later call after the
-    key has been configured succeeds.
+    Created lazily and cached so importing this module never crashes when
+    ``OPENROUTER_API_KEY`` is unset.
     """
     settings = get_settings()
+
     if settings.OPENROUTER_API_KEY is None:
         raise ValueError(
             "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
             "in the environment or the .env file to enable AI auto-scoring."
         )
+
     return AsyncOpenAI(
         base_url=OPENROUTER_BASE_URL,
         api_key=settings.OPENROUTER_API_KEY,
@@ -184,44 +240,45 @@ def get_openrouter_client() -> AsyncOpenAI:
     )
 
 
-def _strip_code_fences(text: str) -> str:
-    """Return ``text`` with surrounding markdown code fences removed.
+# ---------------------------------------------------------------------------
+# Response helpers
+# ---------------------------------------------------------------------------
 
-    Handles "```json ... ```" and bare "``` ... ```" fences; text
-    without fences is returned stripped but otherwise unchanged.
-    """
+def _strip_code_fences(text: str) -> str:
+    """Return ``text`` with surrounding markdown code fences removed."""
     cleaned = text.strip()
+
     match = _CODE_FENCE_RE.match(cleaned)
+
     if match is not None:
         return match.group(1).strip()
+
     return cleaned
 
 
 def _extract_json(text: str) -> dict:
-    """Parse a JSON object out of a raw model response (pure helper).
-
-    Tries ``json.loads`` on the raw text first; on failure (or when the
-    result is not an object) retries once after stripping markdown code
-    fences. Raises ``AnalyzeError`` carrying a raw response snippet
-    when no JSON object can be recovered.
-    """
+    """Parse a JSON object out of a raw model response."""
     if not isinstance(text, str):
         raise AnalyzeError(
             f"Model returned non-string content: {repr(text)[:200]}"
         )
+
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
         parsed = None
+
     if isinstance(parsed, dict):
         return parsed
 
     stripped = _strip_code_fences(text)
+
     if stripped != text:
         try:
             parsed = json.loads(stripped)
         except json.JSONDecodeError:
             parsed = None
+
         if isinstance(parsed, dict):
             return parsed
 
@@ -232,105 +289,132 @@ def _extract_json(text: str) -> dict:
 
 
 def _sanitize_scorecard(data: dict) -> dict[str, int]:
-    """Coerce a parsed model scorecard into ``{error_key: int}`` (pure).
-
-    Rules:
-    - keep only string keys of at most ``MAX_KEY_LENGTH`` characters
-      (longer keys — or prompt-injected junk — are dropped);
-    - keep only numeric values: ints and floats are coerced with
-      ``int(round(value))`` (Python's round — banker's rounding on
-      halves); booleans are dropped first because ``bool`` is a
-      subclass of ``int``;
-    - drop non-numeric values (strings, None, nested objects/arrays)
-      and non-finite floats (NaN / Infinity);
-    - clamp deductions into ``[0, MAX_DEDUCTION]`` — negatives to 0,
-      anything larger than the 100-point base to ``MAX_DEDUCTION``
-      (guards against prompt-inflated magnitudes);
-    - KEEP zero deductions: ``multiplier_service`` reports them as
-      "no error" transparency entries;
-    - a non-dict input yields an empty dict (defensive).
-    """
+    """Coerce a parsed model scorecard into ``{error_key: int}``."""
     if not isinstance(data, dict):
         return {}
 
     sanitized: dict[str, int] = {}
+
     for key, value in data.items():
-        if not isinstance(key, str) or len(key) > MAX_KEY_LENGTH:
+        if not isinstance(key, str):
             continue
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
+
+        if len(key) > MAX_KEY_LENGTH:
             continue
+
+        if isinstance(value, bool):
+            continue
+
+        if not isinstance(value, (int, float)):
+            continue
+
         if isinstance(value, float) and not math.isfinite(value):
             continue
+
         deduction = int(round(value))
+
         if deduction < 0:
             deduction = 0
         elif deduction > MAX_DEDUCTION:
             deduction = MAX_DEDUCTION
+
         sanitized[key] = deduction
+
     return sanitized
 
+
+# ---------------------------------------------------------------------------
+# Error logging
+# ---------------------------------------------------------------------------
+
+def _log_openrouter_error(exc: Exception) -> None:
+    """Log as much useful information as possible from an OpenRouter error."""
+    logger.exception(
+        "OpenRouter request failed: type=%s status_code=%s message=%s",
+        type(exc).__name__,
+        getattr(exc, "status_code", None),
+        str(exc),
+    )
+
+    body = getattr(exc, "body", None)
+
+    if body is not None:
+        logger.error("OpenRouter error body: %r", body)
+
+    response = getattr(exc, "response", None)
+
+    if response is not None:
+        try:
+            logger.error(
+                "OpenRouter HTTP response: status=%s body=%s",
+                getattr(response, "status_code", None),
+                response.text,
+            )
+        except Exception:
+            logger.error("Unable to read OpenRouter HTTP response body.")
+
+
+# ---------------------------------------------------------------------------
+# Score analysis
+# ---------------------------------------------------------------------------
 
 async def analyze_support_ticket(
     notes_html: str,
     case_type: CaseTypeEnum,
     db_session: AsyncSession,
 ) -> dict[str, int]:
-    """Analyze rich-text (HTML) QA notes into a raw scorecard.
-
-    Loads the active scorecard rules configured for ``case_type``
-    (ScorecardTemplate -> ScorecardItem) and builds the scoring prompt
-    from them; with no configured rules the generic fallback prompt
-    (``SYSTEM_PROMPT``) is used. The notes HTML is then sent to the
-    OpenRouter-hosted scoring model with JSON mode enforced, and the
-    response is parsed and sanitized into
-    ``{snake_case_error: deduction_points}`` (whole numbers >= 0; an
-    empty dict means "no errors found"). When rules are configured,
-    the result is additionally filtered to the configured error names
-    (the prompt forbids unknown keys; this enforces it server-side).
-
-    The rules queries run first (fast DB reads) and the read
-    transaction is then committed so the pooled connection is
-    released for the (multi-second) network call.
-
-    Raises:
-        ValueError: ``OPENROUTER_API_KEY`` is not configured (the
-            endpoint maps this to HTTP 503).
-        AnalyzeError: the API call failed or the response could not be
-            parsed (the endpoint maps this to HTTP 502).
-    """
+    """Analyze rich-text (HTML) QA notes into a raw scorecard."""
     stmt = (
         select(ScorecardItem)
-        .join(ScorecardTemplate, ScorecardItem.template_id == ScorecardTemplate.id)
+        .join(
+            ScorecardTemplate,
+            ScorecardItem.template_id == ScorecardTemplate.id,
+        )
         .where(
             ScorecardTemplate.case_type == case_type,
             ScorecardItem.is_active.is_(True),
         )
-        .order_by(ScorecardTemplate.id, ScorecardItem.error_name)
+        .order_by(
+            ScorecardTemplate.id,
+            ScorecardItem.error_name,
+        )
     )
-    items = list((await db_session.execute(stmt)).scalars().all())
-    # Multiple templates may exist for one case type; keep the first
-    # occurrence of each error_name so the rule list never contains
-    # conflicting duplicates.
+
+    items = list(
+        (await db_session.execute(stmt))
+        .scalars()
+        .all()
+    )
+
     rules_by_key: dict[str, tuple[str, str, int]] = {}
+
     for item in items:
         rules_by_key.setdefault(
-            item.error_name, (item.error_name, item.display_name, item.penalty_points)
+            item.error_name,
+            (
+                item.error_name,
+                item.display_name,
+                item.penalty_points,
+            ),
         )
+
     rules = list(rules_by_key.values())
+
     system_prompt = _build_scoring_prompt(rules)
 
-    # End the read transaction: the pooled connection goes back while
-    # the multi-second LLM call runs.
+    # Release the DB connection before the multi-second network request.
     await db_session.commit()
 
-    # Raises ValueError when the key is unset — before any network I/O.
     client = get_openrouter_client()
 
     try:
         response = await client.chat.completions.create(
             model=AI_SCORING_MODEL,
             messages=[
-                {"role": "system", "content": system_prompt},
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
                 {
                     "role": "user",
                     "content": (
@@ -339,71 +423,106 @@ async def analyze_support_ticket(
                     ),
                 },
             ],
-            response_format={"type": "json_object"},
-            temperature=0,  # deterministic scoring
+            response_format={
+                "type": "json_object",
+            },
+            temperature=0,
+            extra_body={
+                "provider": OPENROUTER_PROVIDER,
+            },
         )
+
     except APIError as exc:
-        raise AnalyzeError(f"OpenRouter API error: {exc}") from exc
-    except Exception as exc:  # network errors, timeouts, SDK failures
+        _log_openrouter_error(exc)
         raise AnalyzeError(
-            f"OpenRouter request failed: {type(exc).__name__}: {exc}"
+            f"OpenRouter API error: {exc}"
         ) from exc
 
-    content = response.choices[0].message.content if response.choices else None
+    except Exception as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter request failed: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not response.choices:
+        raise AnalyzeError(
+            "OpenRouter returned no choices."
+        )
+
+    content = response.choices[0].message.content
+
     if not content:
         raise AnalyzeError(
-            "OpenRouter returned an empty response (no message content)."
+            "OpenRouter returned an empty response."
         )
 
     parsed = _extract_json(content)
+
     sanitized = _sanitize_scorecard(parsed)
+
     if rules:
-        # Rules-based prompts forbid unknown keys; enforce it here too
-        # so hallucinated keys never reach the scorecard.
         allowed = set(rules_by_key)
-        sanitized = {key: value for key, value in sanitized.items() if key in allowed}
+
+        sanitized = {
+            key: value
+            for key, value in sanitized.items()
+            if key in allowed
+        }
+
     return sanitized
 
 
+# ---------------------------------------------------------------------------
+# Refactor
+# ---------------------------------------------------------------------------
+
 async def refactor_qa_notes(raw_html: str) -> str:
-    """Rewrite QA notes (HTML) for clarity, grammar, and tone.
-
-    Sends the notes HTML to the OpenRouter-hosted model with
-    ``REFACTOR_SYSTEM_PROMPT`` (markup and embedded images must be
-    preserved verbatim) and returns the improved HTML. The response is
-    NOT requested in JSON mode — the output is HTML — but markdown
-    code fences are stripped defensively via ``_strip_code_fences``
-    should the model wrap its output anyway.
-
-    Raises:
-        ValueError: ``OPENROUTER_API_KEY`` is not configured (the
-            endpoint maps this to HTTP 503).
-        AnalyzeError: the API call failed or the response was empty
-            (the endpoint maps this to HTTP 502).
-    """
-    # Raises ValueError when the key is unset — before any network I/O.
+    """Rewrite QA notes for clarity, grammar and professional tone."""
     client = get_openrouter_client()
 
     try:
         response = await client.chat.completions.create(
             model=AI_SCORING_MODEL,
             messages=[
-                {"role": "system", "content": REFACTOR_SYSTEM_PROMPT},
-                {"role": "user", "content": raw_html},
+                {
+                    "role": "system",
+                    "content": REFACTOR_SYSTEM_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": raw_html,
+                },
             ],
-            temperature=0,  # deterministic rewriting
+            temperature=0,
+            extra_body={
+                "provider": OPENROUTER_PROVIDER,
+            },
         )
+
     except APIError as exc:
-        raise AnalyzeError(f"OpenRouter API error: {exc}") from exc
-    except Exception as exc:  # network errors, timeouts, SDK failures
+        _log_openrouter_error(exc)
         raise AnalyzeError(
-            f"OpenRouter request failed: {type(exc).__name__}: {exc}"
+            f"OpenRouter API error: {exc}"
         ) from exc
 
-    content = response.choices[0].message.content if response.choices else None
+    except Exception as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter request failed: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not response.choices:
+        raise AnalyzeError(
+            "OpenRouter returned no choices."
+        )
+
+    content = response.choices[0].message.content
+
     if not content:
         raise AnalyzeError(
-            "OpenRouter returned an empty response (no message content)."
+            "OpenRouter returned an empty response."
         )
 
     return _strip_code_fences(content)
