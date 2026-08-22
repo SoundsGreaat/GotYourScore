@@ -1,6 +1,7 @@
 """Review Pydantic schemas."""
 
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -118,9 +119,26 @@ class AutoScoreCreate(BaseModel):
 class ReviewRead(BaseModel):
     """Review representation returned by the API.
 
-    ``scorecard_data`` is the detailed JSON computed server-side:
-    ``{"<error_key>": {"deducted": X, "multiplier": Y, "final_penalty": Z}}``
-    with whole-number values (null for 'No Cases' reviews).
+    ``scorecard_data`` is the JSON computed server-side at save time
+    and never rewritten afterwards (historical immutability). New rows
+    use the nested shape::
+
+        {
+          "rules_snapshot": {
+            "case_type": "Service Request",
+            "template_ids": [1],
+            "items": [{"error_name": ..., "display_name": ...,
+                       "penalty_points": N}, ...]
+          },
+          "base_score": 100,
+          "total_penalty": N,
+          "final_score": N,
+          "breakdown": {"<error_key>": {"deducted": X, "multiplier": Y,
+                                        "final_penalty": Z}}
+        }
+
+    Legacy rows store only the flat breakdown at the top level. Null
+    for 'No Cases' reviews.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -130,14 +148,44 @@ class ReviewRead(BaseModel):
     qa_id: int
     case_type: CaseTypeEnum
     case_number: str | None = None
-    scorecard_data: dict[str, dict[str, int]] | None = None
+    scorecard_data: dict[str, Any] | None = None
     notes: str | None = None
     final_score: int | None = None
     created_at: datetime
 
 
 class QuotaRead(BaseModel):
-    """Monthly review quota status for a support agent."""
+    """Reporting-period review quota status for a support agent."""
 
     completed: int
     target: int
+
+
+class IntervalComplianceRead(BaseModel):
+    """One pacing interval of a QA's quota compliance report."""
+
+    label: str
+    starts_at: datetime
+    ends_at: datetime
+    required: int
+    completed: int
+    deficit: int
+
+
+class QuotaComplianceRead(BaseModel):
+    """Per-interval quota compliance for one QA over a reporting period.
+
+    ``required`` per interval equals the number of assigned agents
+    (each agent owes one review per interval from this QA);
+    ``deficit`` is ``max(0, required - completed)``.
+    """
+
+    qa_id: int
+    closing_year: int
+    closing_month: int
+    period_label: str
+    assigned_agent_count: int
+    intervals: list[IntervalComplianceRead]
+    total_required: int
+    total_completed: int
+    total_deficit: int

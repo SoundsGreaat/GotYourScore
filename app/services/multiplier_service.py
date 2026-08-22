@@ -9,7 +9,15 @@ Business rules:
   therefore never counted.
 - Multiplier for the current submission = past_occurrences + 1, so the
   first occurrence is penalized 1x, the second 2x, and so on.
+
+Stored shape compatibility: reviews saved since the rules-snapshot
+feature nest the breakdown under a top-level ``"breakdown"`` key;
+legacy rows store the flat breakdown at the top level. The past-
+occurrence scan accepts both shapes (see ``_stored_breakdown``), so
+progressive multipliers keep working across old and new rows.
 """
+
+from typing import Any, Iterator
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,12 +28,39 @@ BASE_SCORE: int = 100
 MIN_FINAL_SCORE: int = 0
 
 
+def _stored_breakdown(scorecard: Any) -> dict:
+    """Return the breakdown dict from one stored scorecard JSONB.
+
+    New rows look like ``{"rules_snapshot": ..., "breakdown": {...}}``;
+    legacy rows are the flat breakdown itself. A dict-valued top-level
+    ``"breakdown"`` key decides which shape we are looking at.
+    """
+    if not isinstance(scorecard, dict):
+        return {}
+    nested = scorecard.get("breakdown")
+    if isinstance(nested, dict):
+        return nested
+    return scorecard
+
+
+def _iter_stored_deductions(scorecard: Any) -> Iterator[tuple[str, int]]:
+    """Yield ``(error_key, deducted)`` pairs from a stored scorecard."""
+    for error_key, entry in _stored_breakdown(scorecard).items():
+        if not isinstance(entry, dict):
+            continue
+        try:
+            deducted = int(entry.get("deducted") or 0)
+        except (TypeError, ValueError):
+            continue
+        yield error_key, deducted
+
+
 async def calculate_final_score(
     agent_id: int,
     raw_scorecard: dict[str, int],
     db_session: AsyncSession,
-) -> tuple[dict[str, dict[str, int]], int]:
-    """Compute the detailed scorecard and final score for one review.
+) -> tuple[dict[str, dict[str, int]], int, int]:
+    """Compute the detailed breakdown and scores for one review.
 
     Args:
         agent_id: id of the support agent being reviewed.
@@ -38,10 +73,11 @@ async def calculate_final_score(
             the transaction.
 
     Returns:
-        Tuple ``(detailed, final_score)`` where ``detailed`` is
-        ``{"<error_key>": {"deducted": X, "multiplier": Y,
-        "final_penalty": Z}}`` (all whole numbers) and ``final_score``
-        is ``max(0, 100 - sum(final_penalty))``.
+        Tuple ``(breakdown, final_score, total_penalty)`` where
+        ``breakdown`` is ``{"<error_key>": {"deducted": X,
+        "multiplier": Y, "final_penalty": Z}}`` (all whole numbers),
+        ``final_score`` is ``max(0, 100 - total_penalty)`` and
+        ``total_penalty`` is the sum of all final penalties.
 
     Zero-deduction entries are kept in the output for transparency as
     ``{"deducted": 0, "multiplier": 1, "final_penalty": 0}``, but they do
@@ -59,15 +95,7 @@ async def calculate_final_score(
     # Count past occurrences per error key (only entries with deducted > 0).
     occurrences: dict[str, int] = {}
     for scorecard in past_scorecards:
-        if not isinstance(scorecard, dict):
-            continue
-        for error_key, entry in scorecard.items():
-            if not isinstance(entry, dict):
-                continue
-            try:
-                deducted = int(entry.get("deducted") or 0)
-            except (TypeError, ValueError):
-                continue
+        for error_key, deducted in _iter_stored_deductions(scorecard):
             if deducted > 0:
                 occurrences[error_key] = occurrences.get(error_key, 0) + 1
 
@@ -91,4 +119,4 @@ async def calculate_final_score(
         total_penalty += final_penalty
 
     final_score = max(MIN_FINAL_SCORE, BASE_SCORE - total_penalty)
-    return detailed, final_score
+    return detailed, final_score, total_penalty

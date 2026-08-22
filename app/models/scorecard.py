@@ -2,8 +2,12 @@
 
 A ``ScorecardTemplate`` groups the scoring rules for one case type:
 each ``ScorecardItem`` is an error type with a fixed penalty. The AI
-auto-scoring prompt is built from the active items of the template
-matching the reviewed case type (see ``app.services.ai_service``).
+auto-scoring prompt is built from the active items of the ACTIVE
+template matching the reviewed case type (see
+``app.services.scorecard_service`` / ``app.services.ai_service``).
+Deactivating a template or item only affects FUTURE reviews: saved
+reviews embed a frozen snapshot of the rules that were active at save
+time (historical immutability).
 """
 
 from datetime import datetime
@@ -46,6 +50,11 @@ class ScorecardTemplate(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    # Inactive templates are excluded from AI prompts and from the
+    # rules snapshot embedded into newly saved reviews.
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
     )
 
     # Fetch server-side defaults (created_at) with INSERT ... RETURNING

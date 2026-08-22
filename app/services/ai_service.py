@@ -41,7 +41,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate
+from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate, SystemPrompt
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,10 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # Exact model identifier required by the spec — do not rename.
 AI_SCORING_MODEL = "deepseek/deepseek-v4-flash-0731"
+
+# SystemPrompt key whose newest active row replaces the hardcoded
+# scoring system prompt (see analyze_support_ticket).
+SCORING_PROMPT_KEY = "ai_scoring"
 
 # OpenRouter provider routing:
 # - "latency" = prefer the provider with the lowest latency;
@@ -155,17 +159,48 @@ Strict rules:
 # Prompt builders
 # ---------------------------------------------------------------------------
 
+# Shared JSON-output-contract suffix appended after the configured rule
+# lines. ``{penalty_map}`` is interpolated per request; ``{{}}`` renders
+# the literal empty-object example.
+_JSON_OUTPUT_CONTRACT = (
+    "\n"
+    "The final output must be ONLY a JSON object mapping snake_case error\n"
+    'names to integer deduction points, e.g. {{"late_response": 5}}:\n'
+    "- Keys are restricted to the error names listed above: unknown keys\n"
+    "  are forbidden.\n"
+    "- Values MUST match the configured penalty points exactly\n"
+    "  ({penalty_map}); do not invent or adjust deductions.\n"
+    "- Use 0 for a rule you considered but found not to be violated.\n"
+    "- If no rule was violated, output an empty object: {{}}.\n"
+    "- Markdown code fences, prose, explanations, and nested structures\n"
+    "  are all forbidden: output a single flat JSON object and nothing else.\n"
+)
+
+_STEP_BY_STEP_DIRECTIVE = (
+    "Think step-by-step, carefully and in depth, about what the customer\n"
+    "needed, what the agent actually did, and which rules were violated,\n"
+    "BEFORE producing the final answer. Keep that reasoning internal: it\n"
+    "must NOT appear in the output.\n"
+)
+
+
 def _build_scoring_prompt(
     rules: Sequence[tuple[str, str, int]],
+    base_system_text: str | None = None,
 ) -> str:
-    """Build the scoring system prompt from configured scorecard rules.
+    """Build the scoring system prompt.
 
-    ``rules`` is a sequence of ``(error_name, display_name,
-    penalty_points)`` tuples. With no rules the generic fallback
-    prompt (``SYSTEM_PROMPT``) is returned unchanged.
+    ``base_system_text`` is the DB-stored active system prompt for the
+    ``"ai_scoring"`` key; when no active row exists it falls back to
+    the hardcoded ``SYSTEM_PROMPT`` constant (identical behavior to
+    before the system-prompt feature). With configured rules, the rule
+    lines and the shared JSON-output contract are appended to the base
+    text; with no rules the base text is returned unchanged.
     """
+    base = base_system_text if base_system_text else SYSTEM_PROMPT
+
     if not rules:
-        return SYSTEM_PROMPT
+        return base
 
     rule_lines = [
         f"- {error_name} ({display_name}): deduct {penalty} point(s) when violated."
@@ -178,30 +213,16 @@ def _build_scoring_prompt(
     )
 
     return (
-        "You are a QA scoring assistant for a customer support team.\n"
-        "\n"
-        "You will receive the rich-text (HTML) QA notes about a support agent's\n"
-        "case. Analyze the agent's performance and judge each of the configured\n"
-        "scoring rules below:\n"
+        base.rstrip("\n")
+        + "\n\n"
+        + "You will receive the rich-text (HTML) QA notes about a support agent's\n"
+        "case. Judge each of the configured scoring rules below:\n"
         "\n"
         + "\n".join(rule_lines)
         + "\n"
         "\n"
-        "Think step-by-step, carefully and in depth, about what the customer\n"
-        "needed, what the agent actually did, and which rules were violated,\n"
-        "BEFORE producing the final answer. Keep that reasoning internal: it\n"
-        "must NOT appear in the output.\n"
-        "\n"
-        "The final output must be ONLY a JSON object mapping snake_case error\n"
-        'names to integer deduction points, e.g. {"late_response": 5}:\n'
-        "- Keys are restricted to the error names listed above: unknown keys\n"
-        "  are forbidden.\n"
-        "- Values MUST match the configured penalty points exactly\n"
-        f"  ({penalty_map}); do not invent or adjust deductions.\n"
-        "- Use 0 for a rule you considered but found not to be violated.\n"
-        "- If no rule was violated, output an empty object: {}.\n"
-        "- Markdown code fences, prose, explanations, and nested structures\n"
-        "  are all forbidden: output a single flat JSON object and nothing else.\n"
+        + _STEP_BY_STEP_DIRECTIVE
+        + _JSON_OUTPUT_CONTRACT.format(penalty_map=penalty_map)
     )
 
 
@@ -358,6 +379,28 @@ def _log_openrouter_error(exc: Exception) -> None:
 # Score analysis
 # ---------------------------------------------------------------------------
 
+async def _active_system_prompt(
+    key: str, db_session: AsyncSession
+) -> str | None:
+    """Return the newest ACTIVE prompt content for ``key``, or None.
+
+    "Newest" = highest ``created_at``, ties broken by higher ``id``.
+    """
+    stmt = (
+        select(SystemPrompt.content)
+        .where(
+            SystemPrompt.key == key,
+            SystemPrompt.is_active.is_(True),
+        )
+        .order_by(
+            SystemPrompt.created_at.desc(),
+            SystemPrompt.id.desc(),
+        )
+        .limit(1)
+    )
+    return (await db_session.execute(stmt)).scalar_one_or_none()
+
+
 async def analyze_support_ticket(
     notes_html: str,
     case_type: CaseTypeEnum,
@@ -400,7 +443,10 @@ async def analyze_support_ticket(
 
     rules = list(rules_by_key.values())
 
-    system_prompt = _build_scoring_prompt(rules)
+    # DB-stored prompt wins; the hardcoded constant is only a fallback
+    # for an empty/inactive system_prompts table.
+    db_prompt = await _active_system_prompt(SCORING_PROMPT_KEY, db_session)
+    system_prompt = _build_scoring_prompt(rules, base_system_text=db_prompt)
 
     # Release the DB connection before the multi-second network request.
     await db_session.commit()

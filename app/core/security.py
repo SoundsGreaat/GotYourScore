@@ -60,6 +60,9 @@ async def get_current_user(
 class RoleChecker:
     """FastAPI dependency restricting access to the given roles.
 
+    Multi-role aware: access is granted when the user holds ANY of the
+    allowed roles (a Support+QA hybrid passes a QA-only gate).
+
     Usage::
 
         @router.get(
@@ -73,9 +76,19 @@ class RoleChecker:
         self.allowed_roles = allowed_roles
 
     async def __call__(self, current_user: Annotated[User, Depends(get_current_user)]) -> User:
-        if current_user.role not in self.allowed_roles:
+        if not any(role in current_user.roles for role in self.allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",
             )
         return current_user
+
+
+def is_reviewer(user: User) -> bool:
+    """True for QA, Supervisor or Admin users (the reviewer-side roles)."""
+    return user.has_role(RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN)
+
+
+def is_support_only(user: User) -> bool:
+    """True for users whose only role is Support (no elevated roles)."""
+    return user.is_support_only

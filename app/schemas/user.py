@@ -6,12 +6,16 @@ from app.models.enums import RoleEnum
 
 
 class UserBase(BaseModel):
-    """Shared user fields (strict: unknown fields are rejected)."""
+    """Shared user fields (strict: unknown fields are rejected).
+
+    ``roles`` is the many-to-many role list; a user may hold several
+    roles at once (e.g. Support+QA).
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     email: EmailStr
-    role: RoleEnum
+    roles: list[RoleEnum]
     name: str
 
 

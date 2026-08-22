@@ -71,13 +71,13 @@ async def auth_callback(
             detail=f"Login is restricted to @{allowed_domain} accounts",
         )
 
-    # Auto-registration: first login creates the user with the default role.
+    # Auto-registration: first login creates the user with default roles.
     user = await db.scalar(select(User).where(User.email == email))
     if user is None:
         user = User(
             email=email,
             name=userinfo.get("name") or email.split("@")[0],
-            role=RoleEnum.SUPPORT,
+            roles=[RoleEnum.SUPPORT],
         )
         db.add(user)
         await db.flush()

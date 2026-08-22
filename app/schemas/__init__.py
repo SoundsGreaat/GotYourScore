@@ -6,7 +6,20 @@ from app.schemas.assignment import (
     QAAssignmentCreate,
     QAAssignmentRead,
 )
-from app.schemas.review import AutoScoreCreate, QuotaRead, ReviewCreate, ReviewRead
+from app.schemas.review import (
+    AutoScoreCreate,
+    IntervalComplianceRead,
+    QuotaComplianceRead,
+    QuotaRead,
+    ReviewCreate,
+    ReviewRead,
+)
+from app.schemas.system_prompt import (
+    SystemPromptBase,
+    SystemPromptCreate,
+    SystemPromptRead,
+    SystemPromptUpdate,
+)
 from app.schemas.user import UserBase, UserCreate, UserRead
 
 __all__ = [
@@ -19,7 +32,13 @@ __all__ = [
     "QAAssignmentCreate",
     "QAAssignmentRead",
     "AutoScoreCreate",
+    "IntervalComplianceRead",
+    "QuotaComplianceRead",
     "QuotaRead",
     "ReviewCreate",
     "ReviewRead",
+    "SystemPromptBase",
+    "SystemPromptCreate",
+    "SystemPromptRead",
+    "SystemPromptUpdate",
 ]

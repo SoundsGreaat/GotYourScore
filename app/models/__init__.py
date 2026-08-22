@@ -8,7 +8,8 @@ from app.models.enums import CaseTypeEnum, RoleEnum
 from app.models.assignment import QAAssignment
 from app.models.review import Review
 from app.models.scorecard import ScorecardItem, ScorecardTemplate
-from app.models.user import User
+from app.models.system_prompt import SystemPrompt
+from app.models.user import User, UserRole
 
 __all__ = [
     "CaseTypeEnum",
@@ -17,5 +18,7 @@ __all__ = [
     "Review",
     "ScorecardItem",
     "ScorecardTemplate",
+    "SystemPrompt",
     "User",
+    "UserRole",
 ]

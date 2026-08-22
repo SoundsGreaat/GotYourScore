@@ -1,10 +1,24 @@
-"""User ORM model."""
+"""User ORM model.
+
+Roles are many-to-many via the ``user_roles`` table: a user holds one
+or more :class:`~app.models.enums.RoleEnum` values (a Support+QA hybrid
+is simultaneously a legitimate review target AND a reviewer). Role
+checks must go through ``User.has_role`` / ``User.is_support_only`` —
+never assume a single role.
+
+Implementation note: the association uses a mapped ``UserRole``
+association class + ``association_proxy`` instead of a bare
+``sqlalchemy.Table`` secondary, because ``relationship()`` cannot target
+an unmapped enum type directly (UnmappedClassError). The table shape is
+identical to the plain-secondary design.
+"""
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import String
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.ext.associationproxy import AssociationProxy, association_proxy
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.enums import RoleEnum
@@ -13,14 +27,18 @@ if TYPE_CHECKING:
     from app.models.review import Review
 
 
-class User(Base):
-    """Application user: Admin, Supervisor, QA, or Support agent."""
+class UserRole(Base):
+    """One ``(user_id, role)`` membership row.
 
-    __tablename__ = "users"
+    Roles persist as VARCHAR holding RoleEnum *values* ("Admin", "QA",
+    ...) so rows stay human-readable and match the legacy single-column
+    values they were backfilled from.
+    """
 
-    id: Mapped[int] = mapped_column(primary_key=True)
-    email: Mapped[str] = mapped_column(
-        String(255), unique=True, index=True, nullable=False
+    __tablename__ = "user_roles"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     role: Mapped[RoleEnum] = mapped_column(
         SAEnum(
@@ -31,12 +49,50 @@ class User(Base):
             # Persist enum *values* ("Admin", "QA", ...) instead of names.
             values_callable=lambda e: [m.value for m in e],
         ),
-        nullable=False,
+        primary_key=True,
+    )
+
+    def __repr__(self) -> str:
+        return f"UserRole(user_id={self.user_id!r}, role={self.role!r})"
+
+
+class User(Base):
+    """Application user holding one or more roles."""
+
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, index=True, nullable=False
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    # selectin: role rows load eagerly alongside the user, avoiding sync
+    # lazy-loads inside async sessions.
+    _role_rows: Mapped[list["UserRole"]] = relationship(
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
+
+    # Public view of the roles as plain RoleEnum values. creator is
+    # required because the declarative __init__ is keyword-only.
+    roles: AssociationProxy[list[RoleEnum]] = association_proxy(
+        "_role_rows", "role", creator=lambda role: UserRole(role=role)
+    )
 
     # Convenience relationships (kept simple).
     reviews: Mapped[list["Review"]] = relationship(
         back_populates="support_agent",
         foreign_keys="Review.support_agent_id",
     )
+
+    def has_role(self, *roles: RoleEnum) -> bool:
+        """True when the user holds ANY of the given roles."""
+        return any(role in self.roles for role in roles)
+
+    @property
+    def is_support_only(self) -> bool:
+        """True when the user has SUPPORT but no elevated role."""
+        return self.has_role(RoleEnum.SUPPORT) and not self.has_role(
+            RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
+        )
