@@ -1,7 +1,5 @@
-<link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" />
-
 <div class="drawer drawer-end">
-    <input id="review-drawer-toggle" type="checkbox" class="drawer-toggle" />
+    <input id="review-drawer-toggle" type="checkbox" class="drawer-toggle" checked />
     <div class="drawer-content"></div>
     <div class="drawer-side">
         <label for="review-drawer-toggle" aria-label="close drawer" class="drawer-overlay"></label>
@@ -11,16 +9,25 @@
                 <label for="review-drawer-toggle" class="btn btn-ghost btn-sm">Close</label>
             </div>
 
-            <div class="overflow-y-auto p-4 space-y-4">
+            <div class="space-y-4 overflow-y-auto p-4">
+
                 <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Assignment</legend>
                     <label class="label" for="review-agent">Agent</label>
-                    <select id="review-agent" class="select select-sm w-full">
-                        <option disabled selected>Select agent…</option>
-                        {% for agent in agents %}
-                        <option value="{{ agent.id }}">{{ agent.name }}</option>
-                        {% endfor %}
-                    </select>
+                    <div class="dropdown w-full">
+                        <div tabindex="0" role="button" class="select select-sm w-full flex items-center bg-base-100">
+                            <span id="review-agent-display" class="pointer-events-none truncate text-base-content/70">Select agent…</span>
+                        </div>
+                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[100] mt-1 w-full flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                            {% for agent in agents %}
+                            <li>
+                                <button type="button" onclick="updateCustomDropdown('review-agent', 'review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
+                                    {{ agent.name }}
+                                </button>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        <input type="hidden" id="review-agent" value="" />
+                    </div>
                 </fieldset>
 
                 <fieldset class="fieldset">
@@ -29,19 +36,39 @@
                 </fieldset>
 
                 <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Case details</legend>
                     <label class="label" for="case-type">Case type</label>
-                    <select id="case-type" class="select select-sm w-full">
-                        {% for case_type in case_types %}
-                        <option value="{{ case_type }}"{% if case_type == 'Service Request' %} selected{% endif %}>{{ case_type }}</option>
-                        {% endfor %}
-                    </select>
+                    <div class="dropdown w-full">
+                        <div tabindex="0" role="button" class="select select-sm w-full flex items-center bg-base-100">
+                            <span id="case-type-display" class="pointer-events-none truncate">Service Request</span>
+                        </div>
+                        <ul tabindex="0" class="dropdown-content menu menu-sm z-[100] mt-1 w-full flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                            {% for case_type in case_types %}
+                            <li>
+                                <button type="button"
+                                        onclick="updateCustomDropdown('case-type', 'case-type-display', '{{ case_type }}', '{{ case_type }}', this)"
+                                        class="{% if case_type == 'Service Request' %}active{% endif %}">
+                                    {{ case_type }}
+                                </button>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        <input type="hidden" id="case-type" value="Service Request" />
+                    </div>
                 </fieldset>
 
                 <fieldset class="fieldset">
-                    <legend class="fieldset-legend">Review notes</legend>
-                    <label class="label" for="quill-editor">Notes</label>
-                    <div id="quill-editor" class="min-h-48 bg-base-100"></div>
+                    <span class="label">Review notes</span>
+                    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+                        <!-- ql-container/ql-snow are Quill's own classes, normally
+                             added at construction. HTMX's settle step re-applies the
+                             fragment's server-side attributes onto inserted elements
+                             whose ids matched the outgoing DOM (cloneAttributes),
+                             which would otherwise strip them AFTER the inline script
+                             built the editor — un-hiding the snow theme's link
+                             tooltip (<input data-formula ...>). Shipping the classes
+                             in the markup keeps the settled value correct. -->
+                        <div id="quill-editor" class="min-h-48 ql-container ql-snow"></div>
+                    </div>
                 </fieldset>
 
                 <div id="ai-score-result" class="card hidden bg-base-200 shadow-sm">
@@ -51,31 +78,47 @@
                     </div>
                 </div>
 
-                <button type="button" class="btn btn-primary btn-block" disabled>Save Review</button>
-                <p class="text-center text-sm text-base-content/70">Saving is wired up in the next iteration</p>
+                <button id="save-review" type="button" class="btn btn-primary btn-block" disabled>Save Review</button>
             </div>
         </aside>
     </div>
 </div>
 
 <div id="ai-context-menu" class="menu absolute z-50 hidden w-52 rounded-box border border-base-300 bg-base-100 shadow-lg">
-    <li><button id="ai-refactor-action" type="button" class="text-primary font-medium">✨ Refactor Notes</button></li>
-    <li><button id="ai-score-action" type="button" class="text-primary font-medium">✨ Generate Score</button></li>
+    <li><button id="ai-refactor-action" type="button" class="font-medium text-primary">✨ Refactor Notes</button></li>
+    <li><button id="ai-score-action" type="button" class="font-medium text-primary">✨ Generate Score</button></li>
 </div>
 
 <script>
+window.updateCustomDropdown = function(inputId, displayId, value, text, buttonElement) {
+    document.getElementById(inputId).value = value;
+    var displaySpan = document.getElementById(displayId);
+    displaySpan.textContent = text;
+    displaySpan.classList.remove('text-base-content/70');
+
+    if (buttonElement) {
+        var siblings = buttonElement.closest('ul').querySelectorAll('button');
+        siblings.forEach(function(btn) { btn.classList.remove('active'); });
+        buttonElement.classList.add('active');
+    }
+
+    document.activeElement.blur();
+    document.dispatchEvent(new CustomEvent('review-agent-change'));
+};
+
 (function () {
     var editorContainer = document.getElementById('quill-editor');
     var menu = document.getElementById('ai-context-menu');
-    var drawerToggle = document.getElementById('review-drawer-toggle');
-    if (!editorContainer || !menu) return;
+    if (!editorContainer || !menu || !window.Quill) return;
 
-    // Per-instance listener cleanup: aborting the previous controller
-    // (from an earlier HTMX swap of this partial) detaches its stale
-    // document-level listeners.
+    if (window._reviewDrawerCleanup) window._reviewDrawerCleanup();
     if (window._reviewDrawerAbort) window._reviewDrawerAbort.abort();
     var controller = new AbortController();
     window._reviewDrawerAbort = controller;
+    var drawerMount = editorContainer.closest('.drawer').parentElement;
+    var draftKey = 'gotyourscore:review-draft:new';
+    var draftTimer;
+    var quill;
 
     function showToast(message) {
         var toast = document.createElement('div');
@@ -85,92 +128,17 @@
         window.setTimeout(function () { toast.remove(); }, 3500);
     }
 
-    // Model-returned HTML is untrusted: sanitize before it touches the
-    // DOM (falls back to the raw string only if DOMPurify failed to load).
     function sanitizeHtml(html) {
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
     }
 
-    function init(quill) {
-        // Quill.find returns the instance bound to this exact element,
-        // preventing double initialization across re-swaps.
-        if (window.Quill.find(editorContainer)) return;
-
-        function hideMenu() { menu.classList.add('hidden'); }
-        function setLoading(button, label, loading) {
-            button.disabled = loading;
-            button.textContent = loading ? label : button.dataset.label;
-            if (loading) {
-                button.insertAdjacentHTML('beforeend', ' <span class="loading loading-spinner loading-xs"></span>');
-            }
+    function hideMenu() { menu.classList.add('hidden'); }
+    function setLoading(button, label, loading) {
+        button.disabled = loading;
+        button.textContent = loading ? label : button.dataset.label;
+        if (loading) {
+            button.insertAdjacentHTML('beforeend', ' <span class="loading loading-spinner loading-xs"></span>');
         }
-
-        var refactorButton = document.getElementById('ai-refactor-action');
-        var scoreButton = document.getElementById('ai-score-action');
-        refactorButton.dataset.label = '✨ Refactor Notes';
-        scoreButton.dataset.label = '✨ Generate Score';
-
-        editorContainer.addEventListener('contextmenu', function (event) {
-            if (!event.target.closest('.ql-editor')) return;
-            event.preventDefault();
-            menu.classList.remove('hidden');
-            var left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8);
-            var top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8);
-            menu.style.left = Math.max(8, left + window.scrollX) + 'px';
-            menu.style.top = Math.max(8, top + window.scrollY) + 'px';
-        });
-
-        menu.addEventListener('click', function (event) { event.stopPropagation(); });
-        document.addEventListener('click', hideMenu, { signal: controller.signal });
-        document.addEventListener('keydown', function (event) { if (event.key === 'Escape') hideMenu(); }, { signal: controller.signal });
-        window.addEventListener('scroll', hideMenu, { capture: true, signal: controller.signal });
-
-        refactorButton.addEventListener('click', async function () {
-            setLoading(refactorButton, 'Refactoring…', true);
-            try {
-                var response = await fetch('/api/ai/refactor', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ html: quill.root.innerHTML })
-                });
-                if (!response.ok) throw new Error('Refactor request failed');
-                quill.root.innerHTML = sanitizeHtml((await response.json()).html);
-                hideMenu();
-            } catch (error) {
-                showToast('Unable to refactor notes.');
-            } finally {
-                setLoading(refactorButton, 'Refactoring…', false);
-            }
-        });
-
-        scoreButton.addEventListener('click', async function () {
-            setLoading(scoreButton, 'Scoring…', true);
-            try {
-                var response = await fetch('/api/ai/score', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ html: quill.root.innerHTML, case_type: document.getElementById('case-type').value })
-                });
-                if (!response.ok) throw new Error('Score request failed');
-                var result = await response.json();
-                var resultPanel = document.getElementById('ai-score-result');
-                var content = document.getElementById('ai-score-content');
-                var entries = Object.entries(result.scorecard || {}).map(function (entry) {
-                    return '<li class="flex justify-between gap-4 border-b border-base-300 py-1"><span>' + escapeHtml(entry[0]) + '</span><span class="badge badge-sm">' + escapeHtml(String(entry[1])) + '</span></li>';
-                }).join('');
-                content.innerHTML = '<p class="text-sm text-base-content/70">Final Score</p><p class="text-3xl font-bold text-primary">' + escapeHtml(String(result.final_score)) + '</p>' +
-                    '<ul class="mt-2 text-sm">' + (entries || '<li class="text-base-content/70">No deductions</li>') + '</ul>' +
-                    '<p class="mt-3 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(result.total_deduction)) + '</p>';
-                resultPanel.classList.remove('hidden');
-                hideMenu();
-            } catch (error) {
-                showToast('Unable to generate a score.');
-            } finally {
-                setLoading(scoreButton, 'Scoring…', false);
-            }
-        });
     }
 
     function escapeHtml(value) {
@@ -179,34 +147,166 @@
         return element.innerHTML;
     }
 
-    function loadScript(src, marker, onload) {
-        var existing = document.querySelector('script[data-' + marker + ']');
-        if (existing) return;
-        var script = document.createElement('script');
-        script.src = src;
-        script.dataset[marker] = 'true';
-        script.addEventListener('load', onload, { once: true });
-        document.head.appendChild(script);
+    function saveDraft() {
+        window.clearTimeout(draftTimer);
+        draftTimer = window.setTimeout(function () {
+            try {
+                var html = sanitizeHtml(quill.root.innerHTML);
+                if (quill.getText().trim()) {
+                    window.localStorage.setItem(draftKey, html);
+                } else {
+                    window.localStorage.removeItem(draftKey);
+                }
+            } catch (error) {
+                // Storage can be unavailable in private browsing or restricted frames.
+            }
+        }, 300);
     }
 
-    function loadQuill() {
-        if (window.Quill) {
-            // Bind to the element instance, not the selector: repeated
-            // swaps create new #quill-editor elements and the selector
-            // could resolve to a stale one.
-            init(new window.Quill(editorContainer, { theme: 'snow', modules: { toolbar: [['bold', 'italic', 'underline'], [{ color: [] }], ['image', 'code-block']] } }));
-            return;
+    function restoreDraft() {
+        try {
+            var draft = window.localStorage.getItem(draftKey);
+            if (draft && !quill.getText().trim()) {
+                quill.clipboard.dangerouslyPasteHTML(sanitizeHtml(draft), 'silent');
+            }
+        } catch (error) {
+            // Storage can be unavailable in private browsing or restricted frames.
         }
-        loadScript('https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.js', 'quillLoader', function () { loadQuill(); });
     }
 
-    function loadPurify() {
-        if (window.DOMPurify) return;
-        loadScript('https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js', 'purifyLoader', function () {});
+    function clearDraft() {
+        window.clearTimeout(draftTimer);
+        try { window.localStorage.removeItem(draftKey); } catch (error) { }
     }
 
-    loadPurify();
-    loadQuill();
-    if (drawerToggle) drawerToggle.checked = true;
+    function cleanup() {
+        window.clearTimeout(draftTimer);
+        if (quill) {
+            quill.off('text-change', saveDraft);
+            // Do NOT call quill.disable() here: the ql-disabled class it
+            // adds would be picked up by HTMX's cloneAttributes and
+            // briefly copied onto the replacement #quill-editor.
+            var clipboard = editorContainer.querySelector('.ql-clipboard');
+            if (clipboard) clipboard.remove();
+            quill = null;
+        }
+        if (window._reviewDrawerCleanup === cleanup) window._reviewDrawerCleanup = null;
+    }
+
+    window._reviewDrawerCleanup = cleanup;
+    document.addEventListener('htmx:beforeSwap', function (event) {
+        if (event.detail && event.detail.target === drawerMount) cleanup();
+    }, { signal: controller.signal });
+
+    quill = window.Quill.find(editorContainer);
+    if (!quill) quill = new window.Quill(editorContainer, {
+        theme: 'snow',
+        modules: { toolbar: [['bold', 'italic', 'underline'], [{ color: [] }], ['image', 'code-block']] }
+    });
+    restoreDraft();
+    quill.on('text-change', saveDraft);
+
+    var refactorButton = document.getElementById('ai-refactor-action');
+    var scoreButton = document.getElementById('ai-score-action');
+    var saveButton = document.getElementById('save-review');
+    refactorButton.dataset.label = '✨ Refactor Notes';
+    scoreButton.dataset.label = '✨ Generate Score';
+    saveButton.dataset.label = 'Save Review';
+
+    function updateSaveState() {
+        saveButton.disabled = !document.getElementById('review-agent').value;
+    }
+    document.addEventListener('review-agent-change', updateSaveState, { signal: controller.signal });
+    updateSaveState();
+
+    editorContainer.addEventListener('contextmenu', function (event) {
+        if (!event.target.closest('.ql-editor')) return;
+        event.preventDefault();
+        menu.classList.remove('hidden');
+        var left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8);
+        var top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8);
+        menu.style.left = Math.max(8, left + window.scrollX) + 'px';
+        menu.style.top = Math.max(8, top + window.scrollY) + 'px';
+    });
+
+    menu.addEventListener('click', function (event) { event.stopPropagation(); });
+    document.addEventListener('click', hideMenu, { signal: controller.signal });
+    document.addEventListener('keydown', function (event) { if (event.key === 'Escape') hideMenu(); }, { signal: controller.signal });
+    window.addEventListener('scroll', hideMenu, { capture: true, signal: controller.signal });
+
+    refactorButton.addEventListener('click', async function () {
+        setLoading(refactorButton, 'Refactoring…', true);
+        try {
+            var response = await fetch('/api/ai/refactor', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ html: quill.root.innerHTML })
+            });
+            if (!response.ok) throw new Error('Refactor request failed');
+            quill.root.innerHTML = sanitizeHtml((await response.json()).html);
+            saveDraft();
+            hideMenu();
+        } catch (error) {
+            showToast('Unable to refactor notes.');
+        } finally {
+            setLoading(refactorButton, 'Refactoring…', false);
+        }
+    });
+
+    scoreButton.addEventListener('click', async function () {
+        setLoading(scoreButton, 'Scoring…', true);
+        try {
+            var response = await fetch('/api/ai/score', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ html: quill.root.innerHTML, case_type: document.getElementById('case-type').value })
+            });
+            if (!response.ok) throw new Error('Score request failed');
+            var result = await response.json();
+            var resultPanel = document.getElementById('ai-score-result');
+            var content = document.getElementById('ai-score-content');
+            var entries = Object.entries(result.scorecard || {}).map(function (entry) {
+                return '<li class="flex justify-between gap-4 border-b border-base-300 py-1"><span>' + escapeHtml(entry[0]) + '</span><span class="badge badge-sm">' + escapeHtml(String(entry[1])) + '</span></li>';
+            }).join('');
+            content.innerHTML = '<p class="text-sm text-base-content/70">Final Score</p><p class="text-3xl font-bold text-primary">' + escapeHtml(String(result.final_score)) + '</p>' +
+                '<ul class="mt-2 text-sm">' + (entries || '<li class="text-base-content/70">No deductions</li>') + '</ul>' +
+                '<p class="mt-3 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(result.total_deduction)) + '</p>';
+            resultPanel.classList.remove('hidden');
+            hideMenu();
+        } catch (error) {
+            showToast('Unable to generate a score.');
+        } finally {
+            setLoading(scoreButton, 'Scoring…', false);
+        }
+    });
+
+    saveButton.addEventListener('click', async function () {
+        if (!document.getElementById('review-agent').value) return;
+        setLoading(saveButton, 'Saving…', true);
+        try {
+            var response = await fetch('/api/reviews', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    support_agent_id: Number(document.getElementById('review-agent').value),
+                    case_type: document.getElementById('case-type').value,
+                    case_number: document.getElementById('case-number').value || null,
+                    notes: sanitizeHtml(quill.root.innerHTML),
+                    raw_scorecard: {}
+                })
+            });
+            if (!response.ok) throw new Error('Review save failed');
+            clearDraft();
+            document.getElementById('review-drawer-toggle').checked = false;
+        } catch (error) {
+            showToast('Unable to save review.');
+        } finally {
+            setLoading(saveButton, 'Saving…', false);
+            updateSaveState();
+        }
+    });
 })();
 </script>
