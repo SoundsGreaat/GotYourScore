@@ -18,6 +18,63 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+# Redirect target used when a soft-deleted account tries to sign in;
+# login.html renders the ``error`` query param inside its warning alert.
+LOGIN_BLOCKED_REDIRECT = "/login?error=Account+disabled"
+
+
+class AccountDisabledError(Exception):
+    """A soft-deleted user attempted to log in.
+
+    Raised by :func:`resolve_google_user`; the OAuth callback redirects
+    to the login page with a friendly message.
+    """
+
+
+async def resolve_google_user(
+    email: str, display_name: str | None, db: AsyncSession
+) -> User:
+    """Find or create the user behind a Google identity.
+
+    Auto-registration: a first login creates the user with default
+    SUPPORT roles and ``name`` from Google's display name (falling back
+    to the email local part when Google sends none).
+
+    Name sync: on every login of an EXISTING user the stored name is
+    overwritten when Google's display name differs. This is what fills
+    in the real name of admin-created placeholder accounts (created
+    without any name) on their first login, and keeps established users'
+    names fresh afterwards.
+
+    Soft-delete enforcement: a soft-deleted user is blocked — raises
+    :class:`AccountDisabledError` instead of returning a user.
+
+    Flushes but does NOT commit; the caller commits before issuing the
+    session cookie so a failed commit never bakes in a stale identity.
+    """
+    email = email.lower()
+    user = await db.scalar(select(User).where(User.email == email))
+
+    if user is None:
+        user = User(
+            email=email,
+            name=display_name or email.split("@")[0],
+            roles=[RoleEnum.SUPPORT],
+        )
+        db.add(user)
+        await db.flush()
+        return user
+
+    if user.is_deleted:
+        raise AccountDisabledError(
+            f"Account {email} has been disabled by an administrator"
+        )
+
+    if display_name and user.name != display_name:
+        user.name = display_name
+
+    return user
+
 
 @router.get("/login", summary="Redirect the user to Google's consent screen")
 async def auth_login(request: Request) -> RedirectResponse:
@@ -71,16 +128,14 @@ async def auth_callback(
             detail=f"Login is restricted to @{allowed_domain} accounts",
         )
 
-    # Auto-registration: first login creates the user with default roles.
-    user = await db.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(
-            email=email,
-            name=userinfo.get("name") or email.split("@")[0],
-            roles=[RoleEnum.SUPPORT],
+    try:
+        user = await resolve_google_user(email, userinfo.get("name"), db)
+    except AccountDisabledError:
+        logger.warning("Blocked login attempt for disabled account: %s", email)
+        return RedirectResponse(
+            url=LOGIN_BLOCKED_REDIRECT,
+            status_code=status.HTTP_303_SEE_OTHER,
         )
-        db.add(user)
-        await db.flush()
 
     # Commit first: if it fails, no stale user_id gets baked into the
     # session cookie.

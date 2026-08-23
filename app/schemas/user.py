@@ -16,7 +16,7 @@ class UserBase(BaseModel):
 
     email: EmailStr
     roles: list[RoleEnum]
-    name: str
+    name: str | None
 
 
 class UserCreate(UserBase):

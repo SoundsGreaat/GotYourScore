@@ -1,0 +1,55 @@
+{# Deleted users partial (swapped into #admin-view).
+   Context: rows = soft-deleted users, newest deletion first
+   ({u: User, name: str, roles: [RoleEnum], deleted_at}). Restore
+   clears the row's deleted_at via POST /admin/users/{id}/restore,
+   which re-renders this whole partial. #}
+<div id="deleted-users-root" class="space-y-4">
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h2 class="card-title text-base">
+                Deleted Users
+                <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
+            </h2>
+            {% if rows %}
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Roles</th>
+                            <th>Deleted</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr>
+                            <th class="font-medium">{{ row.name }}</th>
+                            <td>{{ row.u.email }}</td>
+                            <td>
+                                <div class="flex flex-wrap gap-1">
+                                    {% for r in row.roles %}
+                                    <span class="badge badge-soft badge-sm">{{ r.value }}</span>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
+                            <td>
+                                <button type="button" class="btn btn-outline btn-success btn-xs"
+                                        hx-post="/admin/users/{{ row.u.id }}/restore"
+                                        hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+                No deleted users
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>

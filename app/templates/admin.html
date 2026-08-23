@@ -21,8 +21,10 @@
                 @click="tab = 'prompts'; htmx.ajax('GET', '/admin/partials/prompts', '#admin-view')">Prompts</button>
         <button type="button" role="tab" class="tab" :class="tab === 'scorecards' && 'tab-active'" :aria-selected="tab === 'scorecards'"
                 @click="tab = 'scorecards'; htmx.ajax('GET', '/admin/partials/scorecards', '#admin-view')">Scorecards</button>
-        <button type="button" role="tab" class="tab" :class="tab === 'roles' && 'tab-active'" :aria-selected="tab === 'roles'"
-                @click="tab = 'roles'; htmx.ajax('GET', '/admin/partials/roles', '#admin-view')">Roles</button>
+        <button type="button" role="tab" class="tab" :class="tab === 'users' && 'tab-active'" :aria-selected="tab === 'users'"
+                @click="tab = 'users'; htmx.ajax('GET', '/admin/partials/users', '#admin-view')">Users</button>
+        <button type="button" role="tab" class="tab" :class="tab === 'deleted-users' && 'tab-active'" :aria-selected="tab === 'deleted-users'"
+                @click="tab = 'deleted-users'; htmx.ajax('GET', '/admin/partials/deleted-users', '#admin-view')">Deleted Users</button>
         <button type="button" role="tab" class="tab" :class="tab === 'deleted-reviews' && 'tab-active'" :aria-selected="tab === 'deleted-reviews'"
                 @click="tab = 'deleted-reviews'; htmx.ajax('GET', '/admin/partials/deleted-reviews', '#admin-view')">Deleted Reviews</button>
     </div>

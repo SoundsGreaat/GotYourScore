@@ -34,7 +34,7 @@ from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models import QAAssignment, Review, ReviewStatusEnum
+from app.models import QAAssignment, Review, ReviewStatusEnum, User
 from app.services.reporting_period import (
     pacing_intervals,
     reporting_period_bounds,
@@ -120,14 +120,17 @@ async def get_qa_compliance(
     QAs at once when their assignment scopes overlap.
 
     Assigned agents are the DISTINCT non-null support_agent_id values
-    of this QA's assignments (General + Hybrid); Specialized-only
-    assignments (``support_agent_id`` NULL) contribute nothing to the
-    agent-count math. ``total_required`` is
-    ``len(assigned agents) * MONTHLY_QUOTA``; ``total_completed`` is a
-    plain COUNT of counted reviews (see :func:`counted_review_filters`)
-    for those agents within the half-open ``[start, end)`` period range
-    on ``created_at`` — no ``qa_id`` filter and no DISTINCT collapse;
-    ``total_deficit`` is ``max(0, required - completed)``.
+    of this QA's assignments (General + Hybrid) whose user is still
+    active (``deleted_at IS NULL``): a soft-deleted support agent no
+    longer contributes to required/completed, while their historical
+    reviews stay intact. Specialized-only assignments
+    (``support_agent_id`` NULL) contribute nothing to the agent-count
+    math. ``total_required`` is ``len(assigned agents) * MONTHLY_QUOTA``;
+    ``total_completed`` is a plain COUNT of counted reviews (see
+    :func:`counted_review_filters`) for those agents within the
+    half-open ``[start, end)`` period range on ``created_at`` — no
+    ``qa_id`` filter and no DISTINCT collapse; ``total_deficit`` is
+    ``max(0, required - completed)``.
 
     The per-interval list remains the PACING/NOTIFICATION lens: each
     interval still requires one review per assigned agent, but its
@@ -151,9 +154,13 @@ async def get_qa_compliance(
     assigned = (
         await db_session.execute(
             select(QAAssignment.support_agent_id)
+            .join(User, User.id == QAAssignment.support_agent_id)
             .where(
                 QAAssignment.qa_id == qa_id,
                 QAAssignment.support_agent_id.is_not(None),
+                # Soft-deleted agents leave the compliance math; their
+                # historical reviews remain untouched in the DB.
+                User.active_filter(),
             )
             .distinct()
         )

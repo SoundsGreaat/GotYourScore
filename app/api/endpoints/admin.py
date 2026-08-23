@@ -18,12 +18,13 @@ whose body is ONLY a small daisyUI alert fragment
 that the frontend swaps into an ``#editor-alert`` target.
 """
 
+from datetime import datetime, timezone
 from typing import Annotated
 
 import markupsafe
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.endpoints.pages import (
@@ -41,7 +42,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services import scorecard_service, system_prompt_service
+from app.services import scorecard_service, system_prompt_service, user_service
 
 router = APIRouter(tags=["admin"])
 
@@ -525,58 +526,79 @@ async def toggle_scorecard(
 
 
 # ---------------------------------------------------------------------------
-# Users & roles
+# Users & roles management
 # ---------------------------------------------------------------------------
 
 
-@router.get(
-    "/admin/partials/roles",
-    name="admin_partial_roles",
-    summary="Users & roles partial",
-    include_in_schema=False,
-)
-async def partial_roles(
-    request: Request,
-    auth: AdminPageUser,
-    db: DbSession,
-    status_flag: str | None = Query(default=None, alias="status"),
-) -> Response:
-    """Every user with checkbox role editors (sorted by name)."""
-    redirect = _guard(auth, request)
-    if redirect is not None:
-        return redirect
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/admin_roles.html",
-        context=await _roles_context(db, current_user=auth, status=status_flag),
-    )
+def _display_name(user: User) -> str:
+    """Row label for a user: real name when known, nickname otherwise.
+
+    Placeholder accounts are created with ``name=None``; the nickname
+    (capitalized email local part) is what the team calls them until
+    their first Google login syncs the real name.
+    """
+    return user.name or user.nickname
 
 
-async def _roles_context(
+def _user_row(user: User) -> dict[str, object]:
+    """Common user-card shape: user + display name + canonical roles."""
+    return {
+        "u": user,
+        "name": _display_name(user),
+        # Canonical RoleEnum definition order, whatever the storage order.
+        "roles": [role for role in RoleEnum if role in user.roles],
+    }
+
+
+async def _users_context(
     db: AsyncSession,
     *,
     current_user: User,
     status: str | None = None,
-    error: str | None = None,
 ) -> dict[str, object]:
-    """Context for the roles partial."""
-    users = list((await db.execute(select(User))).scalars().all())
-    rows = [
-        {
-            "u": user,
-            # Canonical RoleEnum definition order, whatever the storage order.
-            "roles": [role for role in RoleEnum if role in user.roles],
-        }
-        for user in users
-    ]
-    rows.sort(key=lambda row: row["u"].nickname.casefold())
+    """Context for the merged users partial: ACTIVE users only.
+
+    ``current_user_id`` drives the "(you)" badge and the disabled
+    own-row Admin checkbox in the role cards.
+    """
+    users = list(
+        (
+            await db.execute(select(User).where(User.active_filter()))
+        ).scalars().all()
+    )
+    rows = [_user_row(user) for user in users]
+    rows.sort(key=lambda row: str(row["name"]).casefold())
     return {
-        "users": rows,
+        "rows": rows,
         "current_user_id": current_user.id,
         "role_choices": _ROLE_VALUES,
+        "default_role": RoleEnum.SUPPORT.value,
         "status": status,
-        "error": error,
     }
+
+
+def _render_users(request: Request, context: dict[str, object]) -> Response:
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_users.html",
+        context=context,
+    )
+
+
+@router.get(
+    "/admin/partials/users",
+    name="admin_partial_users",
+    summary="Admin-managed users partial",
+    include_in_schema=False,
+)
+async def partial_users(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Active users: add-user form, search box, per-user role cards."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    return _render_users(request, await _users_context(db, current_user=auth))
 
 
 @router.post("/admin/users/{user_id}/roles", name="admin_update_roles")
@@ -621,13 +643,170 @@ async def update_user_roles(
         .execution_options(populate_existing=True)
     )
 
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/admin_roles.html",
-        context=await _roles_context(
+    return _render_users(
+        request,
+        await _users_context(
             db, current_user=auth, status=f"Roles updated for {target.nickname}."
         ),
     )
+
+
+@router.post("/admin/users/create", name="admin_create_user")
+async def create_user(
+    request: Request,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    """Create a placeholder account from a nickname (+ role checkboxes).
+
+    Validation failures return 400 whose body is ONLY the alert
+    fragment for the frontend's ``#users-alert`` swap slot. With no
+    roles checked the account defaults to Support. ``users.name`` stays
+    NULL — the person's first Google login fills it in.
+    """
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    form = await request.form()
+    values = list(dict.fromkeys(str(value) for value in form.getlist("roles")))
+
+    unknown = [value for value in values if value not in _ROLE_VALUES]
+    if unknown:
+        return _error_alert(f"Unknown role(s): {', '.join(unknown)}.")
+
+    try:
+        nickname = user_service.normalize_nickname(str(form.get("nickname", "")))
+    except ValueError as exc:
+        return _error_alert(str(exc))
+
+    email = user_service.placeholder_email(nickname)
+    if await user_service.is_email_taken(email, db):
+        return _error_alert(f"A user with email {email} already exists.")
+
+    db.add(
+        User(
+            email=email,
+            name=None,
+            roles=[RoleEnum(value) for value in values] or [RoleEnum.SUPPORT],
+        )
+    )
+    await db.commit()
+
+    return _render_users(
+        request,
+        await _users_context(
+            db, current_user=auth, status=f"User {nickname} created."
+        ),
+    )
+
+
+@router.post("/admin/users/{user_id}/delete", name="admin_delete_user")
+async def delete_user(
+    request: Request,
+    user_id: int,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    """Soft-delete a user (``deleted_at`` = now).
+
+    Historical reviews stay intact and keep resolving the user's name;
+    the account disappears from new-work surfaces and Google login.
+    Guards: you cannot delete yourself, and the last active Admin is
+    irreplaceable — both surface as alert fragments.
+    """
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    target = await db.get(User, user_id)
+    if target is None:
+        return _not_found()
+
+    if target.id == auth.id:
+        return _error_alert("You cannot delete your own account.")
+
+    active_admins = await db.scalar(
+        select(func.count())
+        .select_from(User)
+        .join(UserRole, User.id == UserRole.user_id)
+        .where(User.active_filter(), UserRole.role == RoleEnum.ADMIN)
+    )
+    if target.has_role(RoleEnum.ADMIN) and (active_admins or 0) <= 1:
+        return _error_alert("You cannot delete the last active Admin.")
+
+    target.deleted_at = datetime.now(timezone.utc)
+    await db.commit()
+
+    return _render_users(
+        request, await _users_context(db, current_user=auth)
+    )
+
+
+async def _deleted_users_context(db: AsyncSession) -> dict[str, object]:
+    """Context for the deleted-users partial, newest deletion first."""
+    users = list(
+        (
+            await db.execute(
+                select(User)
+                .where(User.deleted_at.is_not(None))
+                .order_by(User.deleted_at.desc())
+            )
+        ).scalars().all()
+    )
+    rows = [
+        {**_user_row(user), "deleted_at": user.deleted_at} for user in users
+    ]
+    return {"rows": rows}
+
+
+async def _render_deleted_users(request: Request, db: AsyncSession) -> Response:
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_deleted_users.html",
+        context=await _deleted_users_context(db),
+    )
+
+
+@router.get(
+    "/admin/partials/deleted-users",
+    name="admin_partial_deleted_users",
+    summary="Deleted users partial",
+    include_in_schema=False,
+)
+async def partial_deleted_users(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Every soft-deleted user, newest deletion first."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    return await _render_deleted_users(request, db)
+
+
+@router.post("/admin/users/{user_id}/restore", name="admin_restore_user")
+async def restore_user(
+    request: Request,
+    user_id: int,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    """Clear ``deleted_at`` (undo the soft delete) and re-render the
+    deleted-users partial — same fragment-refresh pattern as the
+    review restore flow."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    target = await db.get(User, user_id)
+    if target is None:
+        return _not_found()
+
+    if target.is_deleted:
+        target.deleted_at = None
+        await db.commit()
+
+    return await _render_deleted_users(request, db)
 
 
 # ---------------------------------------------------------------------------
