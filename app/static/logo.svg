@@ -1,0 +1,6 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="GotYourScore logo">
+  <rect x="1" y="1" width="62" height="62" rx="14" fill="#35324d"/>
+  <text x="32" y="43" text-anchor="middle" font-family="Arial, sans-serif" font-weight="700" font-size="30" fill="#00d29d">G</text>
+  <rect x="10" y="53" width="14" height="3" rx="1.5" fill="#e0fa65"/>
+  <rect x="26" y="53" width="9" height="3" rx="1.5" fill="#fb9ebf"/>
+</svg>
