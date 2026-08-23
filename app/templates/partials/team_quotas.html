@@ -1,4 +1,4 @@
-<section>
+<section hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Team Quotas</h2>
         <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} · {{ period_range }}</span>

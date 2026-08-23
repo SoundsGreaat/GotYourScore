@@ -1,4 +1,4 @@
-<section>
+<section hx-get="/partials/my-reviews" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">My Reviews</h2>
         <span class="text-sm text-base-content/70">{% if perspective == 'reviewer' %}Reviews you performed{% else %}Reviews about you{% endif %}</span>
@@ -27,7 +27,19 @@
                             <td>{{ row.reviewer_name }}</td>
                             <td>{{ row.case_type.value }}</td>
                             <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
-                            <td>{% if row.final_score is none %}<span class="text-base-content/50">&mdash;</span>{% else %}<span class="font-bold">{{ row.final_score }}</span>{% endif %}</td>
+                            <td>
+                                {% if row.final_score is none %}
+                                <span class="text-base-content/50">&mdash;</span>
+                                {% else %}
+                                <button type="button"
+                                        class="btn btn-ghost btn-xs font-bold text-primary underline decoration-dotted underline-offset-2"
+                                        data-case-notes="{{ row.id }}"
+                                        data-case-label="{{ row.case_number or '#' ~ row.id }}"
+                                        aria-label="View notes for case {{ row.case_number or row.id }}"
+                                        title="View notes">{{ row.final_score }}</button>
+                                <template data-notes-for="{{ row.id }}">{{ row.notes or '' }}</template>
+                                {% endif %}
+                            </td>
                             <td class="max-w-60">{{ (row.notes or '')|truncate(80) }}</td>
                         </tr>
                         {% endfor %}
@@ -41,4 +53,44 @@
         Nothing here yet
     </div>
     {% endif %}
+
+    <dialog id="my-reviews-notes-modal" class="modal">
+        <div class="modal-box w-11/12 max-w-2xl">
+            <form method="dialog">
+                <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">&#10005;</button>
+            </form>
+            <h3 id="my-reviews-notes-title" class="pr-8 text-lg font-bold"></h3>
+            <div id="my-reviews-notes-body" class="mt-3 max-h-[60vh] overflow-y-auto text-sm leading-relaxed [&_p]:my-2 [&_ul]:pl-5 [&_ul]:[list-style-type:disc] [&_ol]:pl-5 [&_ol]:[list-style-type:decimal]"></div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <script>
+    (function () {
+        var modal = document.getElementById('my-reviews-notes-modal');
+        if (!modal) return;
+        var section = modal.closest('section');
+        var titleElement = document.getElementById('my-reviews-notes-title');
+        var bodyElement = document.getElementById('my-reviews-notes-body');
+
+        section.addEventListener('click', function (event) {
+            var button = event.target.closest ? event.target.closest('[data-case-notes]') : null;
+            if (!button || !section.contains(button)) return;
+            var id = button.getAttribute('data-case-notes');
+            var template = section.querySelector('template[data-notes-for="' + id + '"]');
+            // content.textContent keeps the ORIGINAL html string (innerHTML
+            // would double-escape it into visible "&lt;strong&gt;" text).
+            var raw = template ? template.content.textContent : '';
+            titleElement.textContent = 'Case ' + (button.getAttribute('data-case-label') || id);
+            if (!raw.trim()) {
+                bodyElement.innerHTML = '<p class="text-base-content/60 italic">No notes for this case.</p>';
+            } else if (window.DOMPurify) {
+                bodyElement.innerHTML = window.DOMPurify.sanitize(raw);
+            } else {
+                bodyElement.textContent = raw;
+            }
+            modal.showModal();
+        });
+    })();
+    </script>
 </section>

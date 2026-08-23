@@ -369,11 +369,42 @@ async def partial_qa_matrix(
             }
         )
 
+    reviews = list(
+        (await db.execute(select(Review).order_by(Review.created_at.desc())))
+        .scalars()
+        .all()
+    )
+
+    person_ids = sorted(
+        {rid for review in reviews for rid in (review.qa_id, review.support_agent_id)}
+    )
+    nicknames: dict[int, str] = {}
+    if person_ids:
+        people = (
+            await db.execute(select(User).where(User.id.in_(person_ids)))
+        ).scalars().all()
+        nicknames = {person.id: person.nickname for person in people}
+
+    cases = [
+        {
+            "id": review.id,
+            "created_at": review.created_at,
+            "case_type": review.case_type,
+            "case_number": review.case_number,
+            "final_score": review.final_score,
+            "notes": review.notes,
+            "agent_name": nicknames.get(review.support_agent_id, "Unknown"),
+            "reviewer_name": nicknames.get(review.qa_id, "Unknown"),
+        }
+        for review in reviews
+    ]
+
     return templates.TemplateResponse(
         request=request,
         name="partials/qa_matrix.html",
         context={
             "agents": agents,
+            "cases": cases,
             "period_label": reporting_period.period_label(
                 closing_year, closing_month
             ),

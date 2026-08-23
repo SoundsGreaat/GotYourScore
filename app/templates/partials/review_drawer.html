@@ -589,6 +589,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             });
             if (!response.ok) throw new Error('Review save failed');
             clearDraft();
+            document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+            showToast('Review saved.', 'alert-success');
             document.getElementById('review-drawer-toggle').checked = false;
         } catch (error) {
             showToast('Unable to save review.');
