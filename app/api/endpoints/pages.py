@@ -354,11 +354,24 @@ async def partial_qa_matrix(
         )
         avgs = {agent_id: round(float(avg), 1) for agent_id, avg in result.all()}
 
+    reviews = list(
+        (await db.execute(select(Review).order_by(Review.created_at.desc())))
+        .scalars()
+        .all()
+    )
+
     agents = []
+    reviews_by_agent: dict[int, list[Review]] = {}
+    for review in reviews:
+        if review.support_agent_id is not None:
+            reviews_by_agent.setdefault(review.support_agent_id, []).append(
+                review
+            )
     for user in support_users:
         quota = await quota_service.get_agent_quota(
             user.id, closing_year, closing_month, db
         )
+        latest = reviews_by_agent.get(user.id, [])[: quota["target"]]
         agents.append(
             {
                 "id": user.id,
@@ -366,14 +379,17 @@ async def partial_qa_matrix(
                 "completed": quota["completed"],
                 "target": quota["target"],
                 "avg_score": avgs.get(user.id),
+                "cases": [
+                    {
+                        "id": review.id,
+                        "case_number": review.case_number,
+                        "final_score": review.final_score,
+                        "created_at": review.created_at,
+                    }
+                    for review in reversed(latest)
+                ],
             }
         )
-
-    reviews = list(
-        (await db.execute(select(Review).order_by(Review.created_at.desc())))
-        .scalars()
-        .all()
-    )
 
     person_ids = sorted(
         {rid for review in reviews for rid in (review.qa_id, review.support_agent_id)}

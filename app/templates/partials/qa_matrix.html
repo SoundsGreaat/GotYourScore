@@ -24,6 +24,25 @@
                                     <progress class="progress progress-primary w-28" value="{{ agent.completed }}" max="{{ agent.target }}"></progress>
                                     <span class="text-sm text-base-content/70">{{ agent.completed }}/{{ agent.target }}</span>
                                 </div>
+                                {% if agent.target %}
+                                <div class="mt-2 flex flex-wrap gap-1" role="group" aria-label="Cases reviewed for this quota">
+                                    {% for _ in range(agent.target) %}
+                                    {% set mc = agent.cases[loop.index0] if loop.index0 < agent.cases|length else none %}
+                                    {% if mc %}
+                                    <button type="button"
+                                            class="badge badge-soft badge-sm max-w-24 cursor-pointer font-semibold"
+                                            data-case-notes="{{ mc.id }}"
+                                            data-case-label="{{ mc.case_number or '#' ~ mc.id }}"
+                                            aria-label="View notes for case {{ mc.case_number or mc.id }}"
+                                            title="{{ mc.case_number or '#' ~ mc.id }} · {{ mc.created_at.strftime('%b %d') }}">
+                                        {{ mc.final_score if mc.final_score is not none else (mc.case_number or '#' ~ mc.id) }}
+                                    </button>
+                                    {% else %}
+                                    <span class="badge badge-sm border border-dashed border-base-300 text-base-content/40" title="Not reviewed yet">&mdash;</span>
+                                    {% endif %}
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
                             </td>
                             <td>
                                 {% if agent.avg_score is none %}
