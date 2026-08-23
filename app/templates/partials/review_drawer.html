@@ -5,7 +5,7 @@
         <label for="review-drawer-toggle" aria-label="close drawer" class="drawer-overlay"></label>
         <aside class="flex min-h-full w-[28rem] max-w-full flex-col bg-base-100">
             <div class="flex items-center justify-between border-b border-base-300 p-4">
-                <h2 class="text-lg font-semibold">New Review</h2>
+                <h2 id="review-drawer-title" class="text-lg font-semibold">New Review</h2>
                 <label for="review-drawer-toggle" class="btn btn-ghost btn-sm">Close</label>
             </div>
 
@@ -13,7 +13,7 @@
 
                 <fieldset class="fieldset">
                     <label class="label" for="review-agent">Agent</label>
-                    <button type="button" popovertarget="review-agent-menu"
+                    <button type="button" id="review-agent-button" popovertarget="review-agent-menu"
                             style="anchor-name:--review-agent-anchor"
                             class="select select-sm w-full flex items-center">
                         <span id="review-agent-display" class="pointer-events-none truncate text-base-content/70">Select agent…</span>
@@ -22,7 +22,7 @@
                         class="dropdown menu menu-sm w-80 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
                         {% for agent in agents %}
                         <li>
-                            <button type="button" onclick="updateCustomDropdown('review-agent', 'review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
+                            <button type="button" data-agent-id="{{ agent.id }}" onclick="updateCustomDropdown('review-agent', 'review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
                                 {{ agent.name }}
                             </button>
                         </li>
@@ -40,7 +40,7 @@
 
                 <fieldset class="fieldset">
                     <label class="label" for="case-type">Case type</label>
-                    <button type="button" popovertarget="case-type-menu"
+                    <button type="button" id="case-type-button" popovertarget="case-type-menu"
                             style="anchor-name:--case-type-anchor"
                             class="select select-sm w-full flex items-center">
                         <span id="case-type-display" class="pointer-events-none truncate">Service Request</span>
@@ -85,6 +85,8 @@
                         <div id="ai-score-content"></div>
                     </div>
                 </div>
+
+                <div id="drawer-inline-alert" role="alert" class="alert alert-error hidden"></div>
 
                 <button id="save-review" type="button" class="btn btn-primary btn-block" disabled>Save Review</button>
             </div>
@@ -171,6 +173,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var draftTimer;
     var pendingDeductions;
     var quill;
+    // Entry mode: 'create' (default, unchanged flow), 'edit' or 'complete'
+    // (set programmatically via window.openReviewDrawerForReview).
+    var drawerState = { mode: 'create', reviewId: null, initialScorecard: null };
 
     function showToast(message, kind) {
         var toast = document.createElement('div');
@@ -183,6 +188,44 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     function sanitizeHtml(html) {
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
+    }
+
+    function extractErrorDetail(payload, statusCode) {
+        if (payload && payload.detail) {
+            if (typeof payload.detail === 'string') return payload.detail;
+            if (payload.detail.message) return payload.detail.message;
+        }
+        return 'Request failed (' + statusCode + ').';
+    }
+
+    // Stored scorecards come in two shapes: nested under "breakdown"
+    // (current rows) or the flat breakdown itself (legacy rows).
+    function storedBreakdown(scorecard) {
+        if (!scorecard || typeof scorecard !== 'object') return {};
+        var nested = scorecard.breakdown;
+        if (nested && typeof nested === 'object') return nested;
+        return scorecard;
+    }
+
+    function sameScorecard(a, b) {
+        var keys = Object.keys(a || {});
+        var otherKeys = Object.keys(b || {});
+        if (keys.length !== otherKeys.length) return false;
+        return keys.every(function (key) {
+            return Number(a[key]) === Number(b[key]);
+        });
+    }
+
+    function showDrawerError(message) {
+        var alertBox = document.getElementById('drawer-inline-alert');
+        if (!alertBox) { showToast(message); return; }
+        alertBox.textContent = message;
+        alertBox.classList.remove('hidden');
+    }
+
+    function hideDrawerError() {
+        var alertBox = document.getElementById('drawer-inline-alert');
+        if (alertBox) alertBox.classList.add('hidden');
     }
 
     var menuOpenedAt = 0;
@@ -207,6 +250,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     function saveDraft() {
+        // Drafts are a create-flow convenience; editing an existing
+        // review must never overwrite the user's pending new-review draft.
+        if (drawerState.mode !== 'create') return;
         window.clearTimeout(draftTimer);
         draftTimer = window.setTimeout(function () {
             try {
@@ -370,6 +416,86 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         return deductions;
     }
 
+    // Entry point for the matrix / my-reviews click handlers: reconfigures
+    // this freshly-mounted drawer into 'edit' or 'complete' mode for an
+    // existing review payload (GET /api/reviews/{id} response).
+    window.openReviewDrawerForReview = function (review, mode) {
+        if (!review || typeof review !== 'object') return;
+        drawerState.mode = mode === 'complete' ? 'complete' : 'edit';
+        drawerState.reviewId = review.id;
+        drawerState.initialScorecard = null;
+        hideDrawerError();
+
+        var title = document.getElementById('review-drawer-title');
+        if (title) {
+            title.textContent = drawerState.mode === 'complete'
+                ? 'Complete delegated case'
+                : 'Edit review #' + review.id;
+        }
+
+        var saveLabel = drawerState.mode === 'complete' ? 'Complete review' : 'Save changes';
+        saveButton.textContent = saveLabel;
+        saveButton.dataset.labelHtml = saveLabel;
+
+        var agentId = String(review.support_agent_id);
+        var agentMenuButton = document.querySelector(
+            '#review-agent-menu button[data-agent-id="' + CSS.escape(agentId) + '"]'
+        );
+        var agentName = agentMenuButton ? agentMenuButton.textContent.trim() : 'Agent #' + agentId;
+        document.getElementById('review-agent').value = agentId;
+        var agentDisplay = document.getElementById('review-agent-display');
+        agentDisplay.textContent = agentName;
+        agentDisplay.classList.remove('text-base-content/70');
+        document.querySelectorAll('#review-agent-menu button').forEach(function (btn) {
+            btn.classList.toggle('active', btn === agentMenuButton);
+        });
+        var agentButton = document.getElementById('review-agent-button');
+        if (agentButton) agentButton.disabled = true;
+
+        var caseNumberInput = document.getElementById('case-number');
+        caseNumberInput.value = review.case_number || '';
+        caseNumberInput.disabled = drawerState.mode === 'complete';
+
+        var breakdown = storedBreakdown(review.scorecard_data);
+        var deductions = {};
+        Object.entries(breakdown).forEach(function (entry) {
+            var deducted = Number(entry[1] && entry[1].deducted);
+            if (deducted > 0) deductions[entry[0]] = deducted;
+        });
+        drawerState.initialScorecard = deductions;
+
+        var caseType = typeof review.case_type === 'string'
+            ? review.case_type
+            : (review.case_type && review.case_type.value) || 'Service Request';
+        document.getElementById('case-type').value = caseType;
+        document.getElementById('case-type-display').textContent = caseType;
+        document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
+            btn.classList.toggle('active', btn.textContent.trim() === caseType);
+        });
+        var caseTypeButton = document.getElementById('case-type-button');
+        if (caseTypeButton) caseTypeButton.disabled = drawerState.mode === 'complete';
+
+        quill.deleteText(0, quill.getLength());
+        if (review.notes) {
+            quill.clipboard.dangerouslyPasteHTML(0, sanitizeHtml(review.notes));
+        }
+
+        // Surface the STORED breakdown in the preview area; the rules
+        // reload below then refreshes it with a live multiplier preview.
+        var totalPenalty = Object.entries(breakdown).reduce(function (acc, entry) {
+            return acc + (Number(entry[1] && entry[1].final_penalty) || 0);
+        }, 0);
+        renderPreview({
+            breakdown: breakdown,
+            total_penalty: totalPenalty,
+            final_score: review.final_score
+        });
+
+        pendingDeductions = deductions;
+        document.dispatchEvent(new CustomEvent('case-type-change'));
+        updateSaveState();
+    };
+
     var previewTimer;
     // Monotonic token: only the LATEST recalcScore may render, otherwise a
     // slow earlier request (e.g. the zero-deduction call fired right after
@@ -447,6 +573,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     loadCaseRules();
 
     editorContainer.addEventListener('contextmenu', function (event) {
+        // AI assist creates NEW reviews only — no context menu when
+        // editing or completing an existing one.
+        if (drawerState.mode !== 'create') return;
         if (!event.target.closest('.ql-editor')) return;
         event.preventDefault();
         menuOpenedAt = Date.now();
@@ -578,7 +707,56 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
     });
 
+    async function saveExistingReview() {
+        var deductions = collectDeductions();
+        var payload = {
+            case_type: document.getElementById('case-type').value,
+            case_number: document.getElementById('case-number').value || null,
+            notes: sanitizeHtml(quill.root.innerHTML)
+        };
+        if (drawerState.mode === 'complete') {
+            // Client-side guard: the backend 400s on scoreless completion.
+            var hasDeduction = Object.keys(deductions).some(function (key) {
+                return deductions[key] > 0;
+            });
+            if (!hasDeduction) {
+                showDrawerError('Enter at least one deduction — a delegated case must be scored to be completed.');
+                return;
+            }
+            payload.raw_scorecard = deductions;
+        } else if (!sameScorecard(deductions, drawerState.initialScorecard)) {
+            // Only resend the scorecard when rules changed: an unchanged
+            // payload keeps the stored breakdown (and its multipliers).
+            payload.raw_scorecard = deductions;
+        }
+
+        var completing = drawerState.mode === 'complete';
+        setLoading(saveButton, completing ? 'Completing…' : 'Saving…', true);
+        try {
+            var response = await fetch('/api/reviews/' + drawerState.reviewId, {
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                var errorPayload = await response.json().catch(function () { return null; });
+                throw new Error(extractErrorDetail(errorPayload, response.status));
+            }
+            hideDrawerError();
+            document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+            showToast(completing ? 'Delegated case completed.' : 'Review updated.', 'alert-success');
+            document.getElementById('review-drawer-toggle').checked = false;
+        } catch (error) {
+            showDrawerError(error.message || 'Unable to save the review.');
+        } finally {
+            setLoading(saveButton, completing ? 'Completing…' : 'Saving…', false);
+            updateSaveState();
+        }
+    }
+
     saveButton.addEventListener('click', async function () {
+        if (drawerState.mode !== 'create') { await saveExistingReview(); return; }
         if (!document.getElementById('review-agent').value) return;
         setLoading(saveButton, 'Saving…', true);
         try {

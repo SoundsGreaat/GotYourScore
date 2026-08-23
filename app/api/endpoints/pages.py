@@ -26,11 +26,19 @@ from fastapi.responses import (
     Response,
 )
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
-from app.models import CaseTypeEnum, Review, RoleEnum, User, UserRole
+from app.models import (
+    CaseTypeEnum,
+    QAAssignment,
+    Review,
+    ReviewStatusEnum,
+    RoleEnum,
+    User,
+    UserRole,
+)
 from app.services import quota_service, reporting_period, scorecard_service
 
 router = APIRouter(tags=["pages"])
@@ -96,6 +104,24 @@ async def get_current_user_or_redirect(
 # Dependency alias: the authenticated User, or a RedirectResponse to
 # /login when the session is missing or invalid.
 PageUser = Annotated[User | RedirectResponse, Depends(get_current_user_or_redirect)]
+
+
+async def _nickname_map(
+    db: AsyncSession, person_ids: set[int | None]
+) -> dict[int, str]:
+    """Batch-resolve user ids to display names.
+
+    ``User.nickname`` is a computed Python property derived from the
+    email local part — NOT a column — so names are materialized here
+    with one ``in_()`` query instead of a SQL-level join.
+    """
+    ids = sorted({rid for rid in person_ids if rid is not None})
+    if not ids:
+        return {}
+    people = (
+        await db.execute(select(User).where(User.id.in_(ids)))
+    ).scalars().all()
+    return {person.id: person.nickname for person in people}
 
 
 @router.get("/login", name="login", summary="Login page")
@@ -170,10 +196,13 @@ async def partial_my_reviews(
     """Render the 'My Reviews' HTMX partial for authenticated users.
 
     Perspective depends on roles: reviewer roles (QA/Supervisor/Admin)
-    see the reviews THEY performed; everyone else sees the reviews
-    performed ABOUT them. Both views are personal, so no RBAC gate
-    beyond authentication. Latest 50 reviews; counterpart display
-    names are batch-loaded with a single in_() query (no N+1).
+    see the reviews THEY performed — plus cases still PENDING that were
+    delegated to them (the assignee, not the delegating
+    supervisor-creator, completes those); everyone else sees the
+    reviews performed ABOUT them. Both views are personal, so no RBAC
+    gate beyond authentication. Soft-deleted rows are excluded
+    everywhere. Latest 50 reviews; counterpart display names are
+    batch-loaded with a single in_() query (no N+1).
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -182,24 +211,41 @@ async def partial_my_reviews(
     performed_by_me = auth.has_role(
         RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
     )
-    stmt = select(Review).where(
-        Review.qa_id == auth.id if performed_by_me else Review.support_agent_id == auth.id
-    )
+    if performed_by_me:
+        stmt = select(Review).where(
+            or_(
+                Review.qa_id == auth.id,
+                and_(
+                    Review.status == ReviewStatusEnum.PENDING,
+                    Review.assigned_qa_id == auth.id,
+                ),
+            ),
+            Review.deleted_at.is_(None),
+        )
+    else:
+        stmt = select(Review).where(
+            Review.support_agent_id == auth.id,
+            Review.deleted_at.is_(None),
+        )
     reviews = list(
         (await db.execute(stmt.order_by(Review.created_at.desc()).limit(50)))
         .scalars()
         .all()
     )
 
-    person_ids = sorted(
-        {rid for review in reviews for rid in (review.qa_id, review.support_agent_id)}
+    nicknames = await _nickname_map(
+        db,
+        {
+            rid
+            for review in reviews
+            for rid in (
+                review.qa_id,
+                review.support_agent_id,
+                review.assigned_qa_id,
+                review.created_by,
+            )
+        },
     )
-    nicknames: dict[int, str] = {}
-    if person_ids:
-        people = (
-            await db.execute(select(User).where(User.id.in_(person_ids)))
-        ).scalars().all()
-        nicknames = {person.id: person.nickname for person in people}
 
     rows = [
         {
@@ -209,8 +255,12 @@ async def partial_my_reviews(
             "final_score": review.final_score,
             "created_at": review.created_at,
             "notes": review.notes,
+            "status": review.status.value,
             "agent_name": nicknames.get(review.support_agent_id, "Unknown"),
             "reviewer_name": nicknames.get(review.qa_id, "Unknown"),
+            "creator_name": nicknames.get(
+                review.created_by, nicknames.get(review.qa_id, "Unknown")
+            ),
         }
         for review in reviews
     ]
@@ -244,6 +294,11 @@ async def partial_team_quotas(
     month). Global aggregate data: reviewer roles only — Support-only
     users get a bare 403 (no redirect). The per-QA compliance lookups
     are N+1 queries — acceptable for a small team.
+
+    Supervisors/Admins additionally get the assignment-management
+    context (``can_manage`` + grouped QAAssignment rows + the QA /
+    Support user lists feeding the add form); the template hides the
+    whole block server-side for everyone else.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -269,17 +324,97 @@ async def partial_team_quotas(
             }
         )
 
+    can_manage = auth.has_role(RoleEnum.SUPERVISOR, RoleEnum.ADMIN)
+    context: dict[str, object] = {
+        "rows": rows,
+        "period_label": reporting_period.period_label(
+            closing_year, closing_month
+        ),
+        "period_range": _period_range_label(period_start, period_end),
+        "can_manage": can_manage,
+    }
+    if can_manage:
+        groups = await _assignment_groups(db)
+        context.update(
+            {
+                "assignment_groups": groups,
+                "assignment_count": sum(
+                    len(group["assignments"]) for group in groups
+                ),
+                "qa_users": [
+                    {"id": qa.id, "name": qa.nickname} for qa in await _qas(db)
+                ],
+                "support_agents": [
+                    {"id": agent.id, "name": agent.nickname}
+                    for agent in await _support_agents(db)
+                ],
+                # Delegating absence tracking ('No Cases') makes no sense —
+                # assignments scope real review work only.
+                "assignable_case_types": [
+                    case_type.value
+                    for case_type in CaseTypeEnum
+                    if case_type is not CaseTypeEnum.NO_CASES
+                ],
+            }
+        )
+
     return templates.TemplateResponse(
         request=request,
         name="partials/team_quotas.html",
-        context={
-            "rows": rows,
-            "period_label": reporting_period.period_label(
-                closing_year, closing_month
-            ),
-            "period_range": _period_range_label(period_start, period_end),
+        context=context,
+    )
+
+
+async def _assignment_groups(db: AsyncSession) -> list[dict[str, object]]:
+    """QAAssignment rows grouped per QA for the management block.
+
+    Each group is ``{"qa_id", "qa_name", "assignments": [{"id", "label"}]}``
+    where ``label`` renders the assignment target ("Agent", "Case Type"
+    or "Agent · Case Type"). Display names are materialized in Python
+    via :func:`_nickname_map` (nickname is not a DB column).
+    """
+    assignments = list(
+        (
+            await db.execute(
+                select(QAAssignment).order_by(
+                    QAAssignment.qa_id, QAAssignment.created_at
+                )
+            )
+        ).scalars().all()
+    )
+    nicknames = await _nickname_map(
+        db,
+        {
+            rid
+            for assignment in assignments
+            for rid in (assignment.qa_id, assignment.support_agent_id)
         },
     )
+
+    grouped: dict[int, list[dict[str, object]]] = {}
+    for assignment in assignments:
+        agent_name = nicknames.get(assignment.support_agent_id)
+        case_type = (
+            assignment.specialized_case_type.value
+            if assignment.specialized_case_type is not None
+            else None
+        )
+        if agent_name and case_type:
+            label = f"{agent_name} · {case_type}"
+        else:
+            label = agent_name or case_type or f"#{assignment.id}"
+        grouped.setdefault(assignment.qa_id, []).append(
+            {"id": assignment.id, "label": label}
+        )
+
+    return [
+        {
+            "qa_id": qa_id,
+            "qa_name": nicknames.get(qa_id, f"QA {qa_id}"),
+            "assignments": rows,
+        }
+        for qa_id, rows in grouped.items()
+    ]
 
 
 async def _support_agents(db: AsyncSession) -> list[User]:
@@ -330,6 +465,13 @@ async def partial_qa_matrix(
     reviewer roles only — Support-only users get a bare 403 (no
     redirect). The per-agent quota lookups are N+1 queries —
     acceptable for a small team; averages are one grouped query.
+
+    Soft-deleted rows are excluded from the listing AND from the
+    average (pending rows never skewed either: their final_score is
+    null). Case entries carry ``status`` plus the delegated-handoff
+    audit fields so the template can render Pending chips and tooltips.
+    Supervisors/Admins additionally get ``can_delegate`` + the QA list
+    for the delegate-case modal.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -349,15 +491,34 @@ async def partial_qa_matrix(
             .where(
                 Review.support_agent_id.in_(agent_ids),
                 Review.final_score.is_not(None),
+                Review.deleted_at.is_(None),
             )
             .group_by(Review.support_agent_id)
         )
         avgs = {agent_id: round(float(avg), 1) for agent_id, avg in result.all()}
 
     reviews = list(
-        (await db.execute(select(Review).order_by(Review.created_at.desc())))
-        .scalars()
-        .all()
+        (
+            await db.execute(
+                select(Review)
+                .where(Review.deleted_at.is_(None))
+                .order_by(Review.created_at.desc())
+            )
+        ).scalars().all()
+    )
+
+    nicknames = await _nickname_map(
+        db,
+        {
+            rid
+            for review in reviews
+            for rid in (
+                review.qa_id,
+                review.support_agent_id,
+                review.assigned_qa_id,
+                review.created_by,
+            )
+        },
     )
 
     agents = []
@@ -386,21 +547,14 @@ async def partial_qa_matrix(
                         "case_number": review.case_number,
                         "final_score": review.final_score,
                         "created_at": review.created_at,
+                        "status": review.status.value,
+                        "assigned_qa_name": nicknames.get(review.assigned_qa_id),
+                        "reviewer_name": nicknames.get(review.qa_id),
                     }
                     for review in reversed(latest)
                 ],
             }
         )
-
-    person_ids = sorted(
-        {rid for review in reviews for rid in (review.qa_id, review.support_agent_id)}
-    )
-    nicknames: dict[int, str] = {}
-    if person_ids:
-        people = (
-            await db.execute(select(User).where(User.id.in_(person_ids)))
-        ).scalars().all()
-        nicknames = {person.id: person.nickname for person in people}
 
     cases = [
         {
@@ -410,8 +564,13 @@ async def partial_qa_matrix(
             "case_number": review.case_number,
             "final_score": review.final_score,
             "notes": review.notes,
+            "status": review.status.value,
             "agent_name": nicknames.get(review.support_agent_id, "Unknown"),
             "reviewer_name": nicknames.get(review.qa_id, "Unknown"),
+            "assigned_qa_name": nicknames.get(review.assigned_qa_id),
+            "creator_name": nicknames.get(
+                review.created_by, nicknames.get(review.qa_id, "Unknown")
+            ),
         }
         for review in reviews
     ]
@@ -426,6 +585,20 @@ async def partial_qa_matrix(
                 closing_year, closing_month
             ),
             "period_range": _period_range_label(period_start, period_end),
+            "can_delegate": auth.has_role(RoleEnum.SUPERVISOR, RoleEnum.ADMIN),
+            "qas": [
+                {"id": qa.id, "name": qa.nickname} for qa in await _qas(db)
+            ],
+            "support_users": [
+                {"id": user.id, "name": user.nickname} for user in support_users
+            ],
+            # Delegation targets one specific real case — 'No Cases' is
+            # rejected by the API anyway.
+            "delegate_case_types": [
+                case_type.value
+                for case_type in CaseTypeEnum
+                if case_type is not CaseTypeEnum.NO_CASES
+            ],
         },
     )
 

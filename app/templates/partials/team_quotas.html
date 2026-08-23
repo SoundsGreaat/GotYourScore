@@ -1,6 +1,8 @@
 <section hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-lg font-semibold">Team Quotas</h2>
+        <h2 class="text-lg font-semibold">Team Quotas
+            <span class="block text-xs font-normal text-base-content/60">Period progress across your assigned agents</span>
+        </h2>
         <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} · {{ period_range }}</span>
     </div>
     {% if rows %}
@@ -49,5 +51,235 @@
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
         No QA analysts yet
     </div>
+    {% endif %}
+
+    {% if can_manage %}
+    <div id="assignments-manager" class="card mt-4 rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h3 class="flex items-center gap-2 text-base font-semibold">
+                Assignments
+                <span class="badge badge-soft badge-sm">{{ assignment_count }}</span>
+            </h3>
+            <p class="text-xs text-base-content/60">Scope each QA to a support agent, a case type, or both.</p>
+
+            <div id="assignments-alert" role="alert" class="alert alert-error hidden"></div>
+
+            {% if assignment_groups %}
+            <div class="space-y-2">
+                {% for group in assignment_groups %}
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                    <span class="text-sm font-medium">{{ group.qa_name }}</span>
+                    {% for assignment in group.assignments %}
+                    <span class="badge badge-soft badge-sm gap-1 py-3">
+                        <span>{{ assignment.label }}</span>
+                        <button type="button"
+                                class="cursor-pointer font-bold opacity-60 hover:opacity-100"
+                                data-assignment-remove="{{ assignment.id }}"
+                                aria-label="Remove assignment {{ assignment.label }} from {{ group.qa_name }}"
+                                title="Remove assignment">&#10005;</button>
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-sm text-base-content/60">No assignments yet &mdash; add one below.</p>
+            {% endif %}
+
+            <form id="assignment-form" class="mt-1 flex flex-wrap items-center gap-2">
+                <button type="button" id="assignment-qa-button" popovertarget="assignment-qa-menu"
+                        style="anchor-name:--assignment-qa-anchor" aria-label="QA analyst"
+                        class="select select-sm w-auto min-w-36 flex items-center">
+                    <span id="assignment-qa-display" class="pointer-events-none truncate text-base-content/70">Select QA&hellip;</span>
+                </button>
+                <ul id="assignment-qa-menu" popover style="position-anchor:--assignment-qa-anchor"
+                    class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                    {% for qa in qa_users %}
+                    <li>
+                        <button type="button" onclick="teamQuotasSetDropdown('assignment-qa', 'assignment-qa-display', '{{ qa.id }}', '{{ qa.name }}', this)">
+                            {{ qa.name }}
+                        </button>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <input type="hidden" id="assignment-qa" value="" />
+
+                <button type="button" id="assignment-agent-button" popovertarget="assignment-agent-menu"
+                        style="anchor-name:--assignment-agent-anchor" aria-label="Support agent (optional)"
+                        class="select select-sm w-auto min-w-36 flex items-center">
+                    <span id="assignment-agent-display" class="pointer-events-none truncate">Any agent</span>
+                </button>
+                <ul id="assignment-agent-menu" popover style="position-anchor:--assignment-agent-anchor"
+                    class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                    <li>
+                        <button type="button" class="menu-active active"
+                                onclick="teamQuotasSetDropdown('assignment-agent', 'assignment-agent-display', '', 'Any agent', this)">
+                            Any agent
+                        </button>
+                    </li>
+                    {% for agent in support_agents %}
+                    <li>
+                        <button type="button" onclick="teamQuotasSetDropdown('assignment-agent', 'assignment-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
+                            {{ agent.name }}
+                        </button>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <input type="hidden" id="assignment-agent" value="" />
+
+                <button type="button" id="assignment-case-type-button" popovertarget="assignment-case-type-menu"
+                        style="anchor-name:--assignment-case-type-anchor" aria-label="Case type (optional)"
+                        class="select select-sm w-auto min-w-36 flex items-center">
+                    <span id="assignment-case-type-display" class="pointer-events-none truncate">Any case type</span>
+                </button>
+                <ul id="assignment-case-type-menu" popover style="position-anchor:--assignment-case-type-anchor"
+                    class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                    <li>
+                        <button type="button" class="menu-active active"
+                                onclick="teamQuotasSetDropdown('assignment-case-type', 'assignment-case-type-display', '', 'Any case type', this)">
+                            Any case type
+                        </button>
+                    </li>
+                    {% for case_type in assignable_case_types %}
+                    <li>
+                        <button type="button" onclick="teamQuotasSetDropdown('assignment-case-type', 'assignment-case-type-display', '{{ case_type }}', '{{ case_type }}', this)">
+                            {{ case_type }}
+                        </button>
+                    </li>
+                    {% endfor %}
+                </ul>
+                <input type="hidden" id="assignment-case-type" value="" />
+
+                <button type="submit" class="btn btn-primary btn-sm">Add</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+    if (!window.__teamQuotasDropdownInit) {
+        window.__teamQuotasDropdownInit = true;
+        window.teamQuotasSetDropdown = function (hiddenId, displayId, value, text, btnEl) {
+            var hidden = document.getElementById(hiddenId);
+            if (hidden) hidden.value = value;
+            var display = document.getElementById(displayId);
+            if (display) {
+                display.textContent = text;
+                display.classList.remove('text-base-content/70');
+            }
+            if (btnEl) {
+                var siblings = btnEl.closest('ul').querySelectorAll('button');
+                siblings.forEach(function (btn) {
+                    btn.classList.remove('active');
+                    btn.classList.remove('menu-active');
+                });
+                btnEl.classList.add('active');
+                btnEl.classList.add('menu-active');
+            }
+            // Popover-API menus stay open after an inner click — close on pick.
+            var pop = btnEl && btnEl.closest('[popover]');
+            if (pop && pop.matches(':popover-open')) pop.hidePopover();
+            if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        };
+    }
+    (function () {
+        var manager = document.getElementById('assignments-manager');
+        if (!manager) return;
+        var alertBox = document.getElementById('assignments-alert');
+        var form = document.getElementById('assignment-form');
+
+        function showAlert(message) {
+            if (!alertBox) return;
+            alertBox.textContent = message;
+            alertBox.classList.remove('hidden');
+        }
+        function hideAlert() {
+            if (alertBox) alertBox.classList.add('hidden');
+        }
+        function extractDetail(payload, statusCode) {
+            if (payload && payload.detail) {
+                if (typeof payload.detail === 'string') return payload.detail;
+                if (payload.detail.message) return payload.detail.message;
+            }
+            return 'Request failed (' + statusCode + ').';
+        }
+
+        // Restores the initial state: QA back to its gray placeholder,
+        // agent/case-type back to their "Any …" defaults.
+        function resetAssignmentDropdowns() {
+            [
+                ['assignment-qa', 'assignment-qa-display', 'Select QA\u2026', true],
+                ['assignment-agent', 'assignment-agent-display', 'Any agent', false],
+                ['assignment-case-type', 'assignment-case-type-display', 'Any case type', false]
+            ].forEach(function (spec) {
+                var hidden = document.getElementById(spec[0]);
+                var display = document.getElementById(spec[1]);
+                if (hidden) hidden.value = '';
+                if (display) {
+                    display.textContent = spec[2];
+                    display.classList.toggle('text-base-content/70', spec[3]);
+                }
+                var menu = document.getElementById(spec[0] + '-menu');
+                if (!menu) return;
+                var buttons = menu.querySelectorAll('button');
+                buttons.forEach(function (btn) {
+                    btn.classList.remove('active');
+                    btn.classList.remove('menu-active');
+                });
+                if (!spec[3] && buttons.length) {
+                    buttons[0].classList.add('active');
+                    buttons[0].classList.add('menu-active');
+                }
+            });
+        }
+
+        form.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            hideAlert();
+            var qaId = document.getElementById('assignment-qa').value;
+            var agentValue = document.getElementById('assignment-agent').value;
+            var caseType = document.getElementById('assignment-case-type').value;
+            if (!qaId || (!agentValue && !caseType)) {
+                showAlert('Pick a QA and at least one target — a support agent or a case type.');
+                return;
+            }
+            try {
+                var response = await fetch('/api/assignments', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        qa_id: Number(qaId),
+                        support_agent_id: agentValue ? Number(agentValue) : null,
+                        specialized_case_type: caseType || null
+                    })
+                });
+                if (!response.ok) {
+                    var payload = await response.json().catch(function () { return null; });
+                    throw new Error(extractDetail(payload, response.status));
+                }
+                resetAssignmentDropdowns();
+                document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+            } catch (error) {
+                showAlert(error.message || 'Unable to create the assignment.');
+            }
+        });
+
+        manager.addEventListener('click', async function (event) {
+            var button = event.target.closest ? event.target.closest('[data-assignment-remove]') : null;
+            if (!button || !manager.contains(button)) return;
+            hideAlert();
+            try {
+                var response = await fetch('/api/assignments/' + button.getAttribute('data-assignment-remove'), {
+                    method: 'DELETE',
+                    credentials: 'same-origin'
+                });
+                if (!response.ok && response.status !== 404) throw new Error('Request failed (' + response.status + ').');
+                document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+            } catch (error) {
+                showAlert(error.message || 'Unable to remove the assignment.');
+            }
+        });
+    })();
+    </script>
     {% endif %}
 </section>

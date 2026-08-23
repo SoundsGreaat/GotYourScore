@@ -1,0 +1,56 @@
+{# Deleted reviews partial (swapped into #admin-view).
+   Context: rows = soft-deleted reviews, newest deletion first
+   ({id, case_type, case_number, final_score, created_at, deleted_at,
+   agent_name, reviewer_name, creator_name}). Restore clears the row's
+   deleted_at via POST /admin/reviews/{id}/restore, which re-renders
+   this whole partial. #}
+<div id="admin-deleted-reviews-root" class="space-y-4">
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h2 class="card-title text-base">
+                Deleted Reviews
+                <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
+            </h2>
+            {% if rows %}
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Deleted</th>
+                            <th>Date</th>
+                            <th>Agent</th>
+                            <th>Reviewed by</th>
+                            <th>Case type</th>
+                            <th>Case #</th>
+                            <th>Score</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr>
+                            <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
+                            <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
+                            <th class="font-medium">{{ row.agent_name }}</th>
+                            <td>{{ row.reviewer_name }}</td>
+                            <td>{{ row.case_type.value }}</td>
+                            <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td>{% if row.final_score is not none %}<span class="font-semibold">{{ row.final_score }}</span>{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td>
+                                <button type="button" class="btn btn-outline btn-success btn-xs"
+                                        hx-post="/admin/reviews/{{ row.id }}/restore"
+                                        hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+                No deleted reviews
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>

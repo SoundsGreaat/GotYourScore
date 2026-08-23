@@ -88,6 +88,12 @@ async def calculate_final_score(
             select(Review.scorecard_data).where(
                 Review.support_agent_id == agent_id,
                 Review.scorecard_data.is_not(None),
+                # Soft-deleted reviews must not inflate progressive
+                # multipliers (deleting a mistake erases its occurrence
+                # history too). Pending handoffs always carry a null
+                # scorecard, so they are excluded by the IS NOT NULL
+                # check above by construction.
+                Review.deleted_at.is_(None),
             )
         )
     ).scalars().all()

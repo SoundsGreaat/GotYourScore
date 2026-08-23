@@ -5,30 +5,17 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.models.enums import CaseTypeEnum
+from app.models.enums import CaseTypeEnum, ReviewStatusEnum
 
 
-class ReviewCreate(BaseModel):
-    """Payload for creating a review (POST /api/reviews).
+class RawScorecardValidation:
+    """Mixin with the shared ``raw_scorecard`` field validators.
 
-    ``qa_id`` is intentionally NOT part of the payload: it is injected
-    server-side from the authenticated QA/Supervisor/Admin user.
-
-    ``raw_scorecard`` maps error keys to raw deduction points, e.g.
-    ``{"late_response": 5}``. Deductions are whole numbers only
-    (fractional values are rejected). The progressive multiplier is
-    applied server-side (see ``app.services.multiplier_service``); the
-    response contains the detailed scorecard instead of this raw input.
+    Used by both :class:`ReviewCreate` and :class:`ReviewUpdate` so the
+    bool/negative deduction rules can never drift apart between create
+    and edit. Deductions are whole numbers >= 0; booleans are rejected
+    because ``True`` would silently coerce to ``1`` deduction point.
     """
-
-    model_config = ConfigDict(extra="forbid")
-
-    support_agent_id: int
-    case_type: CaseTypeEnum
-    # Optional reference to the reviewed case in the ticketing system.
-    case_number: str | None = Field(default=None, max_length=255)
-    notes: str | None = None
-    raw_scorecard: dict[str, int] | None = None
 
     @field_validator("raw_scorecard", mode="before")
     @classmethod
@@ -59,6 +46,29 @@ class ReviewCreate(BaseModel):
                 )
         return value
 
+
+class ReviewCreate(RawScorecardValidation, BaseModel):
+    """Payload for creating a review (POST /api/reviews).
+
+    ``qa_id`` is intentionally NOT part of the payload: it is injected
+    server-side from the authenticated QA/Supervisor/Admin user.
+
+    ``raw_scorecard`` maps error keys to raw deduction points, e.g.
+    ``{"late_response": 5}``. Deductions are whole numbers only
+    (fractional values are rejected). The progressive multiplier is
+    applied server-side (see ``app.services.multiplier_service``); the
+    response contains the detailed scorecard instead of this raw input.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    support_agent_id: int
+    case_type: CaseTypeEnum
+    # Optional reference to the reviewed case in the ticketing system.
+    case_number: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
+    raw_scorecard: dict[str, int] | None = None
+
     @model_validator(mode="after")
     def validate_no_cases_has_empty_scorecard(self) -> "ReviewCreate":
         """A 'No Cases' review must not carry any scorecard data."""
@@ -68,6 +78,57 @@ class ReviewCreate(BaseModel):
                 "raw_scorecard."
             )
         return self
+
+
+class PendingReviewCreate(BaseModel):
+    """Payload for delegating a pending review
+    (POST /api/reviews/pending, Supervisor/Admin only).
+
+    A pending review is a handoff: it records WHICH real case a named QA
+    must review, without any scoring yet — ``scorecard_data`` and
+    ``final_score`` stay null and the row does not count towards the
+    support agent's quota until completed.
+
+    ``case_number`` is REQUIRED (unlike :class:`ReviewCreate`): a
+    delegated review targets one specific real case, so "which case?"
+    must be answerable from the row itself. ``case_type`` NO_CASES is
+    rejected at the endpoint (400) for the same reason.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    support_agent_id: int
+    case_type: CaseTypeEnum
+    # Required reference to the reviewed case in the ticketing system.
+    case_number: str = Field(max_length=255)
+    # The QA the handoff goes to; must hold the QA role (validated at
+    # the endpoint, which maps unknown/non-QA users to 400).
+    assigned_qa_id: int
+
+
+class ReviewUpdate(RawScorecardValidation, BaseModel):
+    """Payload for editing a review (PATCH /api/reviews/{review_id}).
+
+    Partial semantics: every field is optional and ONLY provided fields
+    change (``None`` = not provided). ``support_agent_id`` is
+    deliberately absent — the reviewed agent is immutable after save;
+    ``status``, ``qa_id``, ``assigned_qa_id`` and ``created_by`` are
+    likewise never editable through this payload (they are managed by
+    the completion flow server-side).
+
+    ``raw_scorecard`` reuses the shared deduction validators: whole
+    numbers >= 0, booleans rejected. Whether providing it triggers a
+    full recompute (and when it is REQUIRED instead) is decided by the
+    endpoint based on the review's current state — see
+    ``update_review``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_type: CaseTypeEnum | None = None
+    case_number: str | None = Field(default=None, max_length=255)
+    notes: str | None = None
+    raw_scorecard: dict[str, int] | None = None
 
 
 class AutoScoreCreate(BaseModel):
@@ -172,6 +233,12 @@ class ReviewRead(BaseModel):
 
     Legacy rows store only the flat breakdown at the top level. Null
     for 'No Cases' reviews.
+
+    Lifecycle/audit fields: ``status`` ('pending' handoffs do not count
+    towards quotas), ``assigned_qa_id`` (the QA a pending review was
+    delegated to, kept after completion as audit trail), ``created_by``
+    (who opened the row) and ``deleted_at`` (set on soft delete; the
+    API 404s soft-deleted rows, so clients normally never see it set).
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -184,6 +251,10 @@ class ReviewRead(BaseModel):
     scorecard_data: dict[str, Any] | None = None
     notes: str | None = None
     final_score: int | None = None
+    status: ReviewStatusEnum = ReviewStatusEnum.COMPLETED
+    assigned_qa_id: int | None = None
+    created_by: int | None = None
+    deleted_at: datetime | None = None
     created_at: datetime
 
 

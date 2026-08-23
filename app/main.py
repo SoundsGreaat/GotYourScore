@@ -13,6 +13,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.api.auth import router as auth_router
 from app.api.endpoints.admin import router as admin_router
 from app.api.endpoints.ai import router as ai_router
+from app.api.endpoints.assignments import router as assignments_router
 from app.api.endpoints.pages import router as pages_router
 from app.api.endpoints.reviews import router as reviews_router
 from app.api.endpoints.system_prompts import router as system_prompts_router
@@ -65,10 +66,12 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 app.include_router(auth_router)
-# Business endpoints live under /api (reviews: creation, quota,
-# compliance, lookup; ai: notes refactoring and preview scoring;
-# system-prompts: Admin-only LLM prompt management).
+# Business endpoints live under /api (reviews: creation, delegation,
+# editing, soft delete, quota, compliance, lookup; assignments:
+# Supervisor/Admin QA staffing; ai: notes refactoring and preview
+# scoring; system-prompts: Admin-only LLM prompt management).
 app.include_router(reviews_router, prefix="/api")
+app.include_router(assignments_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
 app.include_router(system_prompts_router, prefix="/api")
 # Server-rendered HTML pages (login, dashboard) at the application root.

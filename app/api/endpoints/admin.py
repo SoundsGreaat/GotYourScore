@@ -23,7 +23,7 @@ from typing import Annotated
 import markupsafe
 from fastapi import APIRouter, Depends, Query, Request, status
 from fastapi.responses import PlainTextResponse, RedirectResponse, Response
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.endpoints.pages import (
@@ -32,7 +32,15 @@ from app.api.endpoints.pages import (
     templates,
 )
 from app.db.database import get_db
-from app.models import CaseTypeEnum, RoleEnum, ScorecardTemplate, SystemPrompt, User, UserRole
+from app.models import (
+    CaseTypeEnum,
+    Review,
+    RoleEnum,
+    ScorecardTemplate,
+    SystemPrompt,
+    User,
+    UserRole,
+)
 from app.services import scorecard_service, system_prompt_service
 
 router = APIRouter(tags=["admin"])
@@ -620,3 +628,112 @@ async def update_user_roles(
             db, current_user=auth, status=f"Roles updated for {target.nickname}."
         ),
     )
+
+
+# ---------------------------------------------------------------------------
+# Deleted reviews (soft-delete restore)
+# ---------------------------------------------------------------------------
+
+
+async def _deleted_reviews_context(db: AsyncSession) -> dict[str, object]:
+    """Context for the deleted-reviews partial.
+
+    Soft-deleted reviews only (``deleted_at`` NOT NULL), newest deletion
+    first, with agent/reviewer/creator display names materialized in
+    Python (``User.nickname`` is a computed property, not a column).
+    """
+    reviews = list(
+        (
+            await db.execute(
+                select(Review)
+                .where(Review.deleted_at.is_not(None))
+                .order_by(Review.deleted_at.desc())
+            )
+        ).scalars().all()
+    )
+    person_ids = {
+        rid
+        for review in reviews
+        for rid in (review.support_agent_id, review.qa_id, review.created_by)
+        if rid is not None
+    }
+    nicknames: dict[int, str] = {}
+    if person_ids:
+        people = (
+            await db.execute(select(User).where(User.id.in_(person_ids)))
+        ).scalars().all()
+        nicknames = {person.id: person.nickname for person in people}
+
+    rows = [
+        {
+            "id": review.id,
+            "case_type": review.case_type,
+            "case_number": review.case_number,
+            "final_score": review.final_score,
+            "created_at": review.created_at,
+            "deleted_at": review.deleted_at,
+            "agent_name": nicknames.get(review.support_agent_id, "Unknown"),
+            "reviewer_name": nicknames.get(review.qa_id, "Unknown"),
+            "creator_name": nicknames.get(
+                review.created_by, nicknames.get(review.qa_id, "Unknown")
+            ),
+        }
+        for review in reviews
+    ]
+    return {"rows": rows}
+
+
+async def _render_deleted_reviews(
+    request: Request, db: AsyncSession
+) -> Response:
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_deleted_reviews.html",
+        context=await _deleted_reviews_context(db),
+    )
+
+
+@router.get(
+    "/admin/partials/deleted-reviews",
+    name="admin_partial_deleted_reviews",
+    summary="Deleted reviews partial",
+    include_in_schema=False,
+)
+async def partial_deleted_reviews(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Every soft-deleted review, newest deletion first."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    return await _render_deleted_reviews(request, db)
+
+
+@router.post(
+    "/admin/reviews/{review_id}/restore",
+    name="admin_restore_review",
+)
+async def restore_review(
+    request: Request,
+    review_id: int,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    """Clear ``deleted_at`` (undo the soft delete) and re-render the
+    deleted-reviews partial — same fragment-refresh pattern as the
+    prompt delete flow."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    review = await db.get(Review, review_id)
+    if review is None:
+        return _not_found()
+
+    if review.deleted_at is not None:
+        await db.execute(
+            update(Review).where(Review.id == review_id).values(deleted_at=None)
+        )
+        await db.commit()
+
+    return await _render_deleted_reviews(request, db)

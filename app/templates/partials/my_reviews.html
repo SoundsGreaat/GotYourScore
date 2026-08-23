@@ -17,6 +17,7 @@
                             <th>Case #</th>
                             <th>Score</th>
                             <th>Notes</th>
+                            {% if perspective == 'reviewer' %}<th>Actions</th>{% endif %}
                         </tr>
                     </thead>
                     <tbody>
@@ -24,11 +25,23 @@
                         <tr>
                             <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
                             <th class="font-medium">{{ row.agent_name }}</th>
-                            <td>{{ row.reviewer_name }}</td>
+                            <td>
+                                {% if row.status == 'pending' %}
+                                <span class="whitespace-nowrap">Delegated by {{ row.creator_name }}</span>
+                                {% else %}
+                                {{ row.reviewer_name }}
+                                {% endif %}
+                            </td>
                             <td>{{ row.case_type.value }}</td>
                             <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
                             <td>
-                                {% if row.final_score is none and row.case_type.value == 'No Cases' %}
+                                {% if row.status == 'pending' %}
+                                <button type="button"
+                                        class="badge badge-soft badge-warning badge-sm cursor-pointer font-semibold"
+                                        data-review-complete="{{ row.id }}"
+                                        aria-label="Complete delegated case {{ row.case_number or row.id }}"
+                                        title="Delegated to you · awaiting review">Pending</button>
+                                {% elif row.final_score is none and row.case_type.value == 'No Cases' %}
                                 <button type="button"
                                         class="badge badge-soft badge-sm cursor-pointer font-semibold"
                                         data-case-notes="{{ row.id }}"
@@ -49,6 +62,20 @@
                                 {% endif %}
                             </td>
                             <td class="max-w-60">{{ (row.notes or '')|truncate(80) }}</td>
+                            {% if perspective == 'reviewer' %}
+                            <td class="whitespace-nowrap">
+                                <div class="flex items-center gap-0.5">
+                                    <button type="button"
+                                            class="btn btn-ghost btn-xs px-1.5"
+                                            data-review-edit="{{ row.id }}"
+                                            aria-label="Edit review {{ row.id }}" title="Edit">&#9998;</button>
+                                    <button type="button"
+                                            class="btn btn-ghost btn-xs px-1.5 text-error"
+                                            data-review-delete="{{ row.id }}"
+                                            aria-label="Delete review {{ row.id }}" title="Delete">&#128465;</button>
+                                </div>
+                            </td>
+                            {% endif %}
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -81,8 +108,68 @@
         var titleElement = document.getElementById('my-reviews-notes-title');
         var bodyElement = document.getElementById('my-reviews-notes-body');
 
+        function showToast(message, kind) {
+            var toast = document.createElement('div');
+            toast.setAttribute('role', 'alert');
+            toast.className = 'alert ' + (kind || 'alert-error') + ' fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            window.setTimeout(function () { toast.remove(); }, 3500);
+        }
+
+        // Fetches the review, mounts a fresh drawer partial into the
+        // dashboard's drawer container, then flips it into edit/complete
+        // mode once its script has registered the entry hook.
+        function openReviewDrawer(reviewId, mode) {
+            fetch('/api/reviews/' + reviewId, { credentials: 'same-origin' })
+                .then(function (response) {
+                    if (!response.ok) throw new Error('Review request failed');
+                    return response.json();
+                })
+                .then(function (review) {
+                    return window.htmx
+                        ? htmx.ajax('GET', '/partials/review-drawer', { target: '#drawer-container', swap: 'innerHTML' }).then(function () { return review; })
+                        : Promise.reject(new Error('htmx unavailable'));
+                })
+                .then(function (review) {
+                    var attempts = 0;
+                    (function waitForHook() {
+                        if (typeof window.openReviewDrawerForReview === 'function') {
+                            window.openReviewDrawerForReview(review, mode);
+                            return;
+                        }
+                        if (++attempts > 40) return;
+                        window.setTimeout(waitForHook, 50);
+                    })();
+                })
+                .catch(function () { showToast('Unable to open the review.'); });
+        }
+
         section.addEventListener('click', function (event) {
-            var button = event.target.closest ? event.target.closest('[data-case-notes]') : null;
+            var completeButton = event.target.closest ? event.target.closest('[data-review-complete]') : null;
+            if (completeButton && section.contains(completeButton)) {
+                openReviewDrawer(completeButton.getAttribute('data-review-complete'), 'complete');
+                return;
+            }
+            var editButton = event.target.closest('[data-review-edit]');
+            if (editButton && section.contains(editButton)) {
+                openReviewDrawer(editButton.getAttribute('data-review-edit'), 'edit');
+                return;
+            }
+            var deleteButton = event.target.closest('[data-review-delete]');
+            if (deleteButton && section.contains(deleteButton)) {
+                var deleteId = deleteButton.getAttribute('data-review-delete');
+                if (!window.confirm('Delete this review?')) return;
+                fetch('/api/reviews/' + deleteId, { method: 'DELETE', credentials: 'same-origin' })
+                    .then(function (response) {
+                        if (!response.ok) throw new Error('Delete failed');
+                        document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+                        showToast('Review deleted.', 'alert-success');
+                    })
+                    .catch(function () { showToast('Unable to delete review.'); });
+                return;
+            }
+            var button = event.target.closest('[data-case-notes]');
             if (!button || !section.contains(button)) return;
             var id = button.getAttribute('data-case-notes');
             var template = section.querySelector('template[data-notes-for="' + id + '"]');

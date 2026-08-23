@@ -9,22 +9,56 @@ Review records for the agent within the period's half-open
 reviews. Period boundaries are UTC (the engine pins the session
 timezone to UTC).
 
+Exclusions applied to every count in this module (see
+:func:`counted_review_filters`):
+
+- soft-deleted rows (``deleted_at`` set) never count;
+- ``pending`` rows (delegated handoffs awaiting their assigned QA) do
+  not count until completed.
+
 QA compliance (``get_qa_compliance``) applies the same calendar to a
-reviewer: each pacing interval requires one review per assigned agent,
-and the deficit is how many of those required reviews are missing.
+QA's assignment SCOPE, and credit is SCOPE-BASED, not
+performer-based: every counted review of one of the QA's assigned
+agents credits EVERY QA whose scope covers that agent, regardless of
+which QA actually performed it (DB attribution via ``Review.qa_id``
+is untouched, so one review can credit several QAs when scopes
+overlap). Each pacing interval still requires one review per assigned
+agent (pacing/notification lens), while period totals measure overall
+progress against ``len(assigned agents) * MONTHLY_QUOTA``.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models import QAAssignment, Review
+from app.models import QAAssignment, Review, ReviewStatusEnum
 from app.services.reporting_period import (
     pacing_intervals,
     reporting_period_bounds,
 )
+
+
+def counted_review_filters() -> Sequence[ColumnElement[bool]]:
+    """Shared WHERE fragments for every quota/compliance count.
+
+    Both quota counts and compliance counts must agree on what a
+    "counted" review is:
+
+    - rows soft-deleted (``deleted_at`` set) are invisible to reporting;
+    - rows with ``status='pending'`` do not count towards quotas until
+      their assigned QA completes them (the handoff itself is
+      quota-neutral).
+
+    Target math is untouched — only the numerator (completed counts)
+    narrows.
+    """
+    return (
+        Review.deleted_at.is_(None),
+        Review.status == ReviewStatusEnum.COMPLETED,
+    )
 
 
 async def get_agent_quota(
@@ -45,7 +79,9 @@ async def get_agent_quota(
 
     Returns:
         ``{"completed": <int>, "target": <int>}`` where ``target``
-        comes from ``settings.MONTHLY_QUOTA``.
+        comes from ``settings.MONTHLY_QUOTA``. Soft-deleted and
+        ``pending`` reviews are excluded from ``completed`` (see
+        :func:`counted_review_filters`).
     """
     period_start, period_end = reporting_period_bounds(year, month)
     count_stmt = (
@@ -57,6 +93,7 @@ async def get_agent_quota(
             # avoids double EXTRACT (which is not index-friendly).
             Review.created_at >= period_start,
             Review.created_at < period_end,
+            *counted_review_filters(),
         )
     )
     completed = (await db_session.execute(count_stmt)).scalar_one()
@@ -73,14 +110,37 @@ async def get_qa_compliance(
     closing_month: int,
     db_session: AsyncSession,
 ) -> dict[str, Any]:
-    """Per-interval quota compliance for one QA over a reporting period.
+    """Scope-based quota compliance for one QA over a reporting period.
+
+    Compliance credit is SCOPE-BASED, not performer-based: every
+    counted review of one of this QA's assigned agents counts toward
+    this QA's progress, regardless of which QA actually performed it.
+    The DB keeps the real ``qa_id`` as reviewer of record (My Reviews
+    of the performer is untouched); a single review can credit several
+    QAs at once when their assignment scopes overlap.
 
     Assigned agents are the DISTINCT non-null support_agent_id values
-    of this QA's assignments (General + Hybrid). Each pacing interval
-    requires one review per assigned agent; completed counts DISTINCT
-    reviewed agents within the half-open interval range, so a QA who
-    reviewed the same agent twice in one interval still owes the
-    remaining agents. This function does NOT commit — it only reads.
+    of this QA's assignments (General + Hybrid); Specialized-only
+    assignments (``support_agent_id`` NULL) contribute nothing to the
+    agent-count math. ``total_required`` is
+    ``len(assigned agents) * MONTHLY_QUOTA``; ``total_completed`` is a
+    plain COUNT of counted reviews (see :func:`counted_review_filters`)
+    for those agents within the half-open ``[start, end)`` period range
+    on ``created_at`` — no ``qa_id`` filter and no DISTINCT collapse;
+    ``total_deficit`` is ``max(0, required - completed)``.
+
+    The per-interval list remains the PACING/NOTIFICATION lens: each
+    interval still requires one review per assigned agent, but its
+    ``completed`` is likewise a plain COUNT of counted reviews inside
+    the interval (no ``qa_id`` filter, no DISTINCT collapse). Totals
+    deliberately come from the PERIOD query, NOT from summing the
+    intervals: intervals answer "what should have happened by now"
+    (pacing), while totals answer "how far along is the whole period"
+    (progress) — e.g. extra reviews early in the period keep totals on
+    track even though some earlier interval shows a deficit.
+
+    Soft-deleted and ``pending`` reviews are excluded from every
+    completed count. This function does NOT commit — it only reads.
 
     Returns:
         ``{"assigned_agent_count", "intervals", "total_required",
@@ -100,11 +160,31 @@ async def get_qa_compliance(
     ).scalars().all()
     agent_ids = sorted(set(assigned))
 
-    intervals: list[dict[str, Any]] = []
-    total_required = 0
-    total_completed = 0
-    total_deficit = 0
+    total_required = len(agent_ids) * get_settings().MONTHLY_QUOTA
 
+    total_completed = 0
+    if agent_ids:
+        # Progress lens: one PERIOD query over the whole reporting
+        # window — NOT the sum of interval completions (see docstring).
+        period_start, period_end = reporting_period_bounds(
+            closing_year, closing_month
+        )
+        total_completed = int(
+            (
+                await db_session.execute(
+                    select(func.count())
+                    .select_from(Review)
+                    .where(
+                        Review.support_agent_id.in_(agent_ids),
+                        Review.created_at >= period_start,
+                        Review.created_at < period_end,
+                        *counted_review_filters(),
+                    )
+                )
+            ).scalar_one()
+        )
+
+    intervals: list[dict[str, Any]] = []
     for label, start, end in pacing_intervals(closing_year, closing_month):
         required = len(agent_ids)
         completed = 0
@@ -112,13 +192,13 @@ async def get_qa_compliance(
             completed = int(
                 (
                     await db_session.execute(
-                        select(func.count(func.distinct(Review.support_agent_id)))
+                        select(func.count())
                         .select_from(Review)
                         .where(
-                            Review.qa_id == qa_id,
                             Review.support_agent_id.in_(agent_ids),
                             Review.created_at >= start,
                             Review.created_at < end,
+                            *counted_review_filters(),
                         )
                     )
                 ).scalar_one()
@@ -134,14 +214,11 @@ async def get_qa_compliance(
                 "deficit": deficit,
             }
         )
-        total_required += required
-        total_completed += completed
-        total_deficit += deficit
 
     return {
         "assigned_agent_count": len(agent_ids),
         "intervals": intervals,
         "total_required": total_required,
         "total_completed": total_completed,
-        "total_deficit": total_deficit,
+        "total_deficit": max(0, total_required - total_completed),
     }

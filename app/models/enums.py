@@ -22,6 +22,22 @@ class CaseTypeEnum(str, enum.Enum):
     NO_CASES = "No Cases"
 
 
+class ReviewStatusEnum(str, enum.Enum):
+    """Lifecycle of a Review row.
+
+    ``pending`` marks a delegated handoff: a Supervisor/Admin opened the
+    review for a real case and handed it to a specific QA, but no
+    scorecard exists yet. Pending rows carry null ``scorecard_data`` /
+    ``final_score`` and do NOT count towards the support agent's quota
+    until completed. ``completed`` is the normal, fully-scored state
+    (and the implicit state of every row saved before delegation
+    existed — enforced as the column's server default).
+    """
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+
+
 class RoleEnum(str, enum.Enum):
     """User roles in the QA workflow."""
 
