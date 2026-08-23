@@ -127,18 +127,26 @@
                     return response.json();
                 })
                 .then(function (review) {
-                    return window.htmx
-                        ? htmx.ajax('GET', '/partials/review-drawer', { target: '#drawer-container', swap: 'innerHTML' }).then(function () { return review; })
-                        : Promise.reject(new Error('htmx unavailable'));
+                    if (!window.htmx) return Promise.reject(new Error('htmx unavailable'));
+                    // The fresh drawer skips its default rules load; the
+                    // entry hook drives exactly ONE load for THIS type.
+                    window.__reviewDrawerHookPending = true;
+                    // Claim the drawer epoch BEFORE the swap: waitForHook
+                    // then ignores any previous mount's stale hook.
+                    window.__reviewDrawerEpoch = (window.__reviewDrawerEpoch || 0) + 1;
+                    var expectedEpoch = window.__reviewDrawerEpoch;
+                    return htmx.ajax('GET', '/partials/review-drawer', { target: '#drawer-container', swap: 'innerHTML' })
+                        .then(function () { return { review: review, expectedEpoch: expectedEpoch }; });
                 })
-                .then(function (review) {
+                .then(function (payload) {
                     var attempts = 0;
                     (function waitForHook() {
-                        if (typeof window.openReviewDrawerForReview === 'function') {
-                            window.openReviewDrawerForReview(review, mode);
+                        if (payload.expectedEpoch === window.__reviewDrawerReadyEpoch
+                            && typeof window.openReviewDrawerForReview === 'function') {
+                            window.openReviewDrawerForReview(payload.review, mode);
                             return;
                         }
-                        if (++attempts > 40) return;
+                        if (++attempts > 40) { showToast('Unable to open the review.'); return; }
                         window.setTimeout(waitForHook, 50);
                     })();
                 })

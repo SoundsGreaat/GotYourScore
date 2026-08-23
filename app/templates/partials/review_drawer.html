@@ -16,13 +16,13 @@
                     <button type="button" id="review-agent-button" popovertarget="review-agent-menu"
                             style="anchor-name:--review-agent-anchor"
                             class="select select-sm w-full flex items-center">
-                        <span id="review-agent-display" class="pointer-events-none truncate text-base-content/70">Select agent…</span>
+                        <span class="js-review-agent-display pointer-events-none truncate text-base-content/70">Select agent…</span>
                     </button>
                     <ul id="review-agent-menu" popover style="position-anchor:--review-agent-anchor"
                         class="dropdown menu menu-sm w-80 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
                         {% for agent in agents %}
                         <li>
-                            <button type="button" data-agent-id="{{ agent.id }}" onclick="updateCustomDropdown('review-agent', 'review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
+                            <button type="button" data-agent-id="{{ agent.id }}" onclick="updateCustomDropdown('review-agent', '.js-review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
                                 {{ agent.name }}
                             </button>
                         </li>
@@ -31,9 +31,46 @@
                     <input type="hidden" id="review-agent" value="" />
                 </fieldset>
 
+                <!-- Pending delegations only: empty means the case sits in
+                     the shared queue visible to every QA. -->
+                <!-- Canonical settle warning: htmx's post-swap settle step
+                     re-applies server attributes to id-bearing elements,
+                     resurrecting runtime-removed classes. Settle-sensitive
+                     nodes in this partial are therefore deliberately
+                     id-less and looked up by class instead. -->
+                <div class="assigned-qa-fieldset hidden">
+                    <fieldset class="fieldset">
+                        <label class="label" for="review-assigned-qa-button">Assigned QA</label>
+                        <button type="button" id="review-assigned-qa-button" popovertarget="review-assigned-qa-menu"
+                                style="anchor-name:--review-assigned-qa-anchor"
+                                class="select select-sm w-full flex items-center">
+                            <span class="js-review-assigned-qa-display pointer-events-none truncate text-base-content/70">Unassigned — shared queue</span>
+                        </button>
+                        <ul id="review-assigned-qa-menu" popover style="position-anchor:--review-assigned-qa-anchor"
+                            class="dropdown menu menu-sm w-80 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                            <li>
+                                <button type="button" data-assigned-qa-id=""
+                                        onclick="updateCustomDropdown('review-assigned-qa', '.js-review-assigned-qa-display', '', 'Unassigned — shared queue', this)">
+                                    Unassigned — shared queue
+                                </button>
+                            </li>
+                            {% for qa in qas %}
+                            <li>
+                                <button type="button" data-assigned-qa-id="{{ qa.id }}"
+                                        onclick="updateCustomDropdown('review-assigned-qa', '.js-review-assigned-qa-display', '{{ qa.id }}', '{{ qa.name }}', this)">
+                                    {{ qa.name }}
+                                </button>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        <input type="hidden" id="review-assigned-qa" value="" />
+                    </fieldset>
+                </div>
+
                 <!-- Hidden for 'No Cases' reviews: an absence entry has no
-                     ticket to reference. -->
-                <fieldset class="fieldset" id="case-number-fieldset">
+                     ticket to reference. Id-less for settle reasons (see
+                     assigned-qa-fieldset above). -->
+                <fieldset class="fieldset case-number-fieldset">
                     <label class="label" for="case-number">Case number</label>
                     <input id="case-number" type="text" class="input input-sm w-full" placeholder="CASE-1234" />
                 </fieldset>
@@ -43,14 +80,14 @@
                     <button type="button" id="case-type-button" popovertarget="case-type-menu"
                             style="anchor-name:--case-type-anchor"
                             class="select select-sm w-full flex items-center">
-                        <span id="case-type-display" class="pointer-events-none truncate">Service Request</span>
+                        <span class="js-case-type-display pointer-events-none truncate">Service Request</span>
                     </button>
                     <ul id="case-type-menu" popover style="position-anchor:--case-type-anchor"
                         class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
                         {% for case_type in case_types %}
                         <li>
                             <button type="button"
-                                    onclick="updateCustomDropdown('case-type', 'case-type-display', '{{ case_type }}', '{{ case_type }}', this)"
+                                    onclick="updateCustomDropdown('case-type', '.js-case-type-display', '{{ case_type }}', '{{ case_type }}', this)"
                                     class="{% if case_type == 'Service Request' %}active{% endif %}">
                                 {{ case_type }}
                             </button>
@@ -79,7 +116,7 @@
                     <p class="text-xs text-base-content/60">Tick violations; lower the points for a partial deduction.</p>
                 </fieldset>
 
-                <div id="ai-score-result" class="card hidden bg-base-200 shadow-sm">
+                <div class="js-ai-score-result card hidden bg-base-200 shadow-sm">
                     <div class="card-body p-4">
                         <h3 class="card-title text-base">Score preview</h3>
                         <div id="ai-score-content"></div>
@@ -133,7 +170,10 @@
 <script>
 window.updateCustomDropdown = function(inputId, displayId, value, text, buttonElement) {
     document.getElementById(inputId).value = value;
-    var displaySpan = document.getElementById(displayId);
+    // displayId may be an id OR a class selector — display spans are
+    // id-less to stay immune to htmx's settle step (see the canonical
+    // note on assigned-qa-fieldset).
+    var displaySpan = document.getElementById(displayId) || document.querySelector(displayId);
     displaySpan.textContent = text;
     displaySpan.classList.remove('text-base-content/70');
 
@@ -152,6 +192,29 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 };
 
 (function () {
+    // Single-instance guarantee: tear down ANY previous drawer instance
+    // BEFORE touching the DOM, so its document-level listeners are dead
+    // before this mount can dispatch or receive a single event. This
+    // deliberately runs ahead of the Quill-availability early return.
+    if (typeof window._reviewDrawerDispose === 'function') {
+        try { window._reviewDrawerDispose(); } catch (error) { /* best effort */ }
+    }
+    window._reviewDrawerDispose = null;
+
+    // Epoch handshake: callers claim __reviewDrawerEpoch before the swap
+    // and only accept the hook whose ready-epoch matches, so this mount's
+    // hook — registered here BEFORE anything can throw or early-return —
+    // always wins over a previous mount's still-global stale closure.
+    // Entries arriving mid-init are queued and flushed once fully bound.
+    var myEpoch = window.__reviewDrawerEpoch || 0;
+    var entryReady = false;
+    var queuedEntry = null;
+    window.openReviewDrawerForReview = function (review, mode) {
+        if ((window.__reviewDrawerEpoch || 0) !== myEpoch) return;
+        if (!entryReady) { queuedEntry = [review, mode]; return; }
+        applyEntry(review, mode);
+    };
+
     var editorContainer = document.getElementById('quill-editor');
     var menu = document.getElementById('ai-context-menu');
 
@@ -164,18 +227,17 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     if (!editorContainer || !menu || !window.Quill) return;
 
-    if (window._reviewDrawerCleanup) window._reviewDrawerCleanup();
-    if (window._reviewDrawerAbort) window._reviewDrawerAbort.abort();
     var controller = new AbortController();
-    window._reviewDrawerAbort = controller;
+    var disposed = false;
     var drawerMount = editorContainer.closest('.drawer').parentElement;
     var draftKey = 'gotyourscore:review-draft:new';
     var draftTimer;
+    var hookFallbackTimer = null;
     var pendingDeductions;
     var quill;
     // Entry mode: 'create' (default, unchanged flow), 'edit' or 'complete'
     // (set programmatically via window.openReviewDrawerForReview).
-    var drawerState = { mode: 'create', reviewId: null, initialScorecard: null };
+    var drawerState = { mode: 'create', reviewId: null, initialScorecard: null, isPending: false };
 
     function showToast(message, kind) {
         var toast = document.createElement('div');
@@ -268,7 +330,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                         v: 1,
                         notes_html: sanitizeHtml(quill.root.innerHTML),
                         agent_id: document.getElementById('review-agent').value,
-                        agent_name: document.getElementById('review-agent-display').textContent,
+                        agent_name: document.querySelector('.js-review-agent-display').textContent,
                         case_number: document.getElementById('case-number').value,
                         case_type: document.getElementById('case-type').value,
                         deductions: collectDeductions()
@@ -301,6 +363,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     function cleanup() {
         window.clearTimeout(draftTimer);
         window.clearTimeout(previewTimer);
+        window.clearTimeout(hookFallbackTimer);
         if (quill) {
             quill.off('text-change', saveDraft);
             // Do NOT call quill.disable() here: its ql-disabled class leaks onto the
@@ -309,12 +372,24 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             if (clipboard) clipboard.remove();
             quill = null;
         }
-        if (window._reviewDrawerCleanup === cleanup) window._reviewDrawerCleanup = null;
     }
 
-    window._reviewDrawerCleanup = cleanup;
+    // Registered globally so the NEXT mount kills this instance's
+    // document-level listeners (controller.abort) and timers before the
+    // swap introduces a fresh set — stale instances can never answer
+    // events meant for the new drawer.
+    function dispose() {
+        if (disposed) return;
+        disposed = true;
+        cleanup();
+        controller.abort();
+        if (rulesController) rulesController.abort();
+        if (window._reviewDrawerDispose === dispose) window._reviewDrawerDispose = null;
+    }
+    window._reviewDrawerDispose = dispose;
+
     document.addEventListener('htmx:beforeSwap', function (event) {
-        if (event.detail && event.detail.target === drawerMount) cleanup();
+        if (event.detail && event.detail.target === drawerMount) dispose();
     }, { signal: controller.signal });
 
     quill = window.Quill.find(editorContainer);
@@ -329,7 +404,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     if (draft) {
         if (draft.agent_id) {
             document.getElementById('review-agent').value = draft.agent_id;
-            var agentDisplay = document.getElementById('review-agent-display');
+            var agentDisplay = document.querySelector('.js-review-agent-display');
             agentDisplay.textContent = draft.agent_name || '';
             agentDisplay.classList.remove('text-base-content/70');
             document.querySelectorAll('#review-agent-menu button').forEach(function (btn) {
@@ -339,7 +414,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         document.getElementById('case-number').value = draft.case_number || '';
         if (draft.case_type) {
             document.getElementById('case-type').value = draft.case_type;
-            document.getElementById('case-type-display').textContent = draft.case_type;
+            document.querySelector('.js-case-type-display').textContent = draft.case_type;
             document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
                 btn.classList.toggle('active', btn.textContent.trim() === draft.case_type);
             });
@@ -366,11 +441,25 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     var rulesArea = document.getElementById('manual-score-area');
 
+    // Reentrancy guard: a monotonic token plus a per-request
+    // AbortController ensure only the LATEST loadCaseRules call may
+    // render into the rules area; earlier in-flight responses are
+    // discarded silently instead of racing into the DOM.
+    var rulesSeq = 0;
+    var rulesController = null;
+    // The case type whose rules currently occupy the rules area —
+    // re-picking the SAME type must not refetch (exactly one request
+    // per real type change).
+    var loadedRulesType = null;
+
     async function loadCaseRules() {
+        if (disposed) return;
+        var seq = ++rulesSeq;
         var value = document.getElementById('case-type').value;
         if (!value || value === 'No Cases') {
+            loadedRulesType = value || '';
             pendingDeductions = null;
-            document.getElementById('case-number-fieldset').classList.toggle('hidden', value === 'No Cases');
+            document.querySelector('.case-number-fieldset').classList.toggle('hidden', value === 'No Cases');
             if (value === 'No Cases') document.getElementById('case-number').value = '';
             rulesArea.innerHTML = value === 'No Cases'
                 ? '<p class="text-sm text-base-content/60">The agent had no cases to review (vacation, day off, …). This empty review still counts toward the monthly quota — use the notes to record the reason.</p>'
@@ -378,13 +467,25 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             renderPreview(null);
             return;
         }
-        document.getElementById('case-number-fieldset').classList.remove('hidden');
+        if (value === loadedRulesType) return;
+        document.querySelector('.case-number-fieldset').classList.remove('hidden');
         rulesArea.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
+        if (rulesController) rulesController.abort();
+        rulesController = new AbortController();
         try {
-            var response = await fetch('/partials/case-rules?case_type=' + encodeURIComponent(value), { credentials: 'same-origin' });
+            var response = await fetch(
+                '/partials/case-rules?case_type=' + encodeURIComponent(value),
+                { credentials: 'same-origin', signal: rulesController.signal }
+            );
+            if (seq !== rulesSeq || disposed) return;
             if (!response.ok) throw new Error('Case rules request failed');
-            rulesArea.innerHTML = await response.text();
+            var html = await response.text();
+            if (seq !== rulesSeq || disposed) return;
+            rulesArea.innerHTML = html;
+            loadedRulesType = value;
         } catch (error) {
+            loadedRulesType = null;
+            if (seq !== rulesSeq || disposed) return;
             rulesArea.innerHTML = '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
         }
         if (pendingDeductions) {
@@ -416,15 +517,24 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         return deductions;
     }
 
-    // Entry point for the matrix / my-reviews click handlers: reconfigures
-    // this freshly-mounted drawer into 'edit' or 'complete' mode for an
-    // existing review payload (GET /api/reviews/{id} response).
-    window.openReviewDrawerForReview = function (review, mode) {
+    // Entry point body for the matrix / my-reviews click handlers:
+    // reconfigures this freshly-mounted drawer into 'edit' or 'complete'
+    // mode for an existing review payload (GET /api/reviews/{id}
+    // response). Reached only via the epoch-guarded wrapper above, once
+    // init has fully finished.
+    function applyEntry(review, mode) {
         if (!review || typeof review !== 'object') return;
+        // The hook arrived — the default-load fallback is no longer needed.
+        window.clearTimeout(hookFallbackTimer);
         drawerState.mode = mode === 'complete' ? 'complete' : 'edit';
         drawerState.reviewId = review.id;
         drawerState.initialScorecard = null;
+        // Complete mode always targets a pending delegation.
+        drawerState.isPending = review.status === 'pending' || drawerState.mode === 'complete';
         hideDrawerError();
+
+        var assignedQaFieldset = document.querySelector('.assigned-qa-fieldset');
+        if (assignedQaFieldset) assignedQaFieldset.classList.toggle('hidden', !drawerState.isPending);
 
         var title = document.getElementById('review-drawer-title');
         if (title) {
@@ -443,18 +553,36 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         );
         var agentName = agentMenuButton ? agentMenuButton.textContent.trim() : 'Agent #' + agentId;
         document.getElementById('review-agent').value = agentId;
-        var agentDisplay = document.getElementById('review-agent-display');
+        var agentDisplay = document.querySelector('.js-review-agent-display');
         agentDisplay.textContent = agentName;
         agentDisplay.classList.remove('text-base-content/70');
         document.querySelectorAll('#review-agent-menu button').forEach(function (btn) {
             btn.classList.toggle('active', btn === agentMenuButton);
         });
+        // The reviewed Support agent is IMMUTABLE after creation — the
+        // picker stays locked (and visually disabled) in edit/complete
+        // mode; reassignment covers only the assigned QA.
         var agentButton = document.getElementById('review-agent-button');
         if (agentButton) agentButton.disabled = true;
 
+        var assignedQaId = String(review.assigned_qa_id || '');
+        var assignedQaMenuButton = document.querySelector(
+            '#review-assigned-qa-menu button[data-assigned-qa-id="' + CSS.escape(assignedQaId) + '"]'
+        );
+        var assignedQaName = assignedQaMenuButton
+            ? assignedQaMenuButton.textContent.trim()
+            : 'Unassigned — shared queue';
+        document.getElementById('review-assigned-qa').value = assignedQaId;
+        var assignedQaDisplay = document.querySelector('.js-review-assigned-qa-display');
+        assignedQaDisplay.textContent = assignedQaName;
+        assignedQaDisplay.classList.remove('text-base-content/70');
+        document.querySelectorAll('#review-assigned-qa-menu button').forEach(function (btn) {
+            btn.classList.toggle('active', btn === assignedQaMenuButton);
+        });
+
         var caseNumberInput = document.getElementById('case-number');
         caseNumberInput.value = review.case_number || '';
-        caseNumberInput.disabled = drawerState.mode === 'complete';
+        caseNumberInput.disabled = !drawerState.isPending && drawerState.mode === 'complete';
 
         var breakdown = storedBreakdown(review.scorecard_data);
         var deductions = {};
@@ -468,12 +596,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             ? review.case_type
             : (review.case_type && review.case_type.value) || 'Service Request';
         document.getElementById('case-type').value = caseType;
-        document.getElementById('case-type-display').textContent = caseType;
+        document.querySelector('.js-case-type-display').textContent = caseType;
         document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
             btn.classList.toggle('active', btn.textContent.trim() === caseType);
         });
         var caseTypeButton = document.getElementById('case-type-button');
-        if (caseTypeButton) caseTypeButton.disabled = drawerState.mode === 'complete';
+        if (caseTypeButton) caseTypeButton.disabled = !drawerState.isPending && drawerState.mode === 'complete';
 
         quill.deleteText(0, quill.getLength());
         if (review.notes) {
@@ -492,7 +620,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         });
 
         pendingDeductions = deductions;
-        document.dispatchEvent(new CustomEvent('case-type-change'));
+        // Programmatic prefill triggers EXACTLY ONE rules load for THIS
+        // type: call the loader directly instead of dispatching a
+        // synthetic change event that multi-bound (stale) listeners
+        // could each answer with a parallel fetch.
+        loadCaseRules();
         updateSaveState();
     };
 
@@ -537,7 +669,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     function renderPreview(data) {
-        var panel = document.getElementById('ai-score-result');
+        var panel = document.querySelector('.js-ai-score-result');
         var content = document.getElementById('ai-score-content');
         if (!data) {
             panel.classList.add('hidden');
@@ -570,7 +702,22 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         schedulePreview();
         saveDraft();
     }, { signal: controller.signal });
-    loadCaseRules();
+
+    // Programmatic opens (complete/edit from pending chips) fetch this
+    // partial with __reviewDrawerHookPending set; their entry hook then
+    // drives the ONE rules load for the review's own type. A fallback
+    // timer covers the case where the hook never arrives.
+    var skipInitialLoad = window.__reviewDrawerHookPending === true;
+    window.__reviewDrawerHookPending = false;
+    if (skipInitialLoad) {
+        hookFallbackTimer = window.setTimeout(function () {
+            if (disposed) return;
+            window.__reviewDrawerHookPending = false;
+            loadCaseRules();
+        }, 2500);
+    } else {
+        loadCaseRules();
+    }
 
     editorContainer.addEventListener('contextmenu', function (event) {
         // AI assist creates NEW reviews only — no context menu when
@@ -714,6 +861,13 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             case_number: document.getElementById('case-number').value || null,
             notes: sanitizeHtml(quill.root.innerHTML)
         };
+        if (drawerState.isPending) {
+            // Pending delegations stay reassignable (assigned QA, case
+            // type/number) and the backend makes the last saver the
+            // executor — but the reviewed SUPPORT agent is immutable, so
+            // its key is deliberately never sent.
+            payload.assigned_qa_id = document.getElementById('review-assigned-qa').value || null;
+        }
         if (drawerState.mode === 'complete') {
             // Client-side guard: the backend 400s on scoreless completion.
             var hasDeduction = Object.keys(deductions).some(function (key) {
@@ -784,5 +938,16 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             updateSaveState();
         }
     });
+
+    // All bindings are in place — publish this mount as the ready drawer
+    // for its epoch, then apply a programmatic entry that arrived during
+    // init (the wrapper queues instead of touching half-bound state).
+    entryReady = true;
+    window.__reviewDrawerReadyEpoch = myEpoch;
+    if (queuedEntry) {
+        var pendingEntry = queuedEntry;
+        queuedEntry = null;
+        applyEntry(pendingEntry[0], pendingEntry[1]);
+    }
 })();
 </script>

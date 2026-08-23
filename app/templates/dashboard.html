@@ -108,6 +108,17 @@
                             <span>My Reviews</span>
                         </a>
                     </li>
+                    {% if is_reviewer %}
+                    <li>
+                        <a href="#" hx-get="/partials/to-review" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span>To review</span>
+                            <span data-pending-badge data-pending-count="{{ mine_pending_count }}" class="badge badge-sm badge-warning{% if not mine_pending_count %} hidden{% endif %}">{{ mine_pending_count or '' }}</span>
+                        </a>
+                    </li>
+                    {% endif %}
                     {% if not is_support_only %}
                     <li>
                         <a href="#" hx-get="/partials/team-quotas" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
@@ -138,4 +149,37 @@
         </aside>
     </div>
 </div>
+
+{% if is_reviewer %}
+<script>
+(function () {
+    var badge = document.querySelector('[data-pending-badge]');
+    if (!badge) return;
+    var lastKnown = parseInt(badge.getAttribute('data-pending-count'), 10) || 0;
+
+    function applyCount(count) {
+        var changed = count !== lastKnown;
+        lastKnown = count;
+        badge.textContent = count > 0 ? String(count) : '';
+        badge.classList.toggle('hidden', count === 0);
+        if (changed) {
+            document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+        }
+    }
+
+    function poll() {
+        fetch('/api/reviews/pending/mine-count', { credentials: 'same-origin' })
+            .then(function (response) {
+                if (!response.ok) throw new Error('Pending count request failed');
+                return response.json();
+            })
+            .then(function (data) { applyCount(parseInt(data.count, 10) || 0); })
+            .catch(function () {});
+    }
+
+    window.addEventListener('load', poll);
+    window.setInterval(poll, 15000);
+})();
+</script>
+{% endif %}
 {% endblock %}
