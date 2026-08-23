@@ -397,7 +397,9 @@ def _parse_bulk_form(form: object) -> tuple[list[dict], list[dict], list[int]]:
     Rows are numbered from 0; a row exists while ``display_name_{i}``
     is present. ``item_id_{i}`` empty means a NEW row. ``active_{i}``
     is a checkbox (present = active). ``removed_ids`` is a hidden
-    comma-separated list of ids the UI marked for deletion.
+    comma-separated list of ids the UI marked for deletion. The row
+    index doubles as the admin-defined ordering key: the frontend
+    submits rows in DOM order, so it is stored as ``position``.
     """
     updates: list[dict] = []
     creations: list[dict] = []
@@ -409,6 +411,7 @@ def _parse_bulk_form(form: object) -> tuple[list[dict], list[dict], list[int]]:
             "category": str(form.get(f"category_{index}", "")),
             "penalty_points": str(form.get(f"penalty_{index}", "")).strip(),
             "is_active": f"active_{index}" in form,
+            "position": index,
         }
         if raw_id:
             try:

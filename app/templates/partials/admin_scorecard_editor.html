@@ -28,6 +28,20 @@
         }
         window.__editorRemoved = [];
 
+        window.__gripButton = function (kind) {
+            var grip = document.createElement("button");
+            grip.type = "button";
+            grip.className = "scorecard-grip scorecard-grip-" + kind + " btn btn-square btn-ghost btn-sm cursor-grab";
+            grip.setAttribute("aria-label", kind === "rule" ? "Drag rule" : "Drag category");
+            grip.innerHTML =
+                '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">' +
+                '<circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />' +
+                '<circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />' +
+                '<circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />' +
+                "</svg>";
+            return grip;
+        };
+
         window.__buildRow = function (category) {
             var row = document.createElement("div");
             row.className = "flex flex-wrap sm:flex-nowrap items-center gap-2 py-1";
@@ -75,7 +89,7 @@
                 "</svg>";
             remove.addEventListener("click", function () { __removeRow(remove); });
 
-            row.append(display, penalty, categoryInput, active, remove);
+            row.append(__gripButton("rule"), display, penalty, categoryInput, active, remove);
             return row;
         };
 
@@ -95,13 +109,13 @@
             wrap.dataset.group = "";
 
             var header = document.createElement("div");
-            header.className = "mb-1 flex items-center justify-end gap-2";
+            header.className = "mb-1 flex items-center justify-between gap-2";
             var addBtn = document.createElement("button");
             addBtn.type = "button";
             addBtn.className = "btn btn-ghost btn-xs";
             addBtn.textContent = "+ Add rule";
             addBtn.addEventListener("click", function () { __addRow(wrap, ""); });
-            header.appendChild(addBtn);
+            header.append(__gripButton("category"), addBtn);
 
             var rows = document.createElement("div");
             rows.className = "space-y-1";
@@ -109,6 +123,7 @@
 
             wrap.append(header, rows);
             host.appendChild(wrap);
+            __initRowsSortable(rows);
 
             var row = __buildRow("");
             rows.appendChild(row);
@@ -142,7 +157,60 @@
                 swap: "innerHTML",
             });
         };
+
+        // Sortable mutates the DOM in place and __saveForm reads rows in
+        // document order, so reordering needs no save-side changes. Row and
+        // category grips use distinct handle classes so the nested sortables
+        // never claim each other's drag start, and no shared group name keeps
+        // rows from crossing category containers.
+        window.__initRowsSortable = function (rows) {
+            if (!window.Sortable || !rows) return;
+            if (rows.sortable) rows.sortable.destroy();
+            rows.sortable = new Sortable(rows, {
+                handle: ".scorecard-grip-rule",
+                draggable: "[data-row]",
+                animation: 150,
+                ghostClass: "scorecard-ghost",
+                chosenClass: "scorecard-chosen",
+                dragClass: "scorecard-drag"
+            });
+        };
+
+        window.__initEditorSortables = function () {
+            if (!window.Sortable) return;
+            document.querySelectorAll("#editor-groups [data-rows]").forEach(function (rows) {
+                __initRowsSortable(rows);
+            });
+            var groups = document.getElementById("editor-groups");
+            if (!groups) return;
+            if (groups.sortable) groups.sortable.destroy();
+            groups.sortable = new Sortable(groups, {
+                handle: ".scorecard-grip-category",
+                draggable: "[data-group]",
+                animation: 150,
+                ghostClass: "scorecard-ghost",
+                chosenClass: "scorecard-chosen",
+                dragClass: "scorecard-drag"
+            });
+        };
     </script>
+
+    <style>
+        .scorecard-ghost {
+            opacity: 0.4;
+            outline: 1px dashed color-mix(in oklab, var(--color-base-content) 45%, transparent);
+            outline-offset: 2px;
+        }
+        .scorecard-chosen {
+            opacity: 0.85;
+            cursor: grabbing;
+        }
+        .scorecard-drag {
+            opacity: 0.95;
+            cursor: grabbing;
+            box-shadow: 0 10px 24px color-mix(in oklab, var(--color-base-content) 20%, transparent);
+        }
+    </style>
 
     <div id="editor-alert" class="space-y-2">
         {% if error %}<div role="alert" class="alert alert-error"><span>{{ error }}</span></div>{% endif %}
@@ -195,7 +263,21 @@
                 {% for group in groups %}
                 <div data-group class="mb-3">
                     <div class="mb-1 mt-4 flex items-center justify-between gap-2">
-                        <h3 class="text-sm font-semibold">{{ group['category'] }}</h3>
+                        <div class="flex min-w-0 items-center gap-1">
+                            <button type="button"
+                                    class="scorecard-grip scorecard-grip-category btn btn-square btn-ghost btn-sm cursor-grab"
+                                    aria-label="Drag category">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <circle cx="9" cy="6" r="1.5" />
+                                    <circle cx="15" cy="6" r="1.5" />
+                                    <circle cx="9" cy="12" r="1.5" />
+                                    <circle cx="15" cy="12" r="1.5" />
+                                    <circle cx="9" cy="18" r="1.5" />
+                                    <circle cx="15" cy="18" r="1.5" />
+                                </svg>
+                            </button>
+                            <h3 class="text-sm font-semibold">{{ group['category'] }}</h3>
+                        </div>
                         <button type="button" class="btn btn-ghost btn-xs"
                                 data-category="{{ group['category'] }}"
                                 onclick="__addRow(this.closest('[data-group]'), this.dataset.category)">+ Add rule</button>
@@ -203,6 +285,18 @@
                     <div class="space-y-1" data-rows>
                         {% for item in group['items'] %}
                         <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 py-1" data-row data-item-id="{{ item.id }}">
+                            <button type="button"
+                                    class="scorecard-grip scorecard-grip-rule btn btn-square btn-ghost btn-sm cursor-grab"
+                                    aria-label="Drag rule">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
+                                    <circle cx="9" cy="6" r="1.5" />
+                                    <circle cx="15" cy="6" r="1.5" />
+                                    <circle cx="9" cy="12" r="1.5" />
+                                    <circle cx="15" cy="12" r="1.5" />
+                                    <circle cx="9" cy="18" r="1.5" />
+                                    <circle cx="15" cy="18" r="1.5" />
+                                </svg>
+                            </button>
                             <input data-display value="{{ item.display_name }}" maxlength="255"
                                    class="input input-sm min-w-48 grow" aria-label="Rule display name" />
                             <input data-penalty type="number" min="1" max="100" value="{{ item.penalty_points }}"
@@ -237,7 +331,14 @@
                 <p class="text-xs text-base-content/60">
                     Saving snapshots current rules into future reviews only &mdash; past reviews keep their original scores.
                 </p>
+                <p class="text-xs text-base-content/60">
+                    Drag the grip handles to reorder rules and categories; click Save rules to persist.
+                </p>
             </div>
         </div>
     </form>
 </div>
+
+<script>
+    __initEditorSortables();
+</script>

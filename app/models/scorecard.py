@@ -63,7 +63,7 @@ class ScorecardTemplate(Base):
 
     items: Mapped[list["ScorecardItem"]] = relationship(
         backref="template",
-        order_by="ScorecardItem.error_name",
+        order_by="ScorecardItem.position",
         cascade="all, delete-orphan",
         # Let the DB-level ON DELETE CASCADE do the work instead of
         # loading every item just to delete it.
@@ -96,6 +96,12 @@ class ScorecardItem(Base):
     # default (see migration b4f8e2a6c9d1).
     category: Mapped[str] = mapped_column(
         String(200), nullable=False, default="General", server_default=text("'General'")
+    )
+    # Admin-defined ordering key (0-based): lower values render first
+    # in the editor, the AI prompt and rules snapshots. Rows that
+    # predate the column start at 0 (see migration d7e4b9a3f1c2).
+    position: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
     )
     penalty_points: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(

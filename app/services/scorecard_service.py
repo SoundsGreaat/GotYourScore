@@ -39,7 +39,9 @@ async def get_active_rules(
     Only items of ACTIVE templates whose case type matches are
     included. When several active templates define the same
     ``error_name``, the first one wins (templates ordered by id,
-    mirroring the AI prompt builder's dedup).
+    mirroring the AI prompt builder's dedup). Items are ordered by
+    ``template id``, then admin-defined ``position`` (item id breaks
+    ties), so snapshots embed the order admins see in the editor.
 
     Returns:
         ``{"case_type": "<value>", "template_ids": [...],
@@ -61,7 +63,8 @@ async def get_active_rules(
         )
         .order_by(
             ScorecardTemplate.id,
-            ScorecardItem.error_name,
+            ScorecardItem.position,
+            ScorecardItem.id,
         )
     )
 
@@ -185,9 +188,11 @@ async def load_editor(
 
     Returns ``(template, groups)`` where ``groups`` is
     ``[{"category": str, "items": [ScorecardItem, ...]}, ...]`` with
-    categories sorted alphabetically and items sorted by
-    ``display_name`` (casefold). Inactive items are included so admins
-    can re-activate them. ``(None, [])`` when the template is missing.
+    categories ordered by the smallest item ``position`` in the group
+    (that item's id, then the category name, break ties) and items
+    sorted by ``(position, display_name casefold)`` within their
+    group. Inactive items are included so admins can re-activate
+    them. ``(None, [])`` when the template is missing.
     """
     template = await db_session.get(ScorecardTemplate, template_id)
     if template is None:
@@ -202,15 +207,26 @@ async def load_editor(
         .scalars()
         .all()
     )
-    items.sort(key=lambda item: (item.display_name.casefold(), item.display_name))
+    items.sort(
+        key=lambda item: (
+            item.position,
+            item.display_name.casefold(),
+            item.display_name,
+            item.id,
+        )
+    )
 
     items_by_category: dict[str, list[ScorecardItem]] = {}
     for item in items:
         items_by_category.setdefault(item.category, []).append(item)
 
+    def _group_key(category: str) -> tuple[int, int, str]:
+        first = min(items_by_category[category], key=lambda item: (item.position, item.id))
+        return (first.position, first.id, category.casefold())
+
     groups = [
         {"category": category, "items": items_by_category[category]}
-        for category in sorted(items_by_category, key=str.casefold)
+        for category in sorted(items_by_category, key=_group_key)
     ]
     return template, groups
 
@@ -268,16 +284,24 @@ async def bulk_save(
     """Apply a whole editor form to one template (flushed, not committed).
 
     - ``updates``: dicts ``{id, display_name, category, penalty_points,
-      is_active}``. ONLY those columns change — ``error_name`` is
-      IMMUTABLE for existing items because saved reviews count
-      occurrences by that key; renaming a display name must never move
-      the multiplier.
+      is_active[, position]}``. ONLY those columns change —
+      ``error_name`` is IMMUTABLE for existing items because saved
+      reviews count occurrences by that key; renaming a display name
+      must never move the multiplier. An optional ``position``
+      (admin-defined ordering key) is applied when present.
     - ``creations``: same shape without ``id``; the ``error_name`` key
       is generated via :func:`slugify_error_name` and made unique
-      within the template (``_2``, ``_3``, ... on collision).
+      within the template (``_2``, ``_3``, ... on collision). An
+      optional ``position`` is stored verbatim; otherwise the item
+      lands after every surviving rule (max position + 1 + creation
+      ordinal).
     - ``deletions``: item ids to remove.
     - ``name`` / ``case_type``: template-level fields, updated when
       provided (not None).
+
+    Positions are stored exactly as submitted — no renormalization
+    pass runs afterwards, because the editor form numbers its rows
+    contiguously in DOM order.
 
     Raises:
         ValueError: on validation problems (empty names, bad penalties,
@@ -340,11 +364,15 @@ async def bulk_save(
             update.get("penalty_points"), row_label=row_label
         )
         item.is_active = bool(update.get("is_active", True))
+        raw_position = update.get("position")
+        if raw_position is not None:
+            item.position = int(raw_position)
         # error_name intentionally untouched (see docstring).
 
     # Names still in use after deletions/updates constrain new keys.
     taken = {item.error_name for item in remaining}
-    for creation in creations or []:
+    next_position = max((item.position for item in remaining), default=-1) + 1
+    for ordinal, creation in enumerate(creations or []):
         row_label = "New rule"
         display_name = _clean_display_name(
             creation.get("display_name"), row_label=row_label
@@ -355,6 +383,10 @@ async def bulk_save(
         )
         error_name = unique_error_name(slugify_error_name(display_name), taken)
         taken.add(error_name)
+        raw_position = creation.get("position")
+        position = (
+            next_position + ordinal if raw_position is None else int(raw_position)
+        )
         db_session.add(
             ScorecardItem(
                 template_id=template_id,
@@ -363,6 +395,7 @@ async def bulk_save(
                 category=category,
                 penalty_points=penalty_points,
                 is_active=bool(creation.get("is_active", True)),
+                position=position,
             )
         )
 
