@@ -23,7 +23,7 @@
             <div class="card-body flex-col gap-3 p-3 sm:p-4 sm:flex-row sm:items-center">
                 <div class="min-w-0 shrink-0 sm:w-56">
                     <p class="flex items-center gap-1.5 font-medium">
-                        <span class="truncate">{{ row.u.name }}</span>
+                        <span class="truncate">{{ row.u.nickname }}</span>
                         {% if row.u.id == current_user_id %}
                         <span class="badge badge-ghost badge-sm">(you)</span>
                         {% endif %}

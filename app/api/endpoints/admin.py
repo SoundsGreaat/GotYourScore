@@ -561,7 +561,7 @@ async def _roles_context(
         }
         for user in users
     ]
-    rows.sort(key=lambda row: row["u"].name.casefold())
+    rows.sort(key=lambda row: row["u"].nickname.casefold())
     return {
         "users": rows,
         "current_user_id": current_user.id,
@@ -617,6 +617,6 @@ async def update_user_roles(
         request=request,
         name="partials/admin_roles.html",
         context=await _roles_context(
-            db, current_user=auth, status=f"Roles updated for {target.name}."
+            db, current_user=auth, status=f"Roles updated for {target.nickname}."
         ),
     )

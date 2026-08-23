@@ -191,18 +191,15 @@ async def partial_my_reviews(
         .all()
     )
 
-    counterpart_ids = sorted(
-        {
-            review.support_agent_id if performed_by_me else review.qa_id
-            for review in reviews
-        }
+    person_ids = sorted(
+        {rid for review in reviews for rid in (review.qa_id, review.support_agent_id)}
     )
-    names: dict[int, str] = {}
-    if counterpart_ids:
+    nicknames: dict[int, str] = {}
+    if person_ids:
         people = (
-            await db.execute(select(User).where(User.id.in_(counterpart_ids)))
+            await db.execute(select(User).where(User.id.in_(person_ids)))
         ).scalars().all()
-        names = {person.id: person.name for person in people}
+        nicknames = {person.id: person.nickname for person in people}
 
     rows = [
         {
@@ -212,10 +209,8 @@ async def partial_my_reviews(
             "final_score": review.final_score,
             "created_at": review.created_at,
             "notes": review.notes,
-            "person_name": names.get(
-                review.support_agent_id if performed_by_me else review.qa_id,
-                "Unknown",
-            ),
+            "agent_name": nicknames.get(review.support_agent_id, "Unknown"),
+            "reviewer_name": nicknames.get(review.qa_id, "Unknown"),
         }
         for review in reviews
     ]
@@ -267,7 +262,7 @@ async def partial_team_quotas(
         rows.append(
             {
                 "id": qa.id,
-                "name": qa.name,
+                "name": qa.nickname,
                 "completed": compliance["total_completed"],
                 "required": compliance["total_required"],
                 "deficit": compliance["total_deficit"],
@@ -367,7 +362,7 @@ async def partial_qa_matrix(
         agents.append(
             {
                 "id": user.id,
-                "name": user.name,
+                "name": user.nickname,
                 "completed": quota["completed"],
                 "target": quota["target"],
                 "avg_score": avgs.get(user.id),
@@ -408,7 +403,7 @@ async def partial_review_drawer(
         return redirect
 
     agents = [
-        {"id": user.id, "name": user.name} for user in await _support_agents(db)
+        {"id": user.id, "name": user.nickname} for user in await _support_agents(db)
     ]
 
     return templates.TemplateResponse(

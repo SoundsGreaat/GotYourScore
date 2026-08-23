@@ -91,6 +91,16 @@ class User(Base):
         return any(role in self.roles for role in roles)
 
     @property
+    def nickname(self) -> str:
+        """Capitalized email local part — the team's working nickname.
+
+        Falls back to the full name only when the email has no "@"
+        (defensive; emails are unique and validated upstream).
+        """
+        local = self.email.split("@", 1)[0] if "@" in self.email else self.name
+        return local[:1].upper() + local[1:]
+
+    @property
     def is_support_only(self) -> bool:
         """True when the user has SUPPORT but no elevated role."""
         return self.has_role(RoleEnum.SUPPORT) and not self.has_role(
