@@ -382,6 +382,7 @@ async def partial_qa_matrix(
                 "cases": [
                     {
                         "id": review.id,
+                        "case_type": review.case_type,
                         "case_number": review.case_number,
                         "final_score": review.final_score,
                         "created_at": review.created_at,
@@ -458,13 +459,7 @@ async def partial_review_drawer(
         name="partials/review_drawer.html",
         context={
             "agents": agents,
-            "case_types": [
-                # "No Cases" reviews have null scores by definition and
-                # are submitted manually — not offered in the drawer.
-                case_type.value
-                for case_type in CaseTypeEnum
-                if case_type is not CaseTypeEnum.NO_CASES
-            ],
+            "case_types": [case_type.value for case_type in CaseTypeEnum],
         },
     )
 

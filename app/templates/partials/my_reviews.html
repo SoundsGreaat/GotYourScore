@@ -28,7 +28,15 @@
                             <td>{{ row.case_type.value }}</td>
                             <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
                             <td>
-                                {% if row.final_score is none %}
+                                {% if row.final_score is none and row.case_type.value == 'No Cases' %}
+                                <button type="button"
+                                        class="badge badge-soft badge-sm cursor-pointer font-semibold"
+                                        data-case-notes="{{ row.id }}"
+                                        data-case-label="{{ row.case_number or row.case_type.value }}"
+                                        aria-label="View notes for case {{ row.case_number or row.case_type.value }}"
+                                        title="View notes">N/C</button>
+                                <template data-notes-for="{{ row.id }}">{{ row.notes or '' }}</template>
+                                {% elif row.final_score is none %}
                                 <span class="text-base-content/50">&mdash;</span>
                                 {% else %}
                                 <button type="button"

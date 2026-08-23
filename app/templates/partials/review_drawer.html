@@ -31,7 +31,9 @@
                     <input type="hidden" id="review-agent" value="" />
                 </fieldset>
 
-                <fieldset class="fieldset">
+                <!-- Hidden for 'No Cases' reviews: an absence entry has no
+                     ticket to reference. -->
+                <fieldset class="fieldset" id="case-number-fieldset">
                     <label class="label" for="case-number">Case number</label>
                     <input id="case-number" type="text" class="input input-sm w-full" placeholder="CASE-1234" />
                 </fieldset>
@@ -322,10 +324,15 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var value = document.getElementById('case-type').value;
         if (!value || value === 'No Cases') {
             pendingDeductions = null;
-            rulesArea.innerHTML = '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
+            document.getElementById('case-number-fieldset').classList.toggle('hidden', value === 'No Cases');
+            if (value === 'No Cases') document.getElementById('case-number').value = '';
+            rulesArea.innerHTML = value === 'No Cases'
+                ? '<p class="text-sm text-base-content/60">The agent had no cases to review (vacation, day off, …). This empty review still counts toward the monthly quota — use the notes to record the reason.</p>'
+                : '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
             renderPreview(null);
             return;
         }
+        document.getElementById('case-number-fieldset').classList.remove('hidden');
         rulesArea.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
         try {
             var response = await fetch('/partials/case-rules?case_type=' + encodeURIComponent(value), { credentials: 'same-origin' });
