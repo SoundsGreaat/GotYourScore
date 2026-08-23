@@ -84,47 +84,176 @@ class PendingReviewCreate(BaseModel):
     """Payload for delegating a pending review
     (POST /api/reviews/pending, Supervisor/Admin only).
 
-    A pending review is a handoff: it records WHICH real case a named QA
-    must review, without any scoring yet — ``scorecard_data`` and
+    A pending review is a handoff: it records WHICH real case must be
+    reviewed, without any scoring yet — ``scorecard_data`` and
     ``final_score`` stay null and the row does not count towards the
     support agent's quota until completed.
 
-    ``case_number`` is REQUIRED (unlike :class:`ReviewCreate`): a
-    delegated review targets one specific real case, so "which case?"
-    must be answerable from the row itself. ``case_type`` NO_CASES is
-    rejected at the endpoint (400) for the same reason.
+    ``case_number`` is OPTIONAL (like :class:`ReviewCreate`):
+    whitespace is stripped and blank values normalize to ``null`` —
+    such rows simply carry no ticket reference. ``case_type`` NO_CASES
+    is still rejected at the endpoint (400): a delegation targets
+    review work, never an absence of cases.
+
+    ``assigned_qa_id`` is OPTIONAL too: omit it (or send ``null``) to
+    drop the handoff UNASSIGNED into the shared queue any QA can pick
+    up; when provided it must reference a user holding the 'QA' role
+    (validated at the endpoint, which maps unknown/non-QA users to
+    400).
     """
 
     model_config = ConfigDict(extra="forbid")
 
     support_agent_id: int
     case_type: CaseTypeEnum
-    # Required reference to the reviewed case in the ticketing system.
-    case_number: str = Field(max_length=255)
-    # The QA the handoff goes to; must hold the QA role (validated at
-    # the endpoint, which maps unknown/non-QA users to 400).
-    assigned_qa_id: int
+    # Optional reference to the reviewed case in the ticketing system;
+    # stripped of paste artifacts, whitespace-only becomes None.
+    case_number: str | None = Field(default=None, max_length=255)
+    # Optional assignee QA; null/omitted routes the handoff to the
+    # shared queue instead of a named QA (validated at the endpoint,
+    # which maps unknown/non-QA users to 400).
+    assigned_qa_id: int | None = None
+
+    @field_validator("case_number")
+    @classmethod
+    def strip_blank_to_none(cls, value: str | None) -> str | None:
+        """Spreadsheets leak whitespace; blank numbers carry no case."""
+        if value is None:
+            return value
+        return value.strip() or None
+
+
+class PendingBulkRow(BaseModel):
+    """One fully-resolved row of a bulk delegation
+    (POST /api/reviews/pending/bulk).
+
+    Every row is one full independent delegation of the four fields —
+    support agent, optional assignee QA, case type and optional case
+    number — so each row may target a DIFFERENT agent, mirroring a
+    pasted spreadsheet selection. ``assigned_qa_id`` is OPTIONAL: rows
+    without one stay UNASSIGNED in the shared queue for any QA to grab.
+    ``case_number`` is OPTIONAL as well: whitespace is stripped and
+    blank values normalize to ``null`` (numberless rows never collide
+    in duplicate checks). Business validity (agent holds 'Support',
+    assignee holds 'QA' when provided, not NO_CASES, not a duplicate)
+    is judged per row at the endpoint: one bad row never fails the
+    whole batch, it comes back in ``skipped`` with a reason instead.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    support_agent_id: int
+    # Optional assignee QA; null/omitted routes the handoff to the
+    # shared queue instead of a named QA (validated at the endpoint,
+    # which maps unknown/non-QA users to a per-row skip).
+    assigned_qa_id: int | None = None
+    case_type: CaseTypeEnum
+    # Optional reference to the case in the ticketing system; stripped
+    # of paste artifacts, whitespace-only becomes None (same rule as
+    # the single delegation endpoint).
+    case_number: str | None = Field(default=None, max_length=255)
+
+    @field_validator("case_number")
+    @classmethod
+    def strip_blank_to_none(cls, value: str | None) -> str | None:
+        """Spreadsheets leak whitespace; blank numbers carry no case."""
+        if value is None:
+            return value
+        return value.strip() or None
+
+
+class PendingBulkCreate(BaseModel):
+    """Payload for bulk-delegating pending reviews
+    (POST /api/reviews/pending/bulk, Supervisor/Admin only).
+
+    ``rows`` is capped at 500 so one pasted mega-selection cannot stall
+    the request worker (422 when exceeded).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[PendingBulkRow] = Field(max_length=500)
+
+
+class PendingBulkCreatedRow(BaseModel):
+    """Light per-row result of a successful bulk delegation.
+
+    ``case_number`` is null for rows delegated without one.
+    """
+
+    id: int
+    case_number: str | None = None
+
+
+class PendingBulkSkippedRow(BaseModel):
+    """Light per-row result of a skipped bulk delegation row.
+
+    ``case_number`` is null for numberless rows.
+    """
+
+    case_number: str | None = None
+    reason: str
+
+
+class PendingBulkResponse(BaseModel):
+    """Outcome of POST /api/reviews/pending/bulk.
+
+    Rows are deliberately light dicts (id + case_number, reason +
+    case_number) instead of full :class:`ReviewRead` payloads: a bulk
+    response can cover hundreds of rows and callers only need enough
+    to reconcile their spreadsheet — everything else is fetchable via
+    GET /api/reviews/{review_id}.
+    """
+
+    created: list[PendingBulkCreatedRow]
+    skipped: list[PendingBulkSkippedRow]
+    created_count: int
+    skipped_count: int
+
+
+class PendingCountRead(BaseModel):
+    """Number of pending reviews AVAILABLE to the calling QA — assigned
+    to them or sitting unassigned in the shared queue
+    (GET /api/reviews/pending/mine-count)."""
+
+    count: int
 
 
 class ReviewUpdate(RawScorecardValidation, BaseModel):
     """Payload for editing a review (PATCH /api/reviews/{review_id}).
 
-    Partial semantics: every field is optional and ONLY provided fields
-    change (``None`` = not provided). ``support_agent_id`` is
-    deliberately absent — the reviewed agent is immutable after save;
-    ``status``, ``qa_id``, ``assigned_qa_id`` and ``created_by`` are
-    likewise never editable through this payload (they are managed by
-    the completion flow server-side).
+    TRI-STATE semantics, resolved server-side via
+    ``model_fields_set``: a key ABSENT from the JSON body means "leave
+    unchanged"; a key PRESENT means "apply" — even when its value is
+    ``null``. This matters for the reassignment keys below, where an
+    explicit ``null`` is a meaningful instruction rather than "not
+    provided". Plain optionals (``case_type``, ``case_number``,
+    ``notes``, ``raw_scorecard``) keep the simpler legacy reading:
+    only non-null values are applied.
+
+    Reassignment keys — honored by the endpoint ONLY while the review
+    is status='pending' (400 otherwise):
+    - ``support_agent_id``: moves the handoff to another Support agent
+      (must exist and hold the 'Support' role).
+    - ``assigned_qa_id``: re-routes the handoff to another QA (must
+      exist and hold the 'QA' role); an explicit ``null`` clears the
+      assignment and drops the row back into the shared queue.
+
+    ``status``, ``qa_id`` and ``created_by`` are never editable through
+    this payload: they are managed server-side by the completion flow
+    and the last-editor-becomes-executor rule — see ``update_review``.
 
     ``raw_scorecard`` reuses the shared deduction validators: whole
     numbers >= 0, booleans rejected. Whether providing it triggers a
-    full recompute (and when it is REQUIRED instead) is decided by the
-    endpoint based on the review's current state — see
-    ``update_review``.
+    full recompute (and when it completes a pending row instead of
+    just editing it) is decided by the endpoint based on the review's
+    current state — see ``update_review``.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    support_agent_id: int | None = None
+    assigned_qa_id: int | None = None
     case_type: CaseTypeEnum | None = None
     case_number: str | None = Field(default=None, max_length=255)
     notes: str | None = None

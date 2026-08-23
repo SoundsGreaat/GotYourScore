@@ -144,15 +144,40 @@ async def login_page(
 
 
 @router.get("/", name="dashboard", summary="Dashboard page")
-async def dashboard(request: Request, auth: PageUser) -> Response:
+async def dashboard(
+    request: Request,
+    auth: PageUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
     """Render the dashboard for authenticated users.
 
     The template hides reviewer chrome (New Review button, tracker
     tabs, aggregate sidebar entries) from Support-only users; the
     server-side RBAC on the partials stays the source of truth.
+    ``is_reviewer`` + ``mine_pending_count`` feed the reviewer-only
+    "To review" sidebar link and its pending-count badge (available
+    work: assigned to the caller or in the shared queue; the badge
+    then keeps itself fresh via client-side polling).
     """
     if isinstance(auth, RedirectResponse):
         return auth
+    reviewer = is_reviewer(auth)
+    mine_pending_count = 0
+    if reviewer:
+        mine_pending_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(Review)
+                .where(
+                    or_(
+                        Review.assigned_qa_id == auth.id,
+                        Review.assigned_qa_id.is_(None),
+                    ),
+                    Review.status == ReviewStatusEnum.PENDING,
+                    Review.deleted_at.is_(None),
+                )
+            )
+        ).scalar_one()
     return templates.TemplateResponse(
         request=request,
         name="dashboard.html",
@@ -163,6 +188,8 @@ async def dashboard(request: Request, auth: PageUser) -> Response:
                 RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
             ),
             "is_admin": auth.has_role(RoleEnum.ADMIN),
+            "is_reviewer": reviewer,
+            "mine_pending_count": int(mine_pending_count),
         },
     )
 
@@ -272,6 +299,89 @@ async def partial_my_reviews(
             "rows": rows,
             "perspective": "reviewer" if performed_by_me else "agent",
         },
+    )
+
+
+@router.get(
+    "/partials/to-review",
+    name="partial_to_review",
+    summary="To Review partial",
+    include_in_schema=False,
+)
+async def partial_to_review(
+    request: Request,
+    auth: PageUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Render the 'To review' HTMX partial for the assigned QA.
+
+    Lists TWO groups of OPEN handoffs (status='pending', not
+    soft-deleted), newest first within each: (a) rows ASSIGNED to the
+    caller via ``assigned_qa_id`` and (b) the UNASSIGNED shared queue
+    (``assigned_qa_id`` IS NULL) any reviewer may grab. Each row is
+    completable straight from the list; completing a grabbed shared
+    row keeps ``assigned_qa_id`` null (audit trail) while the
+    completer becomes the reviewer of record. Reviewer roles only —
+    Support-only users get a bare 403 like the other aggregate
+    partials. Delegator names are batch-resolved via the nickname map
+    (``qa_id`` first, ``created_by`` fallback).
+    """
+    redirect = _htmx_redirect_if_needed(auth, request)
+    if redirect is not None:
+        return redirect
+    if not is_reviewer(auth):
+        return _forbidden()
+
+    open_filters = (
+        Review.status == ReviewStatusEnum.PENDING,
+        Review.deleted_at.is_(None),
+    )
+    assigned_reviews = list(
+        (
+            await db.execute(
+                select(Review)
+                .where(Review.assigned_qa_id == auth.id, *open_filters)
+                .order_by(Review.created_at.desc())
+            )
+        ).scalars().all()
+    )
+    shared_reviews = list(
+        (
+            await db.execute(
+                select(Review)
+                .where(Review.assigned_qa_id.is_(None), *open_filters)
+                .order_by(Review.created_at.desc())
+            )
+        ).scalars().all()
+    )
+
+    reviews = assigned_reviews + shared_reviews
+    nicknames = await _nickname_map(
+        db,
+        {rid for review in reviews for rid in (review.qa_id, review.created_by)},
+    )
+
+    def _row(review: Review, unassigned: bool) -> dict[str, object]:
+        return {
+            "id": review.id,
+            "case_type": review.case_type,
+            "case_number": review.case_number,
+            "delegated_by_name": (
+                nicknames.get(review.qa_id)
+                or nicknames.get(review.created_by)
+                or "Unknown"
+            ),
+            "unassigned": unassigned,
+        }
+
+    rows = [_row(review, False) for review in assigned_reviews] + [
+        _row(review, True) for review in shared_reviews
+    ]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/to_review.html",
+        context={"rows": rows},
     )
 
 
@@ -622,7 +732,9 @@ async def partial_review_drawer(
     """Render the 'Review Drawer' HTMX partial for authenticated users.
 
     Context: the Support agents (``{"id", "name"}``) selectable as
-    review targets and the case type values for the case-type picker.
+    review targets, the QA analysts (``{"id", "name"}``) selectable as
+    delegate assignees, and the case type values for the case-type
+    picker.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -637,6 +749,7 @@ async def partial_review_drawer(
         name="partials/review_drawer.html",
         context={
             "agents": agents,
+            "qas": [{"id": qa.id, "name": qa.nickname} for qa in await _qas(db)],
             "case_types": [case_type.value for case_type in CaseTypeEnum],
         },
     )
