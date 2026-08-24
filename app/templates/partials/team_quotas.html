@@ -1,4 +1,5 @@
 {% import "macros/dropdowns.html" as dd %}
+{% import "macros/icons.html" as icons %}
 <section hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Team Quotas
@@ -74,10 +75,10 @@
                     <span class="badge badge-soft badge-sm gap-1 py-3">
                         <span>{{ assignment.label }}</span>
                         <button type="button"
-                                class="cursor-pointer font-bold opacity-60 hover:opacity-100"
+                                class="cursor-pointer opacity-60 hover:opacity-100 [&_svg]:h-3 [&_svg]:w-3"
                                 data-assignment-remove="{{ assignment.id }}"
                                 aria-label="Remove assignment {{ assignment.label }} from {{ group.qa_name }}"
-                                title="Remove assignment">&#10005;</button>
+                                title="Remove assignment">{{ icons.x() }}</button>
                     </span>
                     {% endfor %}
                 </div>

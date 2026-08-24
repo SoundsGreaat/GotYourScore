@@ -1,4 +1,5 @@
 {% import "macros/dropdowns.html" as dd %}
+{% import "macros/icons.html" as icons %}
 <section id="reviews-view"
          hx-get="{{ endpoint }}"
          hx-trigger="reviews-changed from:body"
@@ -132,15 +133,15 @@
                             {% if perspective == 'reviewer' %}
                             <td class="whitespace-nowrap">
                                 {% if row.can_edit %}
-                                <div class="flex items-center gap-0.5">
+                                <div class="flex items-center gap-1">
                                     <button type="button"
-                                            class="btn btn-ghost btn-xs px-1.5"
+                                            class="btn btn-ghost btn-xs btn-circle"
                                             data-review-edit="{{ row.id }}"
-                                            aria-label="Edit review {{ row.id }}" title="Edit">&#9998;</button>
+                                            aria-label="Edit review {{ row.id }}" title="Edit">{{ icons.edit() }}</button>
                                     <button type="button"
-                                            class="btn btn-ghost btn-xs px-1.5 text-error"
+                                            class="btn btn-ghost btn-xs btn-circle text-error"
                                             data-review-delete="{{ row.id }}"
-                                            aria-label="Delete review {{ row.id }}" title="Delete">&#128465;</button>
+                                            aria-label="Delete review {{ row.id }}" title="Delete">{{ icons.trash() }}</button>
                                 </div>
                                 {% endif %}
                             </td>
@@ -165,7 +166,7 @@
     <dialog id="my-reviews-notes-modal" class="modal">
         <div class="modal-box w-11/12 max-w-2xl">
             <form method="dialog">
-                <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">&#10005;</button>
+                <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">{{ icons.x() }}</button>
             </form>
             <h3 id="my-reviews-notes-title" class="pr-8 text-lg font-bold"></h3>
             <div id="my-reviews-notes-body" class="mt-3 max-h-[60vh] overflow-y-auto text-sm leading-relaxed [&_p]:my-2 [&_ul]:pl-5 [&_ul]:[list-style-type:disc] [&_ol]:pl-5 [&_ol]:[list-style-type:decimal]"></div>
