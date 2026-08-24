@@ -50,13 +50,29 @@
         // Tab highlight: native htmx GET attributes fire the request;
         // this delegated listener only moves the .tab-active state, so
         // it works no matter when Alpine finishes initializing.
-        document.getElementById('admin-tabs').addEventListener('click', function (event) {
-            var tab = event.target.closest('[data-admin-tab]');
-            if (!tab) return;
-            this.querySelectorAll('[data-admin-tab]').forEach(function (node) {
+        var adminTabs = document.getElementById('admin-tabs');
+        function markActiveTab(tab) {
+            adminTabs.querySelectorAll('[data-admin-tab]').forEach(function (node) {
                 node.classList.toggle('tab-active', node === tab);
                 node.setAttribute('aria-selected', node === tab ? 'true' : 'false');
             });
+        }
+        // Restore the hashed tab (e.g. /admin#scorecards) BEFORE htmx
+        // fires the eager load; unknown hashes keep the default Prompts.
+        var wantedTab = window.location.hash.replace('#', '');
+        if (wantedTab) {
+            var btn = document.querySelector('[data-admin-tab="' + wantedTab + '"]');
+            if (btn) {
+                document.getElementById('admin-view').setAttribute('hx-get', btn.getAttribute('hx-get'));
+                markActiveTab(btn);
+            }
+        }
+        adminTabs.addEventListener('click', function (event) {
+            var tab = event.target.closest('[data-admin-tab]');
+            if (!tab) return;
+            markActiveTab(tab);
+            // Mirror into the hash so reloads reopen the same tab.
+            history.replaceState(null, '', '#' + tab.getAttribute('data-admin-tab'));
         });
     </script>
 </main>

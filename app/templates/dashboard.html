@@ -202,4 +202,58 @@
 })();
 </script>
 {% endif %}
+
+<script>
+/* Hash-synced view state. Every sidebar link swaps a partial into
+   #view-container while the URL stays "/", so a reload always landed on
+   the default view. The active partial is mirrored into the location
+   hash and restored BEFORE htmx fires its initial load — reloads (and
+   direct /#my-reviews-style links) reopen the same view, and the
+   sidebar highlights it via menu-active. Hashes that match no visible
+   link (RBAC-hidden views) fall back to the server-chosen default. */
+(function () {
+    var container = document.getElementById('view-container');
+    if (!container) return;
+    var links = Array.prototype.slice.call(
+        document.querySelectorAll('aside a[hx-target="#view-container"]')
+    );
+    if (!links.length) return;
+
+    function partialOf(link) {
+        return (link.getAttribute('hx-get') || '').split('/').pop();
+    }
+    function setActive(partial) {
+        links.forEach(function (link) {
+            link.classList.toggle('menu-active', partialOf(link) === partial);
+        });
+    }
+    function linkFor(partial) {
+        for (var i = 0; i < links.length; i++) {
+            if (partialOf(links[i]) === partial) return links[i];
+        }
+        return null;
+    }
+
+    var wanted = window.location.hash.replace('#', '');
+    var target = wanted ? linkFor(wanted) : null;
+    if (target) {
+        // Rewrite before htmx initializes so the load-trigger fetches
+        // the hashed view instead of the server-side default.
+        container.setAttribute('hx-get', target.getAttribute('hx-get'));
+    }
+    var current = target ? wanted : (container.getAttribute('hx-get') || '').split('/').pop();
+    setActive(current);
+
+    // Mirror every successful swap into the hash + sidebar highlight.
+    // Forbidden views (403) never swap, so the hash stays truthful.
+    document.body.addEventListener('htmx:afterRequest', function (event) {
+        var elt = event.detail.elt;
+        if (!elt || elt.getAttribute('hx-target') !== '#view-container') return;
+        if (!event.detail.successful) return;
+        var partial = partialOf(elt);
+        history.replaceState(null, '', '#' + partial);
+        setActive(partial);
+    });
+})();
+</script>
 {% endblock %}
