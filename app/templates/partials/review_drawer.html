@@ -90,16 +90,21 @@
                     </div>
                 </div>
 
-                <div id="drawer-inline-alert" role="alert" class="alert alert-error hidden"></div>
+                <!-- js-* classes, not ids: htmx's settle step copies
+                     attributes between same-id elements across swaps, so
+                     JS mutations (hidden/disabled) from a dead mount would
+                     leak into the fresh one (same reason the QA display
+                     spans above are id-less). -->
+                <div class="js-drawer-alert alert alert-error hidden" role="alert"></div>
 
-                <button id="save-review" type="button" class="btn btn-primary btn-block" disabled>Save Review</button>
+                <button class="js-save-changes btn btn-ghost btn-block hidden" type="button">Save Changes</button>
+                <button class="js-save-review btn btn-primary btn-block" type="button" disabled>Save Review</button>
             </div>
         </aside>
     </div>
 </div>
 
-<ul id="ai-context-menu"
-    class="menu menu-sm absolute z-[100] hidden w-52 origin-top-left animate-menu-pop rounded-box border border-base-300 bg-base-100 p-1 shadow-md">
+<ul class="js-ai-context-menu menu menu-sm absolute z-[100] hidden w-52 origin-top-left animate-menu-pop rounded-box border border-base-300 bg-base-100 p-1 shadow-md">
     <li>
         <button id="ai-refactor-action" type="button">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -169,7 +174,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     };
 
     var editorContainer = document.getElementById('quill-editor');
-    var menu = document.getElementById('ai-context-menu');
+    var menu = document.querySelector('.js-ai-context-menu');
 
     var drawerToggle = document.getElementById('review-drawer-toggle');
     requestAnimationFrame(function () {
@@ -219,14 +224,14 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     function showDrawerError(message) {
-        var alertBox = document.getElementById('drawer-inline-alert');
+        var alertBox = document.querySelector('.js-drawer-alert');
         if (!alertBox) { showToast(message); return; }
         alertBox.textContent = message;
         alertBox.classList.remove('hidden');
     }
 
     function hideDrawerError() {
-        var alertBox = document.getElementById('drawer-inline-alert');
+        var alertBox = document.querySelector('.js-drawer-alert');
         if (alertBox) alertBox.classList.add('hidden');
     }
 
@@ -362,14 +367,17 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var refactorButton = document.getElementById('ai-refactor-action');
     var scoreButton = document.getElementById('ai-score-action');
     var notesButton = document.getElementById('score-notes-action');
-    var saveButton = document.getElementById('save-review');
+    var saveButton = document.querySelector('.js-save-review');
+    var saveChangesButton = document.querySelector('.js-save-changes');
     refactorButton.dataset.labelHtml = refactorButton.innerHTML;
     scoreButton.dataset.labelHtml = scoreButton.innerHTML;
     notesButton.dataset.labelHtml = notesButton.innerHTML;
     saveButton.dataset.labelHtml = saveButton.innerHTML;
 
     function updateSaveState() {
-        saveButton.disabled = !document.getElementById('review-agent').value;
+        var ready = !!document.getElementById('review-agent').value;
+        saveButton.disabled = !ready;
+        saveChangesButton.disabled = !ready;
     }
     document.addEventListener('review-agent-change', updateSaveState, { signal: controller.signal });
     document.addEventListener('review-agent-change', saveDraft, { signal: controller.signal });
@@ -482,6 +490,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var saveLabel = drawerState.mode === 'complete' ? 'Complete review' : 'Save changes';
         saveButton.textContent = saveLabel;
         saveButton.dataset.labelHtml = saveLabel;
+        // Complete mode keeps a secondary escape hatch: persist edits
+        // (assignee, case number/type, notes) WITHOUT completing.
+        saveChangesButton.classList.toggle('hidden', drawerState.mode !== 'complete');
 
         var agentId = String(review.support_agent_id);
         var agentMenuButton = document.querySelector(
@@ -792,7 +803,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
     });
 
-    async function saveExistingReview() {
+    async function saveExistingReview(completing) {
         var deductions = collectDeductions();
         var payload = {
             case_type: document.getElementById('case-type').value,
@@ -806,24 +817,21 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             // its key is deliberately never sent.
             payload.assigned_qa_id = document.getElementById('review-assigned-qa').value || null;
         }
-        if (drawerState.mode === 'complete') {
-            // Client-side guard: the backend 400s on scoreless completion.
-            var hasDeduction = Object.keys(deductions).some(function (key) {
-                return deductions[key] > 0;
-            });
-            if (!hasDeduction) {
-                showDrawerError('Enter at least one deduction — a delegated case must be scored to be completed.');
-                return;
-            }
+        if (completing) {
+            // An empty scorecard is a legitimate zero-error completion:
+            // raw_scorecard={} still completes the row (base score, no
+            // penalties). Only the payload presence flips it to completed.
             payload.raw_scorecard = deductions;
-        } else if (!sameScorecard(deductions, drawerState.initialScorecard)) {
+        } else if (!drawerState.isPending && !sameScorecard(deductions, drawerState.initialScorecard)) {
             // Only resend the scorecard when rules changed: an unchanged
             // payload keeps the stored breakdown (and its multipliers).
             payload.raw_scorecard = deductions;
         }
+        // else: pending metadata-only save (no raw_scorecard key at all),
+        // so the row stays pending and quota-neutral.
 
-        var completing = drawerState.mode === 'complete';
         setLoading(saveButton, completing ? 'Completing…' : 'Saving…', true);
+        saveChangesButton.disabled = true;
         try {
             var response = await fetch('/api/reviews/' + drawerState.reviewId, {
                 method: 'PATCH',
@@ -848,7 +856,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     saveButton.addEventListener('click', async function () {
-        if (drawerState.mode !== 'create') { await saveExistingReview(); return; }
+        if (drawerState.mode !== 'create') { await saveExistingReview(drawerState.mode === 'complete'); return; }
         if (!document.getElementById('review-agent').value) return;
         setLoading(saveButton, 'Saving…', true);
         try {
@@ -875,6 +883,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             setLoading(saveButton, 'Saving…', false);
             updateSaveState();
         }
+    });
+
+    // Complete mode's secondary action: persist edits without completing.
+    saveChangesButton.addEventListener('click', async function () {
+        await saveExistingReview(false);
     });
 
     // All bindings are in place — publish this mount as the ready drawer

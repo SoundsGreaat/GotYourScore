@@ -138,7 +138,9 @@
                                     <button type="button"
                                             class="btn btn-ghost btn-xs btn-circle"
                                             data-review-edit="{{ case.id }}"
-                                            aria-label="Edit review {{ case.id }}" title="Edit">{{ icons.edit() }}</button>
+                                            {% if case.status == 'pending' %}data-review-mode="complete"{% endif %}
+                                            aria-label="{{ 'Complete delegated case' if case.status == 'pending' else 'Edit review' }} {{ case.id }}"
+                                            title="{{ 'Complete delegated case' if case.status == 'pending' else 'Edit' }}">{{ icons.edit() }}</button>
                                     <button type="button"
                                             class="btn btn-ghost btn-xs btn-circle text-error"
                                             data-review-delete="{{ case.id }}"
@@ -324,7 +326,11 @@
             }
             var editButton = event.target.closest('[data-review-edit]');
             if (editButton && section.contains(editButton)) {
-                openReviewDrawer(editButton.getAttribute('data-review-edit'), 'edit');
+                // Pending rows complete straight from the pencil — same
+                // flow as the Pending chip, regardless of the assignee.
+                openReviewDrawer(
+                    editButton.getAttribute('data-review-edit'),
+                    editButton.getAttribute('data-review-mode') || 'edit');
                 return;
             }
             var deleteButton = event.target.closest('[data-review-delete]');
