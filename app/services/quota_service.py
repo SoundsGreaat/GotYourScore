@@ -119,13 +119,11 @@ async def get_qa_compliance(
     of the performer is untouched); a single review can credit several
     QAs at once when their assignment scopes overlap.
 
-    Assigned agents are the DISTINCT non-null support_agent_id values
-    of this QA's assignments (General + Hybrid) whose user is still
-    active (``deleted_at IS NULL``): a soft-deleted support agent no
-    longer contributes to required/completed, while their historical
-    reviews stay intact. Specialized-only assignments
-    (``support_agent_id`` NULL) contribute nothing to the agent-count
-    math. ``total_required`` is ``len(assigned agents) * MONTHLY_QUOTA``;
+    Assigned agents are the DISTINCT support_agent_id values of this
+    QA's assignments whose user is still active (``deleted_at IS
+    NULL``): a soft-deleted support agent no longer contributes to
+    required/completed, while their historical reviews stay intact.
+    ``total_required`` is ``len(assigned agents) * MONTHLY_QUOTA``;
     ``total_completed`` is a plain COUNT of counted reviews (see
     :func:`counted_review_filters`) for those agents within the
     half-open ``[start, end)`` period range on ``created_at`` — no

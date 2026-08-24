@@ -556,9 +556,9 @@ async def partial_team_quotas(
     are N+1 queries — acceptable for a small team.
 
     Supervisors/Admins additionally get the assignment-management
-    context (``can_manage`` + grouped QAAssignment rows + the QA /
-    Support user lists feeding the add form); the template hides the
-    whole block server-side for everyone else.
+    context (``can_manage`` + QAAssignment rows keyed by QA + the
+    unassigned Support users feeding the drag-and-drop palette); the
+    template hides the whole block server-side for everyone else.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -569,6 +569,7 @@ async def partial_team_quotas(
     period_start, period_end, closing_year, closing_month = (
         reporting_period.reporting_period_for(datetime.now(timezone.utc))
     )
+    assignments_by_qa = await _assignments_by_qa(db)
     rows = []
     for qa in await _qas(db):
         compliance = await quota_service.get_qa_compliance(
@@ -592,28 +593,26 @@ async def partial_team_quotas(
         ),
         "period_range": _period_range_label(period_start, period_end),
         "can_manage": can_manage,
+        # Read-only agent chips render for every reviewer; the
+        # drag-and-drop palette only appears for managers.
+        "assignments_by_qa": assignments_by_qa,
     }
     if can_manage:
-        groups = await _assignment_groups(db)
         context.update(
             {
-                "assignment_groups": groups,
                 "assignment_count": sum(
-                    len(group["assignments"]) for group in groups
+                    len(rows) for rows in assignments_by_qa.values()
                 ),
-                "qa_users": [
-                    {"id": qa.id, "name": qa.nickname} for qa in await _qas(db)
-                ],
-                "support_agents": [
+                # Palette offers only agents without a QA yet — an
+                # agent is staffed to at most one QA (DB-enforced).
+                "unassigned_agents": [
                     {"id": agent.id, "name": agent.nickname}
                     for agent in await _support_agents(db)
-                ],
-                # Delegating absence tracking ('No Cases') makes no sense —
-                # assignments scope real review work only.
-                "assignable_case_types": [
-                    case_type.value
-                    for case_type in CaseTypeEnum
-                    if case_type is not CaseTypeEnum.NO_CASES
+                    if all(
+                        assignment["agent_id"] != agent.id
+                        for rows in assignments_by_qa.values()
+                        for assignment in rows
+                    )
                 ],
             }
         )
@@ -625,13 +624,15 @@ async def partial_team_quotas(
     )
 
 
-async def _assignment_groups(db: AsyncSession) -> list[dict[str, object]]:
-    """QAAssignment rows grouped per QA for the management block.
+async def _assignments_by_qa(
+    db: AsyncSession,
+) -> dict[int, list[dict[str, object]]]:
+    """QAAssignment rows keyed by QA id for the management block.
 
-    Each group is ``{"qa_id", "qa_name", "assignments": [{"id", "label"}]}``
-    where ``label`` renders the assignment target ("Agent", "Case Type"
-    or "Agent · Case Type"). Display names are materialized in Python
-    via :func:`_nickname_map` (nickname is not a DB column).
+    Each value is a list of ``{"id", "agent_id", "name"}`` — the
+    assignment row id (for removal), the assigned agent's user id (for
+    drag-and-drop re-assignment) and their display name, materialized
+    in Python via :func:`_nickname_map` (nickname is not a DB column).
     """
     assignments = list(
         (
@@ -653,28 +654,18 @@ async def _assignment_groups(db: AsyncSession) -> list[dict[str, object]]:
 
     grouped: dict[int, list[dict[str, object]]] = {}
     for assignment in assignments:
-        agent_name = nicknames.get(assignment.support_agent_id)
-        case_type = (
-            assignment.specialized_case_type.value
-            if assignment.specialized_case_type is not None
-            else None
-        )
-        if agent_name and case_type:
-            label = f"{agent_name} · {case_type}"
-        else:
-            label = agent_name or case_type or f"#{assignment.id}"
         grouped.setdefault(assignment.qa_id, []).append(
-            {"id": assignment.id, "label": label}
+            {
+                "id": assignment.id,
+                "agent_id": assignment.support_agent_id,
+                "name": nicknames.get(
+                    assignment.support_agent_id,
+                    f"#{assignment.support_agent_id}",
+                ),
+            }
         )
 
-    return [
-        {
-            "qa_id": qa_id,
-            "qa_name": nicknames.get(qa_id, f"QA {qa_id}"),
-            "assignments": rows,
-        }
-        for qa_id, rows in grouped.items()
-    ]
+    return grouped
 
 
 async def _users_with_role(db: AsyncSession, role: RoleEnum) -> list[User]:

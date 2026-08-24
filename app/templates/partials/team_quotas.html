@@ -1,20 +1,57 @@
-{% import "macros/dropdowns.html" as dd %}
 {% import "macros/icons.html" as icons %}
 <section hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Team Quotas
             <span class="block text-xs font-normal text-base-content/60">Period progress across your assigned agents</span>
         </h2>
-        <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} · {{ period_range }}</span>
+        <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} &middot; {{ period_range }}</span>
     </div>
     {% if rows %}
-    <div class="card rounded-box bg-base-100 shadow-sm">
+    <div id="quotas-scope" class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
+            {% if can_manage %}
+            <div id="assignments-manager">
+                <div class="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <h3 class="flex items-center gap-2 text-base font-semibold">
+                        Assignments
+                        <span class="badge badge-soft badge-sm">{{ assignment_count }}</span>
+                    </h3>
+                    <p class="text-xs text-base-content/60">Drag an unassigned support agent onto a QA row &mdash; each agent works with one QA.</p>
+                </div>
+                {% if unassigned_agents %}
+                <div class="mb-3">
+                    <p class="mb-1 text-xs font-medium uppercase tracking-wide text-base-content/50">Unassigned support agents</p>
+                    <div id="agent-palette" class="flex min-h-10 flex-wrap content-start items-start gap-1.5 rounded-box border border-dashed border-base-300 bg-base-200/40 p-2">
+                        {% for agent in unassigned_agents %}
+                        <span class="badge badge-outline badge-sm cursor-grab select-none py-3 touch-none"
+                              data-agent-id="{{ agent.id }}"
+                              title="Drag onto a QA row">{{ agent.name }}</span>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% else %}
+                <p class="mb-3 text-sm text-base-content/60">Every support agent already has a QA. Drag an agent chip to another QA row to reassign them.</p>
+                {% endif %}
+            </div>
+            {% endif %}
+
             <div class="max-w-full overflow-x-auto">
-                <table class="table table-sm">
+                {# table-fixed pins column widths: inserting/removing a
+                   draggable chip mid-drag must not reflow the other
+                   columns (the table used to jump left-right). #}
+                <table class="table table-sm table-fixed w-full min-w-2xl">
+                    <colgroup>
+                        {# Column shares — tweak the w-[..%] classes to
+                           rebalance; "Assigned agents" is the drop zone. #}
+                        <col class="w-[14%]" />
+                        <col class="w-[42%]" />
+                        <col class="w-[26%]" />
+                        <col class="w-[18%]" />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>QA</th>
+                            <th>Assigned agents</th>
                             <th>Pacing</th>
                             <th>Deficit</th>
                         </tr>
@@ -23,7 +60,33 @@
                         {% for row in rows %}
                         <tr>
                             <th class="font-medium">{{ row.name }}</th>
-                            <td class="min-w-44">
+                            <td>
+                                {% set qa_assignments = assignments_by_qa.get(row.id, []) %}
+                                {% if can_manage %}
+                                <div class="js-qa-agents flex min-h-10 flex-wrap items-center gap-1.5 rounded-box border border-dashed border-base-300 p-1.5"
+                                     data-qa-id="{{ row.id }}">
+                                    {% for assignment in qa_assignments %}
+                                    <span class="badge badge-soft badge-sm cursor-grab gap-1 py-3 select-none touch-none"
+                                          data-assignment-id="{{ assignment.id }}" data-agent-id="{{ assignment.agent_id }}"
+                                          title="Drag onto another QA row to reassign">
+                                        <span>{{ assignment.name }}</span>
+                                        <button type="button"
+                                                class="cursor-pointer opacity-60 hover:opacity-100 [&_svg]:h-3 [&_svg]:w-3"
+                                                data-assignment-remove="{{ assignment.id }}"
+                                                aria-label="Remove assignment {{ assignment.name }} from {{ row.name }}"
+                                                title="Remove assignment">{{ icons.x() }}</button>
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                                {% else %}
+                                <div class="flex flex-wrap items-center gap-1.5">
+                                    {% for assignment in qa_assignments %}
+                                    <span class="badge badge-soft badge-sm">{{ assignment.name }}</span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                            </td>
+                            <td>
                                 {% if row.required > 0 %}
                                 <div class="flex items-center gap-3">
                                     <progress class="progress w-28" value="{{ row.completed }}" max="{{ row.required }}"></progress>
@@ -55,157 +118,99 @@
     </div>
     {% endif %}
 
-    {% if can_manage %}
-    <div id="assignments-manager" class="card mt-4 rounded-box bg-base-100 shadow-sm">
-        <div class="card-body min-w-0 p-3 sm:p-4">
-            <h3 class="flex items-center gap-2 text-base font-semibold">
-                Assignments
-                <span class="badge badge-soft badge-sm">{{ assignment_count }}</span>
-            </h3>
-            <p class="text-xs text-base-content/60">Scope each QA to a support agent, a case type, or both.</p>
-
-            <div id="assignments-alert" role="alert" class="alert alert-error hidden"></div>
-
-            {% if assignment_groups %}
-            <div class="space-y-2">
-                {% for group in assignment_groups %}
-                <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-                    <span class="text-sm font-medium">{{ group.qa_name }}</span>
-                    {% for assignment in group.assignments %}
-                    <span class="badge badge-soft badge-sm gap-1 py-3">
-                        <span>{{ assignment.label }}</span>
-                        <button type="button"
-                                class="cursor-pointer opacity-60 hover:opacity-100 [&_svg]:h-3 [&_svg]:w-3"
-                                data-assignment-remove="{{ assignment.id }}"
-                                aria-label="Remove assignment {{ assignment.label }} from {{ group.qa_name }}"
-                                title="Remove assignment">{{ icons.x() }}</button>
-                    </span>
-                    {% endfor %}
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <p class="text-sm text-base-content/60">No assignments yet &mdash; add one below.</p>
-            {% endif %}
-
-            <form id="assignment-form" class="mt-1 flex flex-wrap items-center gap-2">
-                {{ dd.dropdown('assignment-qa',
-                    items=qa_users,
-                    value_attr='id', label_attr='name',
-                    placeholder='Select QA…',
-                    aria_label='QA analyst',
-                    btn_cls='select select-sm w-auto min-w-36 flex items-center') }}
-
-                {{ dd.dropdown('assignment-agent',
-                    items=support_agents,
-                    value_attr='id', label_attr='name',
-                    any_label='Any agent',
-                    aria_label='Support agent (optional)',
-                    btn_cls='select select-sm w-auto min-w-36 flex items-center') }}
-
-                {{ dd.dropdown('assignment-case-type',
-                    items=assignable_case_types,
-                    any_label='Any case type',
-                    aria_label='Case type (optional)',
-                    btn_cls='select select-sm w-auto min-w-36 flex items-center') }}
-
-                <button type="submit" class="btn btn-primary btn-sm">Add</button>
-            </form>
-        </div>
-    </div>
-
+    {% if can_manage and rows %}
     <script>
     (function () {
-        var manager = document.getElementById('assignments-manager');
-        if (!manager) return;
-        var alertBox = document.getElementById('assignments-alert');
-        var form = document.getElementById('assignment-form');
-
-        function showAlert(message) {
-            if (!alertBox) return;
-            alertBox.textContent = message;
-            alertBox.classList.remove('hidden');
-        }
-        function hideAlert() {
-            if (alertBox) alertBox.classList.add('hidden');
-        }
+        var scope = document.getElementById('quotas-scope');
+        if (!scope) return;
         var extractDetail = window.extractDetail;
-
-        // Restores the initial state: QA back to its gray placeholder,
-        // agent/case-type back to their "Any …" defaults.
-        function resetAssignmentDropdowns() {
-            [
-                ['assignment-qa', 'assignment-qa-display', 'Select QA\u2026', true],
-                ['assignment-agent', 'assignment-agent-display', 'Any agent', false],
-                ['assignment-case-type', 'assignment-case-type-display', 'Any case type', false]
-            ].forEach(function (spec) {
-                var hidden = document.getElementById(spec[0]);
-                var display = document.getElementById(spec[1]);
-                if (hidden) hidden.value = '';
-                if (display) {
-                    display.textContent = spec[2];
-                    display.classList.toggle('text-base-content/70', spec[3]);
-                }
-                var menu = document.getElementById(spec[0] + '-menu');
-                if (!menu) return;
-                var buttons = menu.querySelectorAll('button');
-                buttons.forEach(function (btn) {
-                    btn.classList.remove('active');
-                    btn.classList.remove('menu-active');
-                });
-                if (!spec[3] && buttons.length) {
-                    buttons[0].classList.add('active');
-                    buttons[0].classList.add('menu-active');
-                }
-            });
+        // DnD errors surface as body-level toasts: the section fully
+        // re-renders after every settled drop, so an inline alert
+        // would be wiped before anyone can read it.
+        var showError = function (message) {
+            (window.gysToast || window.alert).call(window, message);
+        };
+        function refresh() {
+            document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
         }
 
-        form.addEventListener('submit', async function (event) {
-            event.preventDefault();
-            hideAlert();
-            var qaId = document.getElementById('assignment-qa').value;
-            var agentValue = document.getElementById('assignment-agent').value;
-            var caseType = document.getElementById('assignment-case-type').value;
-            if (!qaId || (!agentValue && !caseType)) {
-                showAlert('Pick a QA and at least one target — a support agent or a case type.');
-                return;
-            }
-            try {
-                var response = await fetch('/api/assignments', {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        qa_id: Number(qaId),
-                        support_agent_id: agentValue ? Number(agentValue) : null,
-                        specialized_case_type: caseType || null
-                    })
-                });
+        function postAssignment(qaId, agentId) {
+            return fetch('/api/assignments', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ qa_id: Number(qaId), support_agent_id: Number(agentId) })
+            }).then(async function (response) {
                 if (!response.ok) {
                     var payload = await response.json().catch(function () { return null; });
                     throw new Error(extractDetail(payload, response.status));
                 }
-                resetAssignmentDropdowns();
-                document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+            });
+        }
+        function deleteAssignment(assignmentId) {
+            return fetch('/api/assignments/' + assignmentId, {
+                method: 'DELETE',
+                credentials: 'same-origin'
+            }).then(function (response) {
+                if (!response.ok && response.status !== 404) {
+                    throw new Error('Request failed (' + response.status + ').');
+                }
+            });
+        }
+
+        scope.addEventListener('click', async function (event) {
+            var button = event.target.closest ? event.target.closest('[data-assignment-remove]') : null;
+            if (!button || !scope.contains(button)) return;
+            try {
+                await deleteAssignment(button.getAttribute('data-assignment-remove'));
+                refresh();
             } catch (error) {
-                showAlert(error.message || 'Unable to create the assignment.');
+                showError(error.message || 'Unable to remove the assignment.');
             }
         });
 
-        manager.addEventListener('click', async function (event) {
-            var button = event.target.closest ? event.target.closest('[data-assignment-remove]') : null;
-            if (!button || !manager.contains(button)) return;
-            hideAlert();
-            try {
-                var response = await fetch('/api/assignments/' + button.getAttribute('data-assignment-remove'), {
-                    method: 'DELETE',
-                    credentials: 'same-origin'
-                });
-                if (!response.ok && response.status !== 404) throw new Error('Request failed (' + response.status + ').');
-                document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
-            } catch (error) {
-                showAlert(error.message || 'Unable to remove the assignment.');
-            }
+        if (!window.Sortable) return;
+        var palette = document.getElementById('agent-palette');
+        if (palette) {
+            new Sortable(palette, {
+                // Moving the node out is fine: every settled drop
+                // triggers a full partial re-render, which rebuilds
+                // the palette from server state.
+                group: { name: 'qa-assignments', put: false },
+                sort: false,
+                animation: 150,
+                // Fallback drag works reliably inside scrollable table
+                // wrappers where native HTML5 DnD images get clipped.
+                forceFallback: true,
+                fallbackOnBody: true
+            });
+        }
+        scope.querySelectorAll('.js-qa-agents').forEach(function (list) {
+            new Sortable(list, {
+                group: 'qa-assignments',
+                animation: 150,
+                forceFallback: true,
+                fallbackOnBody: true,
+                onAdd: function (evt) {
+                    var item = evt.item;
+                    var fromQa = evt.from.getAttribute('data-qa-id');
+                    var toQa = evt.to.getAttribute('data-qa-id');
+                    var agentName = item.textContent.trim();
+                    var oldAssignmentId = item.getAttribute('data-assignment-id');
+                    var agentId = item.getAttribute('data-agent-id');
+                    var prepare = Promise.resolve();
+                    if (fromQa && oldAssignmentId) {
+                        prepare = deleteAssignment(oldAssignmentId).catch(function () {});
+                    }
+                    prepare
+                        .then(function () { return postAssignment(toQa, agentId); })
+                        .then(refresh)
+                        .catch(function (error) {
+                            showError(error.message || ('Unable to assign ' + agentName + '.'));
+                            refresh();
+                        });
+                }
+            });
         });
     })();
     </script>

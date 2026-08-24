@@ -742,8 +742,8 @@ async def get_quota_compliance(
 ) -> QuotaComplianceRead:
     """Per-interval quota compliance for one QA over a reporting period.
 
-    Assigned agents are the DISTINCT non-null support_agent_id values
-    of this QA's assignments (General + Hybrid). Credit is SCOPE-BASED,
+    Assigned agents are the DISTINCT support_agent_id values of this
+    QA's assignments. Credit is SCOPE-BASED,
     not performer-based: completed counts are plain COUNTs of counted
     reviews of those agents within each half-open interval range and
     over the whole period — no ``qa_id`` filter, no DISTINCT collapse.

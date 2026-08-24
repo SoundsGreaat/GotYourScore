@@ -1,12 +1,8 @@
 """QA assignments API endpoints.
 
-A Supervisor/Admin wires a QA to review targets (see
-``app.models.assignment``):
-
-- General: ``support_agent_id`` set — the QA reviews that one agent;
-- Specialized: ``specialized_case_type`` set — the QA reviews that case
-  type across all agents;
-- Hybrid: both set — the QA is scoped to that agent AND that case type.
+A Supervisor/Admin staffs a Support agent to a QA reviewer (see
+``app.models.assignment``): the assigned QA owns that agent's
+reporting-period quota.
 
 The assignment rows drive the QA compliance report
 (``GET /api/reviews/quota-compliance/{qa_id}``): each assigned agent
@@ -16,10 +12,10 @@ RBAC matrix:
 - GET /api/assignments: Supervisor/Admin only — QA and Support-only
   users get 403 from the RoleChecker.
 - POST /api/assignments: Supervisor/Admin only. 400 when the target
-  ``qa_id`` user does not exist or holds no QA role, or when a provided
-  ``support_agent_id`` does not exist or holds no Support role; 409 on
-  an exact duplicate (same qa_id + support_agent_id +
-  specialized_case_type combination, NULLs compared as equal).
+  ``qa_id`` user does not exist or holds no QA role, or when the
+  ``support_agent_id`` does not exist or holds no Support role; 409
+  when that agent is already staffed to ANY QA (an agent works with at
+  most one QA; moving them is delete + recreate).
 - DELETE /api/assignments/{assignment_id}: Supervisor/Admin only; 404
   for unknown ids.
 """
@@ -96,63 +92,49 @@ async def create_assignment(
     db: DbSession,
     _current_user: SupervisorAdminUser,
 ) -> QAAssignmentRead:
-    """Create a General/Specialized/Hybrid QA assignment.
+    """Create a QA assignment.
 
     - 400 when ``qa_id`` does not exist or holds no 'QA' role, or when
-      ``support_agent_id`` is provided but does not exist or holds no
-      'Support' role.
-    - 409 when an identical assignment already exists: same
-      ``qa_id`` + ``support_agent_id`` + ``specialized_case_type``
-      combination with NULLs treated consistently (a General assignment
-      to agent X only blocks other General assignments to X — a
-      Specialized or Hybrid row remains creatable).
+      ``support_agent_id`` does not exist or holds no 'Support' role.
+    - 409 when the agent is already staffed to a QA (an agent works
+      with at most one QA; the DB enforces this via UNIQUE too).
     """
     await _get_user_with_role_or_400(
         payload.qa_id, RoleEnum.QA, label="Assigned QA", db=db
     )
-    if payload.support_agent_id is not None:
-        await _get_user_with_role_or_400(
-            payload.support_agent_id,
-            RoleEnum.SUPPORT,
-            label="Support agent",
-            db=db,
-        )
+    support_agent = await _get_user_with_role_or_400(
+        payload.support_agent_id,
+        RoleEnum.SUPPORT,
+        label="Support agent",
+        db=db,
+    )
 
-    # Exact-duplicate guard. Column == None renders IS NULL in SQL, but
-    # branch explicitly so both sides always compare the same way.
-    conditions = [QAAssignment.qa_id == payload.qa_id]
-    if payload.support_agent_id is None:
-        conditions.append(QAAssignment.support_agent_id.is_(None))
-    else:
-        conditions.append(
-            QAAssignment.support_agent_id == payload.support_agent_id
+    # One-agent-one-QA guard: any existing row for this agent blocks
+    # creation, not just an identical pair. The UNIQUE constraint is
+    # the backstop; resolving the holder here yields a clear message.
+    existing = (
+        await db.execute(
+            select(QAAssignment).where(
+                QAAssignment.support_agent_id == payload.support_agent_id
+            )
         )
-    if payload.specialized_case_type is None:
-        conditions.append(QAAssignment.specialized_case_type.is_(None))
-    else:
-        conditions.append(
-            QAAssignment.specialized_case_type == payload.specialized_case_type
-        )
-    duplicate = await db.scalar(select(QAAssignment).where(*conditions))
-    if duplicate is not None:
+    ).scalar_one_or_none()
+    if existing is not None:
+        holder = await db.get(User, existing.qa_id)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "message": (
-                    "An identical assignment already exists "
-                    f"(qa_id={payload.qa_id}, "
-                    f"support_agent_id={payload.support_agent_id}, "
-                    "specialized_case_type="
-                    f"{payload.specialized_case_type.value if payload.specialized_case_type else None})."
+                    f"Support agent {support_agent.nickname} is already "
+                    f"assigned to QA {holder.nickname if holder else existing.qa_id}."
                 ),
-                "assignment_id": duplicate.id,
+                "assignment_id": existing.id,
             },
         )
 
     assignment = QAAssignment(
         qa_id=payload.qa_id,
         support_agent_id=payload.support_agent_id,
-        specialized_case_type=payload.specialized_case_type,
     )
     db.add(assignment)
     await db.commit()
