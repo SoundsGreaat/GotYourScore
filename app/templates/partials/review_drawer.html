@@ -72,7 +72,10 @@
 
                 <fieldset class="fieldset">
                     <span class="label">Review notes</span>
-                    <div class="overflow-hidden rounded-box border border-base-300 bg-base-100">
+                    <!-- glow-shell: the focus halo lives on this wrapper
+                         (:focus-within) because overflow-hidden here would
+                         clip an inner .ql-editor box-shadow. -->
+                    <div class="glow-shell overflow-hidden rounded-box border border-base-300 bg-base-100">
                         <!-- ql-container/ql-snow must ship in the markup: HTMX's settle step
                              re-applies server attributes after Quill init and would strip
                              runtime-added classes, un-hiding the snow theme's link tooltip. -->

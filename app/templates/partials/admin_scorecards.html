@@ -36,12 +36,19 @@
 
             <div class="space-y-2" id="template-list">
                 {% for t in templates %}
-                <div class="js-template-card card rounded-box border bg-base-100 shadow-sm transition-colors
-                            {{ 'border-primary ring-primary/20 bg-primary/5 ring-2' if t.id == selected_id else 'border-base-300 hover:border-base-content/20' }}"
+                <!-- Press feedback is a background tint, NOT a scale transform:
+                     scaling re-rasterizes the 1px border + glow at fractional
+                     pixels, which makes the outline width "breathe" on corners
+                     while the button is held down. hover:/active: shadows live
+                     ONLY in the idle branch so they can never override the
+                     selected card's glow (same box-shadow property). -->
+                <div class="js-template-card card cursor-pointer rounded-box border bg-base-100 transition duration-200 ease-out active:bg-base-200
+                            {{ 'card-selected' if t.id == selected_id else 'border-base-300 shadow-sm hover:border-base-content/20 hover:shadow-md' }}"
                      data-template-card data-template-id="{{ t.id }}">
                     <div class="card-body flex-col gap-2 p-3 sm:flex-row sm:items-center">
-                        <!-- The whole name zone is one button: the card itself is clickable. -->
-                        <button type="button" class="min-w-0 flex-1 text-left"
+                        <!-- The whole name zone is one button: the card itself is clickable.
+                             .focus-halo = project-wide keyboard-focus glow (base.html). -->
+                        <button type="button" class="focus-halo min-w-0 flex-1 rounded-box text-left"
                                 hx-get="/admin/partials/scorecard-editor/{{ t.id }}"
                                 hx-target="#scorecard-editor" hx-swap="innerHTML">
                             <p class="truncate font-medium">{{ t.name }}</p>
@@ -92,17 +99,16 @@
     // editor swap itself is driven by each card's own hx-get attributes.
     if (!window.__adminScorecardsInit) {
         window.__adminScorecardsInit = true;
-        var SELECTED = ["border-primary", "ring-primary/20", "bg-primary/5", "ring-2"];
         var IDLE = ["border-base-300", "hover:border-base-content/20"];
         document.addEventListener("click", function (event) {
             var card = event.target.closest("[data-template-card]");
             if (!card || !document.getElementById("template-list")) return;
             document.querySelectorAll("[data-template-card]").forEach(function (node) {
-                node.classList.remove.apply(node.classList, SELECTED);
+                node.classList.remove("card-selected");
                 node.classList.add.apply(node.classList, IDLE);
             });
             card.classList.remove.apply(card.classList, IDLE);
-            card.classList.add.apply(card.classList, SELECTED);
+            card.classList.add("card-selected");
         });
     }
 </script>

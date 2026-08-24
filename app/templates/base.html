@@ -34,7 +34,7 @@
         @theme {
             --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
 
-            --animate-menu-pop: menu-pop 0.12s ease-out;
+            --animate-menu-pop: menu-pop 0.2s cubic-bezier(0, 0, 0.2, 1);
             @keyframes menu-pop {
                 from {
                     opacity: 0;
@@ -85,8 +85,7 @@
 
         [data-theme="dark"] {
             color-scheme: dark;
-            --color-base-100: oklch(27.8% 0.03 256.9);
-            --color-base-200: oklch(21% 0.032 264.7);
+            --color-base-100: oklch(27.8% 0.03 256.9);            --color-base-200: oklch(21% 0.032 264.7);
             --color-base-300: oklch(13% 0.027 261.7);
             --color-base-content: oklch(96.7% 0.003 264.4);
             --color-primary: oklch(76.6% 0.158 166.7);
@@ -113,6 +112,118 @@
             --border: 1px;
             --depth: 0;
             --noise: 0;
+        }
+
+        /* Motion tokens: ONE duration and curve for every hover/focus/
+           selection transition, so nothing feels faster or slower
+           anywhere. The curve matches Tailwind's ease-out (what the
+           `transition duration-200 ease-out` utilities resolve to). */
+        :root {
+            --gys-speed: 0.2s;
+            --gys-ease: cubic-bezier(0, 0, 0.2, 1);
+        }
+
+        /* Focus glow, project-wide: a soft primary halo instead of the
+           default browser ring. Declared AFTER the daisyUI CDN sheet so
+           it wins the cascade at equal specificity. Covers text fields
+           (.input incl. label wrappers via :focus-within), dropdown
+           triggers (the shared macro renders them as .select) and the
+           Quill editor; checkboxes/toggles/buttons get the same halo
+           on keyboard focus (:focus-visible). The halo REPLACES the
+           outline — never removed without a visible replacement. */
+        :where(.input:focus, .input:focus-within,
+               .textarea:focus, .select:focus,
+               .checkbox:focus-visible, .radio:focus-visible,
+               .toggle:focus-visible, .btn:focus-visible,
+               .focus-halo:focus-visible,
+               .ql-editor:focus, .glow-shell:focus-within) {
+            outline: none;
+        }
+        :where(.input:focus, .input:focus-within,
+               .textarea:focus, .select:focus) {
+            border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+            box-shadow:
+                0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+                0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
+        }
+        /* Glow shell: a ROUNDED + overflow-hidden wrapper around a rich
+           editor (Quill). The inner .ql-editor's own box-shadow would be
+           clipped by overflow-hidden (only the top sliver escaped), so
+           the halo is drawn on the wrapper via :focus-within instead.
+           Markup: <div class="glow-shell rounded-box border ..."><div
+           class="ql-container ql-snow">… */
+        .glow-shell:focus-within {
+            border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+            box-shadow:
+                0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+                0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
+        }
+        :where(.checkbox:focus-visible, .radio:focus-visible,
+               .toggle:focus-visible, .btn:focus-visible,
+               .focus-halo:focus-visible) {
+            box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
+        }
+
+        /* Smooth glow in BOTH directions for every field: the focus
+           styles above otherwise snap on/off. Plain selectors (no
+           :where) so they win the cascade over daisyUI component
+           defaults at equal specificity — this block loads after the
+           daisyUI sheet. background-color/color are kept in the list
+           so toggles and checkboxes do not lose their own daisyUI
+           color animation to this shorthand. */
+        .input, .textarea, .select, .checkbox, .radio, .toggle,
+        .focus-halo, .glow-shell, .ql-editor {
+            transition:
+                border-color var(--gys-speed) var(--gys-ease),
+                box-shadow var(--gys-speed) var(--gys-ease),
+                background-color var(--gys-speed) var(--gys-ease),
+                color var(--gys-speed) var(--gys-ease);
+        }
+
+        /* Buttons: normalize daisyUI's own transition onto the same
+           tokens (its default curve differs, which read as "slower"). */
+        .btn {
+            transition-property: color, background-color, border-color,
+                box-shadow, transform;
+            transition-duration: var(--gys-speed);
+            transition-timing-function: var(--gys-ease);
+        }
+
+        /* Dropdown menu options and tabs: their active/hover background
+           used to snap instantly (no transition at all), which read as
+           "faster" next to the smoothed fields. */
+        .dropdown.menu button,
+        .tab {
+            transition:
+                background-color var(--gys-speed) var(--gys-ease),
+                color var(--gys-speed) var(--gys-ease),
+                border-color var(--gys-speed) var(--gys-ease);
+        }
+
+        /* Rest-state shadow matching the halo's structure (two OUTSET
+           layers). daisyUI's default field shadow is two INSET layers,
+           and an inset<->outset list change is NOT interpolable — the
+           glow snapped on instantly instead of transitioning (borders
+           still animated, which made fields feel inconsistent vs the
+           Quill shell). This transparent pair is invisible and gives
+           the transition a matching start value. */
+        :where(.input:not(:focus):not(:focus-within),
+               .textarea:not(:focus),
+               .select:not(:focus)) {
+            box-shadow:
+                0 0 0 3px #0000,
+                0 0 12px 0 #0000;
+        }
+
+        /* Selected card in master-detail lists (admin Scorecards). A class
+           instead of ring-* utilities: the CDN Tailwind browser build does
+           not reliably generate ring color variants for theme colors, and
+           a bare ring-2 falls back to currentColor (an ugly dark ring). */
+        :where(.card-selected) {
+            border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+            box-shadow:
+                0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+                0 0 12px color-mix(in oklab, var(--color-primary) 25%, transparent);
         }
     </style>
 
@@ -213,7 +324,7 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            transition: background-color 0.15s ease;
+            transition: background-color var(--gys-speed) var(--gys-ease);
         }
 
         .ql-snow.ql-toolbar button:hover,
