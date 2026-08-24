@@ -358,7 +358,11 @@ async def partial_to_review(
     reviews = assigned_reviews + shared_reviews
     nicknames = await _nickname_map(
         db,
-        {rid for review in reviews for rid in (review.qa_id, review.created_by)},
+        {
+            rid
+            for review in reviews
+            for rid in (review.qa_id, review.created_by, review.support_agent_id)
+        },
     )
 
     def _row(review: Review, unassigned: bool) -> dict[str, object]:
@@ -366,6 +370,9 @@ async def partial_to_review(
             "id": review.id,
             "case_type": review.case_type,
             "case_number": review.case_number,
+            "support_agent_name": (
+                nicknames.get(review.support_agent_id) or "Unknown"
+            ),
             "delegated_by_name": (
                 nicknames.get(review.qa_id)
                 or nicknames.get(review.created_by)

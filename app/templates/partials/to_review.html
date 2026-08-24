@@ -16,8 +16,8 @@
             <ul class="divide-y divide-base-200">
                 {% for row in assigned_rows %}
                 <li class="flex flex-wrap items-center justify-between gap-2 py-2.5" data-pending-row="{{ row.id }}">
-                    <span class="min-w-0 flex-1 truncate text-sm" title="{{ row.case_type.value }} · {{ row.case_number or '—' }} · delegated by {{ row.delegated_by_name }}">
-                        {{ row.case_type.value }} · {{ row.case_number or '—' }} · delegated by {{ row.delegated_by_name }}
+                    <span class="min-w-0 flex-1 truncate text-sm" title="{{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}">
+                        {{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}
                     </span>
                     <button type="button"
                             class="btn btn-primary btn-xs"
@@ -37,8 +37,8 @@
             <ul class="divide-y divide-base-200">
                 {% for row in shared_rows %}
                 <li class="flex flex-wrap items-center justify-between gap-2 py-2.5" data-pending-row="{{ row.id }}">
-                    <span class="min-w-0 flex-1 truncate text-sm" title="{{ row.case_type.value }} · {{ row.case_number or '—' }} · delegated by {{ row.delegated_by_name }}">
-                        {{ row.case_type.value }} · {{ row.case_number or '—' }} · delegated by {{ row.delegated_by_name }}
+                    <span class="min-w-0 flex-1 truncate text-sm" title="{{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}">
+                        {{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}
                     </span>
                     <span class="badge badge-warning badge-sm">Unassigned</span>
                     <button type="button"
