@@ -207,6 +207,75 @@
                 color var(--gys-speed) var(--gys-ease);
         }
 
+        /* daisyUI v5 slides the toggle thumb by animating
+           grid-template-columns; the generic field rule above replaces
+           daisyUI's shorthand, so re-add the slide on the same tokens —
+           without it the thumb teleports instead of gliding. */
+        .toggle {
+            transition:
+                border-color var(--gys-speed) var(--gys-ease),
+                box-shadow var(--gys-speed) var(--gys-ease),
+                background-color var(--gys-speed) var(--gys-ease),
+                color var(--gys-speed) var(--gys-ease),
+                grid-template-columns var(--gys-speed) var(--gys-ease);
+        }
+
+        /* Class mirror of daisyUI's :has(>input:checked) state. Chromium
+           SKIPS transitions for :has()-invalidated style changes (the
+           thumb snapped), while class-driven changes animate fine —
+           base.html's theme wiring toggles this alongside the checkbox. */
+        .toggle.toggle-on {
+            grid-template-columns: 1fr 1fr 0fr;
+            background-color: var(--color-base-100);
+            --input-color: var(--color-base-content);
+        }
+
+        /* Theme switch uses the View Transitions API (base.html): old and
+           new palettes are compositor-crossfaded as full-page snapshots,
+           which stays smooth in Chrome where per-element color
+           transitions across the whole document collapse to single-digit
+           FPS. Tune ONLY the durations here — never re-introduce
+           document-wide element transitions for theme changes. */
+        ::view-transition-old(root),
+        ::view-transition-new(root) {
+            animation-duration: var(--gys-speed);
+            animation-timing-function: var(--gys-ease);
+        }
+
+        /* Atomicity guard: components with their own color transitions
+           (tabs, fields...) must not keep gliding UNDER/AFTER the
+           snapshot crossfade — that read as one element changing out of
+           sync with everything else. While a view transition is active
+           all live transitions are suppressed; our two-phase order
+           (thumb slides first, palette swaps second) guarantees the
+           slider has already settled before this kicks in. */
+        :root:active-view-transition *,
+        :root:active-view-transition *::before,
+        :root:active-view-transition *::after {
+            transition: none !important;
+        }
+
+        /* Fallback for browsers WITHOUT View Transitions (current
+           Firefox): glide every surface together behind a short-lived
+           flag instead of letting individually-animated components
+           (tabs, fields) drift against an otherwise instant swap.
+           No !important on purpose — components that own a proper token
+           transition keep theirs; the blanket catches bare elements.
+           NO box-shadow either: repaint-heavy, and shadow colors barely
+           differ between themes. Removed by base.html after one window. */
+        .gys-theme-fade,
+        .gys-theme-fade *,
+        .gys-theme-fade *::before,
+        .gys-theme-fade *::after {
+            transition:
+                background-color var(--gys-speed) var(--gys-ease),
+                border-color var(--gys-speed) var(--gys-ease),
+                color var(--gys-speed) var(--gys-ease),
+                fill var(--gys-speed) var(--gys-ease),
+                stroke var(--gys-speed) var(--gys-ease),
+                grid-template-columns var(--gys-speed) var(--gys-ease);
+        }
+
         /* Buttons: normalize daisyUI's own transition onto the same
            tokens (its default curve differs, which read as "slower"). */
         .btn {

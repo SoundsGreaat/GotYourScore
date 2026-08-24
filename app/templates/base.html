@@ -31,19 +31,66 @@
     <!-- Theme toggle wiring for every [data-theme-toggle] checkbox;
          delegated, so it works on HTMX-swapped markup without re-binding. -->
     <script>
+        // .toggle-on mirrors :checked on the .toggle wrapper: Chromium skips
+        // transitions for :has()-invalidated changes, so the slider needs a
+        // class-driven state to glide (see .toggle.toggle-on in input.css).
+        function syncThemeToggles() {
+            var dark = document.documentElement.dataset.theme === 'dark';
+            document.querySelectorAll('[data-theme-toggle]').forEach(function (cb) {
+                cb.checked = dark;
+                var wrap = cb.closest('.toggle');
+                if (wrap) wrap.classList.toggle('toggle-on', dark);
+            });
+        }
+        function applyTheme(theme) {
+            var root = document.documentElement;
+            var set = function () { root.dataset.theme = theme; };
+            // Reduced-motion preference wins over everything: instant swap.
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                set();
+                return;
+            }
+            if (document.startViewTransition) {
+                // Compositor crossfade of full-page snapshots: smooth even
+                // where per-element color transitions across the whole
+                // document would tank the frame rate (Chrome). Atomic by
+                // design — every pixel changes inside one snapshot pair.
+                document.startViewTransition(set);
+                return;
+            }
+            // No View Transitions (e.g. current Firefox): glide ALL
+            // surfaces together behind a short-lived flag so nothing
+            // animates alone against an instant swap (.gys-theme-fade
+            // in input.css). Flag FIRST, flip the palette NEXT FRAME:
+            // landing both in one style recalc makes Chromium skip
+            // the transition (before-change style had none).
+            root.classList.add('gys-theme-fade');
+            requestAnimationFrame(function () { set(); });
+            window.setTimeout(function () { root.classList.remove('gys-theme-fade'); }, 400);
+        }
+        var pendingThemeTimer = null;
         document.addEventListener('change', function (event) {
             var cb = event.target.closest('[data-theme-toggle]');
             if (!cb) return;
             var theme = cb.checked ? 'dark' : 'light';
-            document.documentElement.dataset.theme = theme;
+            var wrap = cb.closest('.toggle');
+            if (wrap) wrap.classList.toggle('toggle-on', cb.checked);
+            // Let the thumb FINISH its live glide before the palette
+            // crossfade: snapshots taken mid-slide would ghost it between
+            // two static positions instead of showing movement. By VT
+            // start the thumb rests at its final spot in both snapshots.
+            // Reduced-motion users get NO thumb glide, so they need no
+            // pre-slide wait either — apply immediately.
+            var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            clearTimeout(pendingThemeTimer);
+            if (reduce) {
+                applyTheme(theme);
+            } else {
+                pendingThemeTimer = setTimeout(function () { applyTheme(theme); }, 210);
+            }
             try { localStorage.setItem('theme', theme); } catch (e) { /* storage blocked */ }
         });
-        document.addEventListener('DOMContentLoaded', function () {
-            var dark = document.documentElement.dataset.theme === 'dark';
-            document.querySelectorAll('[data-theme-toggle]').forEach(function (cb) {
-                cb.checked = dark;
-            });
-        });
+        document.addEventListener('DOMContentLoaded', syncThemeToggles);
     </script>
 
     <!-- All runtime JS below is vendored from npm (scripts/vendor.mjs). -->
