@@ -2,53 +2,99 @@
     {% set assigned_rows = rows | rejectattr('unassigned') | list %}
     {% set shared_rows = rows | selectattr('unassigned') | list %}
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="flex items-center gap-2 text-lg font-semibold">
-            To review
-            <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
-        </h2>
-        <span class="text-sm text-base-content/70">Cases delegated to you or waiting in the shared queue</span>
+        <h2 class="text-lg font-semibold">To review</h2>
+        <span class="hidden text-sm text-base-content/70 sm:inline">Cases delegated to you or waiting in the shared queue</span>
     </div>
     {% if rows %}
     {% if assigned_rows %}
-    <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-base-content/60">Assigned to you</h3>
     <div class="card mb-4 rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
-            <ul class="divide-y divide-base-200">
-                {% for row in assigned_rows %}
-                <li class="flex flex-wrap items-center justify-between gap-2 py-2.5" data-pending-row="{{ row.id }}">
-                    <span class="min-w-0 flex-1 truncate text-sm" title="{{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}">
-                        {{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}
-                    </span>
-                    <button type="button"
-                            class="btn btn-primary btn-xs"
-                            data-review-complete="{{ row.id }}"
-                            aria-label="Complete delegated case {{ row.case_number or row.id }}"
-                            title="Open the review drawer and score this case">Complete</button>
-                </li>
-                {% endfor %}
-            </ul>
+            <h3 class="flex items-center gap-2 text-base font-semibold">
+                Assigned to you
+                <span class="badge badge-soft badge-sm">{{ assigned_rows|length }}</span>
+            </h3>
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Agent</th>
+                            <th>Delegated by</th>
+                            <th>Case type</th>
+                            <th>Case #</th>
+                            <th>Assigned QA</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in assigned_rows %}
+                        <tr>
+                            <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
+                            <th class="font-medium">{{ row.support_agent_name }}</th>
+                            <td>{{ row.delegated_by_name }}</td>
+                            <td>{{ row.case_type.value }}</td>
+                            <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td>
+                                <span class="badge badge-soft badge-sm">{{ row.assigned_qa_name or 'You' }}</span>
+                            </td>
+                            <td class="whitespace-nowrap">
+                                <button type="button"
+                                        class="btn btn-primary btn-xs"
+                                        data-review-complete="{{ row.id }}"
+                                        aria-label="Complete delegated case {{ row.case_number or row.id }}"
+                                        title="Open the review drawer and score this case">Complete</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
     {% endif %}
     {% if shared_rows %}
-    <h3 class="mb-2 text-sm font-semibold uppercase tracking-wide text-base-content/60">Unassigned — grab any</h3>
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
-            <ul class="divide-y divide-base-200">
-                {% for row in shared_rows %}
-                <li class="flex flex-wrap items-center justify-between gap-2 py-2.5" data-pending-row="{{ row.id }}">
-                    <span class="min-w-0 flex-1 truncate text-sm" title="{{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}">
-                        {{ row.case_type.value }} · {{ row.case_number or '—' }} · agent {{ row.support_agent_name }} · delegated by {{ row.delegated_by_name }}
-                    </span>
-                    <span class="badge badge-warning badge-sm">Unassigned</span>
-                    <button type="button"
-                            class="btn btn-primary btn-xs"
-                            data-review-complete="{{ row.id }}"
-                            aria-label="Complete delegated case {{ row.case_number or row.id }}"
-                            title="Open the review drawer and score this case">Complete</button>
-                </li>
-                {% endfor %}
-            </ul>
+            <h3 class="flex items-center gap-2 text-base font-semibold">
+                Unassigned &mdash; grab any
+                <span class="badge badge-soft badge-sm">{{ shared_rows|length }}</span>
+            </h3>
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Agent</th>
+                            <th>Delegated by</th>
+                            <th>Case type</th>
+                            <th>Case #</th>
+                            <th>Assigned QA</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in shared_rows %}
+                        <tr>
+                            <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
+                            <th class="font-medium">{{ row.support_agent_name }}</th>
+                            <td>{{ row.delegated_by_name }}</td>
+                            <td>{{ row.case_type.value }}</td>
+                            <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td>
+                                <span class="badge badge-warning badge-sm">Unassigned</span>
+                            </td>
+                            <td class="whitespace-nowrap">
+                                <button type="button"
+                                        class="btn btn-primary btn-xs"
+                                        data-review-complete="{{ row.id }}"
+                                        aria-label="Complete delegated case {{ row.case_number or row.id }}"
+                                        title="Grab and score this case">Complete</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
     {% endif %}

@@ -361,13 +361,19 @@ async def partial_to_review(
         {
             rid
             for review in reviews
-            for rid in (review.qa_id, review.created_by, review.support_agent_id)
+            for rid in (
+                review.qa_id,
+                review.created_by,
+                review.support_agent_id,
+                review.assigned_qa_id,
+            )
         },
     )
 
     def _row(review: Review, unassigned: bool) -> dict[str, object]:
         return {
             "id": review.id,
+            "created_at": review.created_at,
             "case_type": review.case_type,
             "case_number": review.case_number,
             "support_agent_name": (
@@ -378,6 +384,7 @@ async def partial_to_review(
                 or nicknames.get(review.created_by)
                 or "Unknown"
             ),
+            "assigned_qa_name": nicknames.get(review.assigned_qa_id),
             "unassigned": unassigned,
         }
 
