@@ -1,15 +1,20 @@
 {# Scorecard templates partial (swapped into #admin-view).
    Context: templates=[{id, name, case_type, is_active, item_count}],
    case_types=[CaseTypeEnum], selected_id=int|None, error=str|None.
-   The editor column lazy-fetches the editor partial for selected_id so
-   the list context never needs editor variables. #}
+   Master-detail: template cards on the LEFT, the rule editor on the
+   RIGHT. The editor column lazy-fetches the editor partial for
+   selected_id so the list context never needs editor variables.
+   Clicking a card swaps the editor AND highlights the card instantly
+   client-side (no list re-render), so selection never flickers or
+   scrolls away. Exactly ONE template per case type can be active:
+   toggling one ON demotes its same-type siblings server-side. #}
 {% import "macros/dropdowns.html" as dd %}
 <div id="scorecards-root">
     {% if error %}<div role="alert" class="alert alert-error mb-3"><span>{{ error }}</span></div>{% endif %}
 
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div class="w-full shrink-0 space-y-3 lg:w-80">
-            <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="w-full shrink-0 space-y-3 lg:w-80 xl:w-96">
+            <div class="card rounded-box border border-base-300 bg-base-100 shadow-sm">
                 <div class="card-body gap-3 p-3 sm:p-4">
                     <h2 class="card-title text-base">New template</h2>
                     <form hx-post="/admin/scorecards/create" hx-target="#admin-view" hx-swap="innerHTML"
@@ -25,14 +30,15 @@
                                 hidden_attrs='name="case_type"') }}
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm shrink-0">Create</button>
-                    </div>
                     </form>
                 </div>
             </div>
 
-            <div class="space-y-2">
+            <div class="space-y-2" id="template-list">
                 {% for t in templates %}
-                <div class="card rounded-box bg-base-100 shadow-sm {{ 'ring-2 ring-primary' if t.id == selected_id }}">
+                <div class="js-template-card card rounded-box border bg-base-100 shadow-sm transition-colors
+                            {{ 'border-primary ring-primary/20 bg-primary/5 ring-2' if t.id == selected_id else 'border-base-300 hover:border-base-content/20' }}"
+                     data-template-card data-template-id="{{ t.id }}">
                     <div class="card-body flex-col gap-2 p-3 sm:flex-row sm:items-center">
                         <!-- The whole name zone is one button: the card itself is clickable. -->
                         <button type="button" class="min-w-0 flex-1 text-left"
@@ -41,23 +47,21 @@
                             <p class="truncate font-medium">{{ t.name }}</p>
                             <div class="mt-1 flex flex-wrap items-center gap-1.5">
                                 <span class="badge badge-ghost badge-sm">{{ t.case_type.value }}</span>
-                                <span class="badge badge-sm {{ 'badge-success' if t.is_active else 'badge-ghost' }}">
-                                    {{ 'Active' if t.is_active else 'Inactive' }}
-                                </span>
+                                {% if t.is_active %}
+                                <span class="badge badge-success badge-soft badge-sm">Active</span>
+                                {% else %}
+                                <span class="badge badge-ghost badge-sm">Inactive</span>
+                                {% endif %}
                                 <span class="text-xs text-base-content/60">{{ t.item_count }} rules</span>
                             </div>
                         </button>
-                        <div class="flex shrink-0 items-center gap-1">
-                            <label title="{{ 'Deactivate template' if t.is_active else 'Activate template' }}">
-                                <input type="checkbox" class="toggle toggle-sm" {{ 'checked' if t.is_active }}
-                                       aria-label="Toggle template active"
-                                       hx-post="/admin/scorecards/{{ t.id }}/toggle"
-                                       hx-target="#admin-view" hx-swap="innerHTML" />
-                            </label>
-                            <button type="button" class="btn btn-ghost btn-sm"
-                                    hx-get="/admin/partials/scorecard-editor/{{ t.id }}"
-                                    hx-target="#scorecard-editor" hx-swap="innerHTML">Edit</button>
-                        </div>
+                        <label class="flex shrink-0 items-center gap-1 sm:flex-col" title="{{ 'Deactivate template' if t.is_active else 'Activate template (demotes other active templates of this case type)' }}">
+                            <input type="checkbox" class="toggle toggle-sm toggle-success" {{ 'checked' if t.is_active }}
+                                   aria-label="Toggle template active"
+                                   hx-post="/admin/scorecards/{{ t.id }}/toggle"
+                                   hx-target="#admin-view" hx-swap="innerHTML" />
+                            <span class="text-[10px] uppercase tracking-wide text-base-content/50">on</span>
+                        </label>
                     </div>
                 </div>
                 {% else %}
@@ -74,10 +78,31 @@
                 <div hx-get="/admin/partials/scorecard-editor/{{ selected_id }}" hx-trigger="load" hx-swap="innerHTML"></div>
                 {% else %}
                 <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-                    Select a template to edit its rules.
+                    Select a template on the left to edit its rules.
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
 </div>
+
+<script>
+    // Instant selection highlight without a list re-render: clicking any
+    // part of a template card moves the "editing" styling to it. The
+    // editor swap itself is driven by each card's own hx-get attributes.
+    if (!window.__adminScorecardsInit) {
+        window.__adminScorecardsInit = true;
+        var SELECTED = ["border-primary", "ring-primary/20", "bg-primary/5", "ring-2"];
+        var IDLE = ["border-base-300", "hover:border-base-content/20"];
+        document.addEventListener("click", function (event) {
+            var card = event.target.closest("[data-template-card]");
+            if (!card || !document.getElementById("template-list")) return;
+            document.querySelectorAll("[data-template-card]").forEach(function (node) {
+                node.classList.remove.apply(node.classList, SELECTED);
+                node.classList.add.apply(node.classList, IDLE);
+            });
+            card.classList.remove.apply(card.classList, IDLE);
+            card.classList.add.apply(card.classList, SELECTED);
+        });
+    }
+</script>

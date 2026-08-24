@@ -15,7 +15,7 @@ transaction (this also lets scripts run them inside a rolled-back
 transaction for testing).
 """
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.text import slugify_error_name, unique_error_name
@@ -231,10 +231,37 @@ async def load_editor(
     return template, groups
 
 
+async def _demote_sibling_actives(
+    case_type: CaseTypeEnum, keep_id: int, db_session: AsyncSession
+) -> None:
+    """Deactivate every OTHER active template of ``case_type`` (flushed).
+
+    Enforces "one active scorecard per case type" together with the
+    partial unique index ``uq_scorecard_templates_case_type_active``.
+    Callers must demote siblings BEFORE flipping their own row active /
+    moving a row into ``case_type`` — same-statement UPDATE order is
+    not guaranteed, so the lane has to be free first.
+    """
+    await db_session.execute(
+        update(ScorecardTemplate)
+        .where(
+            ScorecardTemplate.case_type == case_type,
+            ScorecardTemplate.is_active.is_(True),
+            ScorecardTemplate.id != keep_id,
+        )
+        .values(is_active=False)
+    )
+    await db_session.flush()
+
+
 async def create_template(
     name: str | None, case_type: object, db_session: AsyncSession
 ) -> ScorecardTemplate:
-    """Create a new ACTIVE template (flushed, not committed)."""
+    """Create a new ACTIVE template (flushed, not committed).
+
+    Activating the new template DEMOTES the previous active template of
+    the same case type (one active scorecard per case type).
+    """
     clean_name = str(name or "").strip()
     if not clean_name:
         raise ValueError("Template name cannot be empty.")
@@ -243,13 +270,15 @@ async def create_template(
             f"Template name is too long (max {_MAX_NAME_LENGTH} characters)."
         )
 
+    coerced_case = _coerce_case_type(case_type)
     template = ScorecardTemplate(
         name=clean_name,
-        case_type=_coerce_case_type(case_type),
+        case_type=coerced_case,
         is_active=True,
     )
     db_session.add(template)
     await db_session.flush()
+    await _demote_sibling_actives(coerced_case, template.id, db_session)
     return template
 
 
@@ -258,15 +287,17 @@ async def toggle_template(
 ) -> ScorecardTemplate:
     """Flip a template's ``is_active`` flag (flushed, not committed).
 
-    Business semantic: MULTIPLE active templates per case type are
-    allowed — their rules merge across active templates with
-    first-wins dedup (see ``get_active_rules``) — so toggling never
-    deactivates siblings.
+    Business semantic: ONE active template per case type. Turning a
+    template ON demotes its active siblings of the same case type;
+    turning it OFF never touches anyone else.
     """
     template = await db_session.get(ScorecardTemplate, template_id)
     if template is None:
         raise ValueError(f"Scorecard template {template_id} does not exist.")
-    template.is_active = not template.is_active
+    turning_on = not template.is_active
+    if turning_on:
+        await _demote_sibling_actives(template.case_type, template.id, db_session)
+    template.is_active = turning_on
     await db_session.flush()
     return template
 
@@ -321,7 +352,12 @@ async def bulk_save(
             )
         template.name = clean_name
     if case_type is not None:
-        template.case_type = _coerce_case_type(case_type)
+        new_case = _coerce_case_type(case_type)
+        if new_case != template.case_type and template.is_active:
+            # One ACTIVE template per case type: free the target lane
+            # BEFORE moving this (still active) row into it.
+            await _demote_sibling_actives(new_case, template.id, db_session)
+        template.case_type = new_case
 
     deleted_ids = set(deletions or [])
     if deleted_ids:

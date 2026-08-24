@@ -16,6 +16,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
@@ -33,6 +34,16 @@ class ScorecardTemplate(Base):
     """A named set of scoring rules (items) for one case type."""
 
     __tablename__ = "scorecard_templates"
+    # ONE active template per case type: activating a template demotes
+    # its siblings (same rule as SystemPrompt's one-active-row-per-key).
+    __table_args__ = (
+        Index(
+            "uq_scorecard_templates_case_type_active",
+            "case_type",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)

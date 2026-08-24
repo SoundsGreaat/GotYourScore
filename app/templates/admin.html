@@ -1,13 +1,28 @@
 {# Admin panel shell. Context: current_user=User. Tabs swap HTMX
-   partials into #admin-view; the Prompts tab loads eagerly. #}
+   partials into #admin-view; the Prompts tab loads eagerly.
+   Tab clicks use a delegated listener (NOT Alpine): Alpine is a
+   deferred CDN script, so @click handlers can bind AFTER the first
+   HTMX load-swap — clicks in that window were silently lost. #}
 {% extends "base.html" %}
 
 {% block title %}Administration · GotYourScore{% endblock %}
 
 {% block content %}
-<main class="container mx-auto max-w-6xl p-4 md:p-6" x-data="{ tab: 'prompts' }">
+<main class="container mx-auto max-w-7xl p-4 md:p-6">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h1 class="text-2xl font-bold">Administration</h1>
+        <div class="flex items-center gap-3">
+            <div class="flex h-10 w-10 items-center justify-center rounded-box bg-primary text-primary-content">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-2xl font-bold leading-tight">Administration</h1>
+                <p class="text-sm text-base-content/60">Prompts, scorecards and accounts</p>
+            </div>
+        </div>
         <a href="/" class="btn btn-ghost btn-sm">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -16,19 +31,33 @@
         </a>
     </div>
 
-    <div role="tablist" class="tabs tabs-box">
-        <button type="button" role="tab" class="tab" :class="tab === 'prompts' && 'tab-active'" :aria-selected="tab === 'prompts'"
-                @click="tab = 'prompts'; htmx.ajax('GET', '/admin/partials/prompts', '#admin-view')">Prompts</button>
-        <button type="button" role="tab" class="tab" :class="tab === 'scorecards' && 'tab-active'" :aria-selected="tab === 'scorecards'"
-                @click="tab = 'scorecards'; htmx.ajax('GET', '/admin/partials/scorecards', '#admin-view')">Scorecards</button>
-        <button type="button" role="tab" class="tab" :class="tab === 'users' && 'tab-active'" :aria-selected="tab === 'users'"
-                @click="tab = 'users'; htmx.ajax('GET', '/admin/partials/users', '#admin-view')">Users</button>
-        <button type="button" role="tab" class="tab" :class="tab === 'deleted-users' && 'tab-active'" :aria-selected="tab === 'deleted-users'"
-                @click="tab = 'deleted-users'; htmx.ajax('GET', '/admin/partials/deleted-users', '#admin-view')">Deleted Users</button>
-        <button type="button" role="tab" class="tab" :class="tab === 'deleted-reviews' && 'tab-active'" :aria-selected="tab === 'deleted-reviews'"
-                @click="tab = 'deleted-reviews'; htmx.ajax('GET', '/admin/partials/deleted-reviews', '#admin-view')">Deleted Reviews</button>
+    <div role="tablist" class="tabs tabs-box" id="admin-tabs">
+        <button type="button" role="tab" class="tab tab-active" data-admin-tab="prompts"
+                hx-get="/admin/partials/prompts" hx-target="#admin-view" hx-swap="innerHTML">Prompts</button>
+        <button type="button" role="tab" class="tab" data-admin-tab="scorecards"
+                hx-get="/admin/partials/scorecards" hx-target="#admin-view" hx-swap="innerHTML">Scorecards</button>
+        <button type="button" role="tab" class="tab" data-admin-tab="users"
+                hx-get="/admin/partials/users" hx-target="#admin-view" hx-swap="innerHTML">Users</button>
+        <button type="button" role="tab" class="tab" data-admin-tab="deleted-users"
+                hx-get="/admin/partials/deleted-users" hx-target="#admin-view" hx-swap="innerHTML">Deleted Users</button>
+        <button type="button" role="tab" class="tab" data-admin-tab="deleted-reviews"
+                hx-get="/admin/partials/deleted-reviews" hx-target="#admin-view" hx-swap="innerHTML">Deleted Reviews</button>
     </div>
 
     <div id="admin-view" class="mt-5" hx-get="/admin/partials/prompts" hx-trigger="load" hx-swap="innerHTML"></div>
+
+    <script>
+        // Tab highlight: native htmx GET attributes fire the request;
+        // this delegated listener only moves the .tab-active state, so
+        // it works no matter when Alpine finishes initializing.
+        document.getElementById('admin-tabs').addEventListener('click', function (event) {
+            var tab = event.target.closest('[data-admin-tab]');
+            if (!tab) return;
+            this.querySelectorAll('[data-admin-tab]').forEach(function (node) {
+                node.classList.toggle('tab-active', node === tab);
+                node.setAttribute('aria-selected', node === tab ? 'true' : 'false');
+            });
+        });
+    </script>
 </main>
 {% endblock %}

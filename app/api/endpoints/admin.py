@@ -501,8 +501,9 @@ async def toggle_scorecard(
 ) -> Response:
     """Flip a template's active flag; re-render the list partial.
 
-    Multiple ACTIVE templates per case type are allowed (rules merge
-    across them), so toggling never touches sibling templates.
+    ONE active template per case type: turning a template ON demotes
+    its active siblings of the same case type (see
+    ``scorecard_service.toggle_template``).
     """
     redirect = _guard(auth, request)
     if redirect is not None:
