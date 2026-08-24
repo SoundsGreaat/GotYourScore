@@ -4,15 +4,16 @@
   are redirected straight to the dashboard.
 - GET /: dashboard; unauthenticated visitors are redirected to
   /login instead of receiving a 401 JSON error.
-- GET /partials/my-reviews, GET /partials/team-quotas,
+- GET /partials/my-reviews, GET /partials/all-reviews,
+  GET /partials/team-quotas,
   GET /partials/qa-matrix and GET /partials/review-drawer: small HTML
   fragments swapped into the dashboard by HTMX; protected like the
   dashboard (303 redirect to /login when unauthenticated).
 
-RBAC: the global aggregate partials (qa-matrix, team-quotas) are
-reviewer-only — Support-only users receive a bare 403 response (HTMX
-surfaces it; no redirect). my-reviews is personal and review-drawer is
-left accessible for all authenticated users.
+RBAC: the global aggregate partials (qa-matrix, team-quotas,
+all-reviews) are reviewer-only — Support-only users receive a bare 403
+response (HTMX surfaces it; no redirect). my-reviews is personal and
+review-drawer is left accessible for all authenticated users.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -220,25 +221,72 @@ async def partial_my_reviews(
     auth: PageUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Response:
-    """Render the 'My Reviews' HTMX partial for authenticated users.
+    """Render the personal reviews view (see :func:`_render_reviews_view`)."""
+    return await _render_reviews_view(request, auth, db, scope="my")
 
-    Perspective depends on roles: reviewer roles (QA/Supervisor/Admin)
+
+@router.get(
+    "/partials/all-reviews",
+    name="partial_all_reviews",
+    summary="All Reviews partial",
+    include_in_schema=False,
+)
+async def partial_all_reviews(
+    request: Request,
+    auth: PageUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Render the team-wide reviews view (see :func:`_render_reviews_view`)."""
+    return await _render_reviews_view(request, auth, db, scope="all")
+
+
+async def _render_reviews_view(
+    request: Request,
+    auth: PageUser,
+    db: AsyncSession,
+    *,
+    scope: str,
+) -> Response:
+    """Render the shared reviews table used by BOTH sidebar submenus.
+
+    Scope "my" is the personal view: reviewer roles (QA/Supervisor/Admin)
     see the reviews THEY performed — plus cases still PENDING that were
-    delegated to them (the assignee, not the delegating
-    supervisor-creator, completes those); everyone else sees the
-    reviews performed ABOUT them. Both views are personal, so no RBAC
-    gate beyond authentication. Soft-deleted rows are excluded
-    everywhere. Latest 50 reviews; counterpart display names are
-    batch-loaded with a single in_() query (no N+1).
+    delegated to them — while Support-only users see the reviews
+    performed ABOUT them. Scope "all" is reviewer-only and shows every
+    review of everyone; Support-only users get a bare 403 like the other
+    aggregate partials.
+
+    Both scopes are restricted to the CURRENT reporting period (26th ->
+    25th UTC, named after its closing month). Soft-deleted rows are
+    excluded everywhere. Optional filters arrive as query params:
+    ``agent`` / ``qa`` (ids), ``case_type`` (enum value) and
+    ``case_number`` (case-insensitive substring); invalid values are
+    silently ignored so a stale bookmark never 500s. Person filters only
+    apply for reviewers — a personal agent view has no other people to
+    filter on. Counterpart display names are batch-loaded with a single
+    in_() query (no N+1). Per-row action flags: ``can_complete`` marks
+    pending rows assigned to the viewer; ``can_edit`` is true for every
+    reviewer-visible row — the reviews API deliberately lets ANY
+    QA/Supervisor/Admin edit or delete ANY review, so the all-scope
+    table exposes those buttons on foreign rows too.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
         return redirect
 
+    if scope == "all" and not is_reviewer(auth):
+        return _forbidden()
+
     performed_by_me = auth.has_role(
         RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
     )
-    if performed_by_me:
+    period_start, period_end, closing_year, closing_month = (
+        reporting_period.reporting_period_for(datetime.now(timezone.utc))
+    )
+
+    if scope == "all":
+        stmt = select(Review).where(Review.deleted_at.is_(None))
+    elif performed_by_me:
         stmt = select(Review).where(
             or_(
                 Review.qa_id == auth.id,
@@ -254,8 +302,52 @@ async def partial_my_reviews(
             Review.support_agent_id == auth.id,
             Review.deleted_at.is_(None),
         )
+    # Current reporting period only.
+    stmt = stmt.where(
+        Review.created_at >= period_start,
+        Review.created_at < period_end,
+    )
+
+    params = request.query_params
+
+    def _int_param(name: str) -> int | None:
+        try:
+            return int(params.get(name) or "")
+        except ValueError:
+            return None
+
+    f_agent = _int_param("agent") if performed_by_me else None
+    f_qa = _int_param("qa") if performed_by_me else None
+    f_case_type = params.get("case_type") or ""
+    if f_case_type:
+        try:
+            CaseTypeEnum(f_case_type)
+        except ValueError:
+            f_case_type = ""
+    f_case_number = (params.get("case_number") or "").strip()
+
+    if performed_by_me:
+        if f_agent:
+            stmt = stmt.where(Review.support_agent_id == f_agent)
+        if f_qa:
+            stmt = stmt.where(
+                or_(
+                    Review.qa_id == f_qa,
+                    and_(
+                        Review.status == ReviewStatusEnum.PENDING,
+                        Review.assigned_qa_id == f_qa,
+                    ),
+                )
+            )
+    if f_case_type:
+        stmt = stmt.where(Review.case_type == CaseTypeEnum(f_case_type))
+    if f_case_number:
+        stmt = stmt.where(Review.case_number.ilike(f"%{f_case_number}%"))
+
     reviews = list(
-        (await db.execute(stmt.order_by(Review.created_at.desc()).limit(50)))
+        (
+            await db.execute(stmt.order_by(Review.created_at.desc()))
+        )
         .scalars()
         .all()
     )
@@ -288,9 +380,18 @@ async def partial_my_reviews(
             "creator_name": nicknames.get(
                 review.created_by, nicknames.get(review.qa_id, "Unknown")
             ),
+            "can_complete": (
+                review.status == ReviewStatusEnum.PENDING
+                and review.assigned_qa_id == auth.id
+            ),
+            "can_edit": performed_by_me,
         }
         for review in reviews
     ]
+
+    has_filters = bool(
+        f_agent or f_qa or f_case_type or f_case_number
+    )
 
     return templates.TemplateResponse(
         request=request,
@@ -298,6 +399,38 @@ async def partial_my_reviews(
         context={
             "rows": rows,
             "perspective": "reviewer" if performed_by_me else "agent",
+            "title": "All Reviews" if scope == "all" else "My Reviews",
+            "subtitle": (
+                "Every case this period"
+                if scope == "all"
+                else (
+                    "Reviews you performed"
+                    if performed_by_me
+                    else "Reviews about you"
+                )
+            ),
+            "endpoint": (
+                "/partials/all-reviews" if scope == "all"
+                else "/partials/my-reviews"
+            ),
+            "period_range": _period_range_label(period_start, period_end),
+            "filters": {
+                "agents": [
+                    {"id": user.id, "name": user.nickname}
+                    for user in await _support_agents(db)
+                ],
+                "qas": [
+                    {"id": qa.id, "name": qa.nickname} for qa in await _qas(db)
+                ],
+                "case_types": [
+                    case_type.value for case_type in CaseTypeEnum
+                ],
+                "agent": f_agent,
+                "qa": f_qa,
+                "case_type": f_case_type,
+                "case_number": f_case_number,
+                "has_active": has_filters,
+            },
         },
     )
 

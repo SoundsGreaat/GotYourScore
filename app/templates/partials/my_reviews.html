@@ -1,8 +1,111 @@
-<section hx-get="/partials/my-reviews" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
+<section id="reviews-view"
+         hx-get="{{ endpoint }}"
+         hx-trigger="reviews-changed from:body"
+         hx-include="#reviews-filter-form"
+         hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-lg font-semibold">My Reviews</h2>
-        <span class="text-sm text-base-content/70">{% if perspective == 'reviewer' %}Reviews you performed{% else %}Reviews about you{% endif %}</span>
+        <h2 class="text-lg font-semibold">{{ title }}</h2>
+        <div class="flex items-center gap-2">
+            <span class="badge badge-soft badge-sm">{{ period_range }}</span>
+            <span class="text-sm text-base-content/70">{{ subtitle }}</span>
+        </div>
     </div>
+
+    <form id="reviews-filter-form"
+          class="mb-3 flex flex-wrap items-end gap-2"
+          hx-get="{{ endpoint }}"
+          hx-target="#reviews-view"
+          hx-swap="outerHTML"
+          hx-trigger="change, input changed delay:400ms, search">
+        {% if perspective == 'reviewer' %}
+        {% set sel_agent = filters.agents | selectattr('id', 'equalto', filters.agent) | list %}
+        <label class="flex w-full max-w-44 flex-col gap-1 text-sm">
+            <span>Agent</span>
+            <button type="button" popovertarget="rf-agent-menu"
+                    style="anchor-name:--rf-agent-anchor" aria-label="Filter by support agent"
+                    class="select select-sm w-full flex items-center">
+                <span id="rf-agent-display" class="pointer-events-none truncate{% if not filters.agent %} text-base-content/70{% endif %}">{{ sel_agent[0].name if sel_agent else 'All agents' }}</span>
+            </button>
+            <ul id="rf-agent-menu" popover style="position-anchor:--rf-agent-anchor"
+                class="dropdown menu menu-sm w-56 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                {% set all_cls = '' if filters.agent else 'active menu-active' %}
+                <li>
+                    <button type="button" class="{{ all_cls }}"
+                            onclick="reviewsViewSetDropdown('rf-agent', 'rf-agent-display', '', 'All agents', this)">All agents</button>
+                </li>
+                {% for agent in filters.agents %}
+                {% set opt_cls = 'active menu-active' if filters.agent == agent.id else '' %}
+                <li>
+                    <button type="button" class="{{ opt_cls }}"
+                            onclick="reviewsViewSetDropdown('rf-agent', 'rf-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">{{ agent.name }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <input type="hidden" name="agent" id="rf-agent" value="{{ filters.agent or '' }}" />
+        </label>
+        {% set sel_qa = filters.qas | selectattr('id', 'equalto', filters.qa) | list %}
+        <label class="flex w-full max-w-44 flex-col gap-1 text-sm">
+            <span>Reviewer / QA</span>
+            <button type="button" popovertarget="rf-qa-menu"
+                    style="anchor-name:--rf-qa-anchor" aria-label="Filter by reviewer"
+                    class="select select-sm w-full flex items-center">
+                <span id="rf-qa-display" class="pointer-events-none truncate{% if not filters.qa %} text-base-content/70{% endif %}">{{ sel_qa[0].name if sel_qa else 'All reviewers' }}</span>
+            </button>
+            <ul id="rf-qa-menu" popover style="position-anchor:--rf-qa-anchor"
+                class="dropdown menu menu-sm w-56 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                {% set all_cls = '' if filters.qa else 'active menu-active' %}
+                <li>
+                    <button type="button" class="{{ all_cls }}"
+                            onclick="reviewsViewSetDropdown('rf-qa', 'rf-qa-display', '', 'All reviewers', this)">All reviewers</button>
+                </li>
+                {% for qa in filters.qas %}
+                {% set opt_cls = 'active menu-active' if filters.qa == qa.id else '' %}
+                <li>
+                    <button type="button" class="{{ opt_cls }}"
+                            onclick="reviewsViewSetDropdown('rf-qa', 'rf-qa-display', '{{ qa.id }}', '{{ qa.name }}', this)">{{ qa.name }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <input type="hidden" name="qa" id="rf-qa" value="{{ filters.qa or '' }}" />
+        </label>
+        {% endif %}
+        <label class="flex w-full max-w-44 flex-col gap-1 text-sm">
+            <span>Case type</span>
+            <button type="button" popovertarget="rf-case-type-menu"
+                    style="anchor-name:--rf-case-type-anchor" aria-label="Filter by case type"
+                    class="select select-sm w-full flex items-center">
+                <span id="rf-case-type-display" class="pointer-events-none truncate{% if not filters.case_type %} text-base-content/70{% endif %}">{{ filters.case_type or 'All types' }}</span>
+            </button>
+            <ul id="rf-case-type-menu" popover style="position-anchor:--rf-case-type-anchor"
+                class="dropdown menu menu-sm w-56 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+                {% set all_cls = '' if filters.case_type else 'active menu-active' %}
+                <li>
+                    <button type="button" class="{{ all_cls }}"
+                            onclick="reviewsViewSetDropdown('rf-case-type', 'rf-case-type-display', '', 'All types', this)">All types</button>
+                </li>
+                {% for case_type in filters.case_types %}
+                {% set opt_cls = 'active menu-active' if filters.case_type == case_type else '' %}
+                <li>
+                    <button type="button" class="{{ opt_cls }}"
+                            onclick="reviewsViewSetDropdown('rf-case-type', 'rf-case-type-display', '{{ case_type }}', '{{ case_type }}', this)">{{ case_type }}</button>
+                </li>
+                {% endfor %}
+            </ul>
+            <input type="hidden" name="case_type" id="rf-case-type" value="{{ filters.case_type }}" />
+        </label>
+        <label class="flex w-full max-w-48 flex-col gap-1 text-sm">
+            <span>Case #</span>
+            <input type="search" name="case_number" value="{{ filters.case_number }}"
+                   class="input input-sm w-full" placeholder="Search case number…"
+                   aria-label="Search by case number" />
+        </label>
+        {% if filters.has_active %}
+        <a href="#" hx-get="{{ endpoint }}" hx-target="#reviews-view" hx-swap="outerHTML"
+           class="btn btn-sm btn-ghost" aria-label="Reset filters">Reset</a>
+        {% endif %}
+        <button type="submit" class="hidden" aria-hidden="true"></button>
+    </form>
+
     {% if rows %}
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
@@ -36,11 +139,16 @@
                             <td>{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
                             <td>
                                 {% if row.status == 'pending' %}
+                                {% if row.can_complete %}
                                 <button type="button"
                                         class="badge badge-soft badge-warning badge-sm cursor-pointer font-semibold"
                                         data-review-complete="{{ row.id }}"
                                         aria-label="Complete delegated case {{ row.case_number or row.id }}"
                                         title="Delegated to you · awaiting review">Pending</button>
+                                {% else %}
+                                <span class="badge badge-soft badge-warning badge-sm font-semibold"
+                                      title="Delegated · awaiting review">Pending</span>
+                                {% endif %}
                                 {% elif row.final_score is none and row.case_type.value == 'No Cases' %}
                                 <button type="button"
                                         class="badge badge-soft badge-sm cursor-pointer font-semibold"
@@ -64,6 +172,7 @@
                             <td class="max-w-60">{{ (row.notes or '')|truncate(80) }}</td>
                             {% if perspective == 'reviewer' %}
                             <td class="whitespace-nowrap">
+                                {% if row.can_edit %}
                                 <div class="flex items-center gap-0.5">
                                     <button type="button"
                                             class="btn btn-ghost btn-xs px-1.5"
@@ -74,6 +183,7 @@
                                             data-review-delete="{{ row.id }}"
                                             aria-label="Delete review {{ row.id }}" title="Delete">&#128465;</button>
                                 </div>
+                                {% endif %}
                             </td>
                             {% endif %}
                         </tr>
@@ -82,6 +192,10 @@
                 </table>
             </div>
         </div>
+    </div>
+    {% elif filters.has_active %}
+    <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+        No cases match the current filters
     </div>
     {% else %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
@@ -101,6 +215,33 @@
     </dialog>
 
     <script>
+    if (!window.__reviewsViewDropdownInit) {
+        window.__reviewsViewDropdownInit = true;
+        window.reviewsViewSetDropdown = function (hiddenId, displayId, value, text, btnEl) {
+            var hidden = document.getElementById(hiddenId);
+            if (hidden) {
+                hidden.value = value;
+                hidden.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            var display = document.getElementById(displayId);
+            if (display) {
+                display.textContent = text;
+                display.classList.remove('text-base-content/70');
+            }
+            if (btnEl) {
+                var siblings = btnEl.closest('ul').querySelectorAll('button');
+                siblings.forEach(function (btn) {
+                    btn.classList.remove('active');
+                    btn.classList.remove('menu-active');
+                });
+                btnEl.classList.add('active');
+                btnEl.classList.add('menu-active');
+            }
+            var pop = btnEl && btnEl.closest('[popover]');
+            if (pop && pop.matches(':popover-open')) pop.hidePopover();
+            if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+        };
+    }
     (function () {
         var modal = document.getElementById('my-reviews-notes-modal');
         if (!modal) return;
