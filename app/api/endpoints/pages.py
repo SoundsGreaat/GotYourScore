@@ -413,6 +413,9 @@ async def _render_reviews_view(
                 "/partials/all-reviews" if scope == "all"
                 else "/partials/my-reviews"
             ),
+            "period_label": reporting_period.period_label(
+                closing_year, closing_month
+            ),
             "period_range": _period_range_label(period_start, period_end),
             "filters": {
                 "agents": [
