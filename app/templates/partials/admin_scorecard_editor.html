@@ -10,6 +10,7 @@
    time. Validation failures return HTTP 400 with an alert-fragment
    body that HTMX will NOT swap (non-2xx); the document-level
    htmx:responseError listener below injects it into #editor-alert. #}
+{% import "macros/dropdowns.html" as dd %}
 <div id="editor-root">
     <script>
         if (!window.__adminEditorInit) {
@@ -225,27 +226,13 @@
                        class="input input-sm min-w-48 grow font-medium sm:max-w-xs"
                        aria-label="Template name" />
                 {% set current_case = t.case_type.value | default(t.case_type) | string %}
-                <!-- daisyUI v5 popover-API dropdown styled like the
-                     review drawer's case-type picker. -->
                 <div class="w-44 max-w-full">
-                    <button type="button" popovertarget="editor-case-menu"
-                            style="anchor-name:--editor-case-anchor"
-                            class="select select-sm w-full flex items-center">
-                        <span id="editor-case-display" class="pointer-events-none truncate">{{ current_case }}</span>
-                    </button>
-                    <ul id="editor-case-menu" popover style="position-anchor:--editor-case-anchor"
-                        class="dropdown menu menu-sm w-44 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                        {% for ct in case_types %}
-                        <li>
-                            <button type="button"
-                                    onclick="adminSetDropdown('editor-case', 'editor-case-display', '{{ ct.value }}', '{{ ct.value }}', this)"
-                                    class="{% if ct.value | string == current_case %}active{% endif %}">
-                                {{ ct.value }}
-                            </button>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    <input type="hidden" data-case id="editor-case" value="{{ current_case }}" />
+                    {{ dd.dropdown('editor-case',
+                        items=case_types,
+                        value_attr='value', label_attr='value',
+                        selected=current_case,
+                        menu_w='w-44',
+                        hidden_attrs='data-case') }}
                 </div>
                 <span class="badge badge-sm {{ 'badge-success' if t.is_active else 'badge-ghost' }}">
                     {{ 'Active' if t.is_active else 'Inactive' }}

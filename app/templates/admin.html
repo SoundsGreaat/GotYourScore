@@ -31,28 +31,4 @@
 
     <div id="admin-view" class="mt-5" hx-get="/admin/partials/prompts" hx-trigger="load" hx-swap="innerHTML"></div>
 </main>
-
-<script>
-    if (!window.__adminDropdownInit) {
-        window.__adminDropdownInit = true;
-        window.adminSetDropdown = function (hiddenId, displayId, value, text, btnEl) {
-            var hidden = document.getElementById(hiddenId);
-            if (hidden) hidden.value = value;
-            var display = document.getElementById(displayId);
-            if (display) {
-                display.textContent = text;
-                display.classList.remove('text-base-content/70');
-            }
-            if (btnEl) {
-                var siblings = btnEl.closest('ul').querySelectorAll('button');
-                siblings.forEach(function (btn) { btn.classList.remove('active'); });
-                btnEl.classList.add('active');
-            }
-            // Popover-API dropdowns stay open after an inner click — close it.
-            var pop = btnEl && btnEl.closest('[popover]');
-            if (pop && pop.matches(':popover-open')) pop.hidePopover();
-            if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
-        };
-    }
-</script>
 {% endblock %}

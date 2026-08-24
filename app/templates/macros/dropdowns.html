@@ -1,0 +1,87 @@
+{# Shared daisyUI v5 popover-API dropdown: trigger button + popover menu
+   + hidden input.
+
+   Keyboard support (typeahead, ArrowUp/Down, Enter) is added globally to
+   every [popover].dropdown.menu by app/static/js/dropdowns.js.
+
+   Required:
+     id           id prefix — derives "<id>-button", "<id>-menu", the
+                  "<id>" hidden input and the "--<id>-anchor" CSS anchor.
+                  Must be unique per page; may contain "__ROW__"
+                  placeholders for JS-cloned batch rows.
+     items        option sources (ORM objects, enums or plain strings);
+                  value/label are read per value_attr/label_attr below.
+   Optional:
+     value_attr   attribute/key holding the option value ('value',
+                  'id', ...). Plain strings pass through untouched.
+     label_attr   attribute/key holding the displayed label ('value',
+                  'name', ...).
+     selected     currently chosen value ('' = nothing picked yet)
+     any_label    label of a leading "empty" option ("All agents",
+                  "Unassigned — shared queue", ...); omit when a choice
+                  is mandatory
+     placeholder  trigger text while nothing is picked and any_label unset
+     menu_w       menu width utility class (default w-64)
+     btn_cls      full class list of the trigger button
+     aria_label   accessible name of the trigger button
+     display_sel  selector of an id-less display span (e.g.
+                  '.js-review-agent-display'); default "#<id>-display".
+                  Id-less spans survive htmx's settle step untouched.
+     hidden_attrs extra attributes for the hidden input
+                  ('name="agent"', 'data-field="case_type"', ...)
+     opt_data     attribute mirrored from each option's value onto its
+                  button (e.g. 'data-agent-id' — the review drawer looks
+                  options up via [data-agent-id="..."]). The leading
+                  "any" option gets it too, with an empty value.
+     js_fn        picker function invoked on click; defaults to the
+                  shared window.setDropdownValue in dropdowns.js.
+                  Wrappers with extra side effects pass their own name.
+#}
+{% macro dropdown(id, items=[], value_attr='value', label_attr='label',
+                  selected='', any_label='', placeholder='',
+                  menu_w='w-64', btn_cls='select select-sm w-full flex items-center',
+                  aria_label='', display_sel='', hidden_attrs='',
+                  opt_data='', js_fn='setDropdownValue') -%}
+{% set anchor = '--' ~ id ~ '-anchor' %}
+{% set disp_ref = display_sel if display_sel else '#' ~ id ~ '-display' %}
+{# Jinja has no comprehension syntax, so option dicts are built in a
+   plain loop. Subscripting falls back to attributes (dicts, ORM objects,
+   enums all work); plain strings have neither attribute, yield Undefined
+   and default to themselves. str-mixin enums must NOT be treated as
+   strings here — their members still resolve value/label via the lookup. #}
+{% set ns = namespace(opts=[]) %}
+{% for it in items %}
+    {% set _ = ns.opts.append({
+        'value': it[value_attr] | default(it),
+        'label': it[label_attr] | default(it)}) %}
+{% endfor %}
+{% set opts = ns.opts %}
+{% set match = opts | selectattr('value', 'equalto', selected) | list %}
+{% set span_cls = ((display_sel[1:] ~ ' ') if display_sel else '') ~ 'pointer-events-none truncate' ~ ('' if match else ' text-base-content/70') %}
+{% set shown = match[0].label if match else (any_label if any_label else placeholder) %}
+<button type="button" id="{{ id }}-button" popovertarget="{{ id }}-menu"
+        style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}
+        class="{{ btn_cls }}">
+    {% if display_sel %}
+    <span class="{{ span_cls }}">{{ shown }}</span>
+    {% else %}
+    <span id="{{ id }}-display" class="{{ span_cls }}">{{ shown }}</span>
+    {% endif %}
+</button>
+<ul id="{{ id }}-menu" popover style="position-anchor:{{ anchor }}"
+    class="dropdown menu menu-sm {{ menu_w }} flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+    {%- if any_label %}
+    <li>
+        <button type="button"{% if opt_data %} {{ opt_data }}=""{% endif %}{% if not selected %} class="active menu-active"{% endif %}
+                onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '', '{{ any_label }}', this)">{{ any_label }}</button>
+    </li>
+    {% endif -%}
+    {%- for opt in opts %}
+    <li>
+        <button type="button"{% if opt_data %} {{ opt_data }}="{{ opt.value }}"{% endif %}{% if opt.value|string == selected|string %} class="active menu-active"{% endif %}
+                onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '{{ opt.value }}', '{{ opt.label }}', this)">{{ opt.label }}</button>
+    </li>
+    {% endfor -%}
+</ul>
+<input type="hidden" id="{{ id }}" value="{{ selected }}"{% if hidden_attrs %} {{ hidden_attrs | safe }}{% endif %}>
+{%- endmacro %}

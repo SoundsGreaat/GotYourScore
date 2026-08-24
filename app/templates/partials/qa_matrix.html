@@ -1,3 +1,4 @@
+{% import "macros/dropdowns.html" as dd %}
 <section hx-get="/partials/qa-matrix" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">QA Matrix</h2>
@@ -173,41 +174,19 @@
             <form id="delegate-form" data-delegate-pane="single" class="mt-3 space-y-3">
                 <fieldset class="fieldset">
                     <label class="label" for="delegate-agent-button">Support agent</label>
-                    <button type="button" id="delegate-agent-button" popovertarget="delegate-agent-menu"
-                            style="anchor-name:--delegate-agent-anchor"
-                            class="select select-sm w-full flex items-center">
-                        <span id="delegate-agent-display" class="pointer-events-none truncate text-base-content/70">Select agent&hellip;</span>
-                    </button>
-                    <ul id="delegate-agent-menu" popover style="position-anchor:--delegate-agent-anchor"
-                        class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                        {% for user in support_users %}
-                        <li>
-                            <button type="button" onclick="qaMatrixSetDropdown('delegate-agent', 'delegate-agent-display', '{{ user.id }}', '{{ user.name }}', this)">
-                                {{ user.name }}
-                            </button>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    <input type="hidden" id="delegate-agent" value="" />
+                    {{ dd.dropdown('delegate-agent',
+                        items=support_users,
+                        value_attr='id', label_attr='name',
+                        placeholder='Select agent…',
+                        menu_w='w-64') }}
                 </fieldset>
                 <fieldset class="fieldset">
                     <label class="label" for="delegate-case-type-button">Case type</label>
-                    <button type="button" id="delegate-case-type-button" popovertarget="delegate-case-type-menu"
-                            style="anchor-name:--delegate-case-type-anchor"
-                            class="select select-sm w-full flex items-center">
-                        <span id="delegate-case-type-display" class="pointer-events-none truncate text-base-content/70">Select case type&hellip;</span>
-                    </button>
-                    <ul id="delegate-case-type-menu" popover style="position-anchor:--delegate-case-type-anchor"
-                        class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                        {% for case_type in delegate_case_types %}
-                        <li>
-                            <button type="button" onclick="qaMatrixSetDropdown('delegate-case-type', 'delegate-case-type-display', '{{ case_type }}', '{{ case_type }}', this)">
-                                {{ case_type }}
-                            </button>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    <input type="hidden" id="delegate-case-type" value="" />
+                    {{ dd.dropdown('delegate-case-type',
+                        items=delegate_case_types,
+                        value_attr='value', label_attr='value',
+                        placeholder='Select case type…',
+                        menu_w='w-64') }}
                 </fieldset>
                 <fieldset class="fieldset">
                     <label class="label" for="delegate-case-number">Case number (optional)</label>
@@ -215,22 +194,11 @@
                 </fieldset>
                 <fieldset class="fieldset">
                     <label class="label" for="delegate-qa-button">QA agent (optional)</label>
-                    <button type="button" id="delegate-qa-button" popovertarget="delegate-qa-menu"
-                            style="anchor-name:--delegate-qa-anchor"
-                            class="select select-sm w-full flex items-center">
-                        <span id="delegate-qa-display" class="pointer-events-none truncate text-base-content/70">Select QA&hellip;</span>
-                    </button>
-                    <ul id="delegate-qa-menu" popover style="position-anchor:--delegate-qa-anchor"
-                        class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                        {% for qa in qas %}
-                        <li>
-                            <button type="button" onclick="qaMatrixSetDropdown('delegate-qa', 'delegate-qa-display', '{{ qa.id }}', '{{ qa.name }}', this)">
-                                {{ qa.name }}
-                            </button>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    <input type="hidden" id="delegate-qa" value="" />
+                    {{ dd.dropdown('delegate-qa',
+                        items=qas,
+                        value_attr='id', label_attr='name',
+                        placeholder='Select QA…',
+                        menu_w='w-64') }}
                     <p class="text-xs text-base-content/60">Leave empty to send the case to the shared queue for all QAs.</p>
                 </fieldset>
                 <button type="submit" class="btn btn-primary btn-block btn-sm">Delegate</button>
@@ -243,60 +211,38 @@
                          names must never collide across rows). -->
                     <div class="delegate-batch-row relative grid grid-cols-2 gap-2 rounded-box border border-base-300 bg-base-200/30 p-2 pr-9">
                         <div class="min-w-0">
-                            <button type="button" popovertarget="dbqa-m__ROW__" style="anchor-name:--dbqa-m__ROW__"
-                                    class="select select-sm w-full min-w-0 flex items-center" aria-label="QA agent (optional)">
-                                <span id="dbqa-d__ROW__" class="pointer-events-none truncate text-base-content/70">QA agent (optional)</span>
-                            </button>
-                            <ul id="dbqa-m__ROW__" popover style="position-anchor:--dbqa-m__ROW__"
-                                class="dropdown menu menu-sm w-56 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                                <li>
-                                    <button type="button" onclick="qaMatrixSetDropdown('dbqa-h__ROW__', 'dbqa-d__ROW__', '', 'Unassigned &mdash; shared queue', this)">
-                                        Unassigned &mdash; shared queue
-                                    </button>
-                                </li>
-                                {% for qa in qas %}
-                                <li>
-                                    <button type="button" onclick="qaMatrixSetDropdown('dbqa-h__ROW__', 'dbqa-d__ROW__', '{{ qa.id }}', '{{ qa.name }}', this)">
-                                        {{ qa.name }}
-                                    </button>
-                                </li>
-                                {% endfor %}
-                            </ul>
-                            <input type="hidden" id="dbqa-h__ROW__" data-field="assigned_qa_id" value="" />
+                            {{ dd.dropdown('dbqa__ROW__',
+                                items=qas,
+                                value_attr='id', label_attr='name',
+                                any_label='Unassigned — shared queue',
+                                placeholder='QA agent (optional)',
+                                menu_w='w-56',
+                                btn_cls='select select-sm w-full min-w-0 flex items-center',
+                                aria_label='QA agent (optional)',
+                                hidden_attrs='data-field="assigned_qa_id"',
+                                js_fn='qaMatrixSetDropdown') }}
                         </div>
                         <div class="min-w-0">
-                            <button type="button" popovertarget="dbag-m__ROW__" style="anchor-name:--dbag-m__ROW__"
-                                    class="select select-sm w-full min-w-0 flex items-center" aria-label="Support agent">
-                                <span id="dbag-d__ROW__" class="pointer-events-none truncate text-base-content/70">(Select agent&hellip;)</span>
-                            </button>
-                            <ul id="dbag-m__ROW__" popover style="position-anchor:--dbag-m__ROW__"
-                                class="dropdown menu menu-sm w-56 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                                {% for user in support_users %}
-                                <li>
-                                    <button type="button" onclick="qaMatrixSetDropdown('dbag-h__ROW__', 'dbag-d__ROW__', '{{ user.id }}', '{{ user.name }}', this)">
-                                        {{ user.name }}
-                                    </button>
-                                </li>
-                                {% endfor %}
-                            </ul>
-                            <input type="hidden" id="dbag-h__ROW__" data-field="support_agent_id" value="" />
+                            {{ dd.dropdown('dbag__ROW__',
+                                items=support_users,
+                                value_attr='id', label_attr='name',
+                                placeholder='(Select agent…)',
+                                menu_w='w-56',
+                                btn_cls='select select-sm w-full min-w-0 flex items-center',
+                                aria_label='Support agent',
+                                hidden_attrs='data-field="support_agent_id"',
+                                js_fn='qaMatrixSetDropdown') }}
                         </div>
                         <div class="min-w-0">
-                            <button type="button" popovertarget="dbct-m__ROW__" style="anchor-name:--dbct-m__ROW__"
-                                    class="select select-sm w-full min-w-0 flex items-center" aria-label="Case type">
-                                <span id="dbct-d__ROW__" class="pointer-events-none truncate text-base-content/70">Select case type&hellip;</span>
-                            </button>
-                            <ul id="dbct-m__ROW__" popover style="position-anchor:--dbct-m__ROW__"
-                                class="dropdown menu menu-sm w-56 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                                {% for case_type in delegate_case_types %}
-                                <li>
-                                    <button type="button" onclick="qaMatrixSetDropdown('dbct-h__ROW__', 'dbct-d__ROW__', '{{ case_type }}', '{{ case_type }}', this)">
-                                        {{ case_type }}
-                                    </button>
-                                </li>
-                                {% endfor %}
-                            </ul>
-                            <input type="hidden" id="dbct-h__ROW__" data-field="case_type" value="" />
+                            {{ dd.dropdown('dbct__ROW__',
+                                items=delegate_case_types,
+                                value_attr='value', label_attr='value',
+                                placeholder='Select case type…',
+                                menu_w='w-56',
+                                btn_cls='select select-sm w-full min-w-0 flex items-center',
+                                aria_label='Case type',
+                                hidden_attrs='data-field="case_type"',
+                                js_fn='qaMatrixSetDropdown') }}
                         </div>
                         <input type="text" class="input input-sm w-full min-w-0 self-start" data-field="case_number"
                                placeholder="Case # (optional)" aria-label="Case number (optional)" />
@@ -330,33 +276,10 @@
     <script>
     if (!window.__qaMatrixDropdownInit) {
         window.__qaMatrixDropdownInit = true;
+        // Thin wrapper over the shared picker (app/static/js/dropdowns.js)
+        // adding the batch-pane preview refresh after every pick.
         window.qaMatrixSetDropdown = function (hiddenId, displayId, value, text, btnEl) {
-            var hidden = document.getElementById(hiddenId);
-            if (hidden) {
-                hidden.value = value;
-                // Programmatic picks never fire native change events; the
-                // batch rows rely on one (delegated listener) to grow the
-                // row list and refresh the summary after every pick.
-                hidden.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-            var display = document.getElementById(displayId);
-            if (display) {
-                display.textContent = text;
-                display.classList.remove('text-base-content/70');
-            }
-            if (btnEl) {
-                var siblings = btnEl.closest('ul').querySelectorAll('button');
-                siblings.forEach(function (btn) {
-                    btn.classList.remove('active');
-                    btn.classList.remove('menu-active');
-                });
-                btnEl.classList.add('active');
-                btnEl.classList.add('menu-active');
-            }
-            // Popover-API menus stay open after an inner click — close on pick.
-            var pop = btnEl && btnEl.closest('[popover]');
-            if (pop && pop.matches(':popover-open')) pop.hidePopover();
-            if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+            window.setDropdownValue(hiddenId, displayId, value, text, btnEl);
             if (window.qaMatrixScheduleBatchPreview) window.qaMatrixScheduleBatchPreview();
         };
         window.qaMatrixClearDropdown = function (hiddenId, displayId, placeholder) {

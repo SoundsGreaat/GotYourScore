@@ -3,6 +3,7 @@
    case_types=[CaseTypeEnum], selected_id=int|None, error=str|None.
    The editor column lazy-fetches the editor partial for selected_id so
    the list context never needs editor variables. #}
+{% import "macros/dropdowns.html" as dd %}
 <div id="scorecards-root">
     {% if error %}<div role="alert" class="alert alert-error mb-3"><span>{{ error }}</span></div>{% endif %}
 
@@ -15,27 +16,13 @@
                           class="flex flex-col gap-2">
                         <input name="name" required maxlength="200" placeholder="Template name"
                                class="input input-sm w-full" aria-label="Template name" />
-                        <!-- daisyUI v5 popover-API dropdown styled like the
-                             review drawer's case-type picker. -->
                         <div class="w-full">
-                            <button type="button" popovertarget="new-case-menu"
-                                    style="anchor-name:--new-case-anchor"
-                                    class="select select-sm w-full flex items-center">
-                                <span id="new-case-display" class="pointer-events-none truncate text-base-content/70">{{ case_types[0].value }}</span>
-                            </button>
-                            <ul id="new-case-menu" popover style="position-anchor:--new-case-anchor"
-                                class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                                    {% for ct in case_types %}
-                                    <li>
-                                        <button type="button"
-                                                onclick="adminSetDropdown('new-case', 'new-case-display', '{{ ct.value }}', '{{ ct.value }}', this)"
-                                                class="{% if loop.first %}active{% endif %}">
-                                            {{ ct.value }}
-                                        </button>
-                                    </li>
-                                    {% endfor %}
-                            </ul>
-                            <input type="hidden" name="case_type" id="new-case" value="{{ case_types[0].value }}" />
+                            {{ dd.dropdown('new-case',
+                                items=case_types,
+                                value_attr='value', label_attr='value',
+                                selected=case_types[0].value,
+                                menu_w='w-64',
+                                hidden_attrs='name="case_type"') }}
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm shrink-0">Create</button>
                     </div>

@@ -1,3 +1,4 @@
+{% import "macros/dropdowns.html" as dd %}
 <div class="drawer drawer-end">
     <input id="review-drawer-toggle" type="checkbox" class="drawer-toggle" />
     <div class="drawer-content"></div>
@@ -13,22 +14,14 @@
 
                 <fieldset class="fieldset">
                     <label class="label" for="review-agent">Agent</label>
-                    <button type="button" id="review-agent-button" popovertarget="review-agent-menu"
-                            style="anchor-name:--review-agent-anchor"
-                            class="select select-sm w-full flex items-center">
-                        <span class="js-review-agent-display pointer-events-none truncate text-base-content/70">Select agent…</span>
-                    </button>
-                    <ul id="review-agent-menu" popover style="position-anchor:--review-agent-anchor"
-                        class="dropdown menu menu-sm w-80 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                        {% for agent in agents %}
-                        <li>
-                            <button type="button" data-agent-id="{{ agent.id }}" onclick="updateCustomDropdown('review-agent', '.js-review-agent-display', '{{ agent.id }}', '{{ agent.name }}', this)">
-                                {{ agent.name }}
-                            </button>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    <input type="hidden" id="review-agent" value="" />
+                    {{ dd.dropdown('review-agent',
+                        items=agents,
+                        value_attr='id', label_attr='name',
+                        placeholder='Select agent…',
+                        menu_w='w-80',
+                        display_sel='.js-review-agent-display',
+                        opt_data='data-agent-id',
+                        js_fn='updateCustomDropdown') }}
                 </fieldset>
 
                 <!-- Pending delegations only: empty means the case sits in
@@ -41,29 +34,14 @@
                 <div class="assigned-qa-fieldset hidden">
                     <fieldset class="fieldset">
                         <label class="label" for="review-assigned-qa-button">Assigned QA</label>
-                        <button type="button" id="review-assigned-qa-button" popovertarget="review-assigned-qa-menu"
-                                style="anchor-name:--review-assigned-qa-anchor"
-                                class="select select-sm w-full flex items-center">
-                            <span class="js-review-assigned-qa-display pointer-events-none truncate text-base-content/70">Unassigned — shared queue</span>
-                        </button>
-                        <ul id="review-assigned-qa-menu" popover style="position-anchor:--review-assigned-qa-anchor"
-                            class="dropdown menu menu-sm w-80 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                            <li>
-                                <button type="button" data-assigned-qa-id=""
-                                        onclick="updateCustomDropdown('review-assigned-qa', '.js-review-assigned-qa-display', '', 'Unassigned — shared queue', this)">
-                                    Unassigned — shared queue
-                                </button>
-                            </li>
-                            {% for qa in qas %}
-                            <li>
-                                <button type="button" data-assigned-qa-id="{{ qa.id }}"
-                                        onclick="updateCustomDropdown('review-assigned-qa', '.js-review-assigned-qa-display', '{{ qa.id }}', '{{ qa.name }}', this)">
-                                    {{ qa.name }}
-                                </button>
-                            </li>
-                            {% endfor %}
-                        </ul>
-                        <input type="hidden" id="review-assigned-qa" value="" />
+                        {{ dd.dropdown('review-assigned-qa',
+                            items=qas,
+                            value_attr='id', label_attr='name',
+                            any_label='Unassigned — shared queue',
+                            menu_w='w-80',
+                            display_sel='.js-review-assigned-qa-display',
+                            opt_data='data-assigned-qa-id',
+                            js_fn='updateCustomDropdown') }}
                     </fieldset>
                 </div>
 
@@ -77,24 +55,13 @@
 
                 <fieldset class="fieldset">
                     <label class="label" for="case-type">Case type</label>
-                    <button type="button" id="case-type-button" popovertarget="case-type-menu"
-                            style="anchor-name:--case-type-anchor"
-                            class="select select-sm w-full flex items-center">
-                        <span class="js-case-type-display pointer-events-none truncate">Service Request</span>
-                    </button>
-                    <ul id="case-type-menu" popover style="position-anchor:--case-type-anchor"
-                        class="dropdown menu menu-sm w-64 flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
-                        {% for case_type in case_types %}
-                        <li>
-                            <button type="button"
-                                    onclick="updateCustomDropdown('case-type', '.js-case-type-display', '{{ case_type }}', '{{ case_type }}', this)"
-                                    class="{% if case_type == 'Service Request' %}active{% endif %}">
-                                {{ case_type }}
-                            </button>
-                        </li>
-                        {% endfor %}
-                    </ul>
-                    <input type="hidden" id="case-type" value="Service Request" />
+                    {{ dd.dropdown('case-type',
+                        items=case_types,
+                        value_attr='value', label_attr='value',
+                        selected='Service Request',
+                        menu_w='w-64',
+                        display_sel='.js-case-type-display',
+                        js_fn='updateCustomDropdown') }}
                 </fieldset>
 
                 <fieldset class="fieldset">
@@ -168,25 +135,11 @@
 </ul>
 
 <script>
+// Thin wrapper over the shared picker (app/static/js/dropdowns.js):
+// value/display/highlight/popover-close live there; this adds the
+// drawer's own side-effect events.
 window.updateCustomDropdown = function(inputId, displayId, value, text, buttonElement) {
-    document.getElementById(inputId).value = value;
-    // displayId may be an id OR a class selector — display spans are
-    // id-less to stay immune to htmx's settle step (see the canonical
-    // note on assigned-qa-fieldset).
-    var displaySpan = document.getElementById(displayId) || document.querySelector(displayId);
-    displaySpan.textContent = text;
-    displaySpan.classList.remove('text-base-content/70');
-
-    if (buttonElement) {
-        var siblings = buttonElement.closest('ul').querySelectorAll('button');
-        siblings.forEach(function(btn) { btn.classList.remove('active'); });
-        buttonElement.classList.add('active');
-    }
-
-    // Popover-API menus stay open after an inner click — close on pick.
-    var pop = buttonElement && buttonElement.closest('[popover]');
-    if (pop && pop.matches(':popover-open')) pop.hidePopover();
-
+    window.setDropdownValue(inputId, displayId, value, text, buttonElement);
     document.dispatchEvent(new CustomEvent('review-agent-change'));
     if (inputId === 'case-type') document.dispatchEvent(new CustomEvent('case-type-change'));
 };
@@ -558,6 +511,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         agentDisplay.classList.remove('text-base-content/70');
         document.querySelectorAll('#review-agent-menu button').forEach(function (btn) {
             btn.classList.toggle('active', btn === agentMenuButton);
+            btn.classList.toggle('menu-active', btn === agentMenuButton);
         });
         // The reviewed Support agent is IMMUTABLE after creation — the
         // picker stays locked (and visually disabled) in edit/complete
@@ -578,6 +532,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         assignedQaDisplay.classList.remove('text-base-content/70');
         document.querySelectorAll('#review-assigned-qa-menu button').forEach(function (btn) {
             btn.classList.toggle('active', btn === assignedQaMenuButton);
+            btn.classList.toggle('menu-active', btn === assignedQaMenuButton);
         });
 
         var caseNumberInput = document.getElementById('case-number');

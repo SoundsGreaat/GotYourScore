@@ -118,6 +118,10 @@
 
     <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.4/dist/htmx.min.js"></script>
 
+    <!-- Native-select-style keyboard support (typeahead, arrows, Enter)
+         for every [popover].dropdown.menu, incl. HTMX-swapped content. -->
+    <script defer src="/static/js/dropdowns.js"></script>
+
     <!-- Quill 2: the full build registers the snow theme (there is no separate
          themed JS bundle). Loaded once so HTMX-swapped partials can initialize
          the editor without dynamic script injection. -->
