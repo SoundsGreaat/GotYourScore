@@ -1,5 +1,6 @@
 .idea
 .venv
+node_modules/
 scripts/*.csv
 
 # Environment files (keep .env.example tracked)

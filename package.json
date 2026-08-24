@@ -1,0 +1,25 @@
+{
+  "name": "gotyourscore",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CSS toolchain: Tailwind v4 + daisyUI v5 compiled to app/static/css/app.css",
+  "scripts": {
+    "build": "npm run vendor && npm run css:build",
+    "watch": "npm run css:watch",
+    "vendor": "node scripts/vendor.mjs",
+    "css:build": "tailwindcss -i app/static/css/src/input.css -o app/static/css/app.css --minify",
+    "css:watch": "tailwindcss -i app/static/css/src/input.css -o app/static/css/app.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4",
+    "daisyui": "^5",
+    "tailwindcss": "^4"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "dompurify": "^3.4.14",
+    "htmx.org": "^2.0.10",
+    "quill": "^2.0.3",
+    "sortablejs": "^1.15.7"
+  }
+}

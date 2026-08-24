@@ -36,14 +36,10 @@
 
             <div class="space-y-2" id="template-list">
                 {% for t in templates %}
-                <!-- Press feedback is a background tint, NOT a scale transform:
-                     scaling re-rasterizes the 1px border + glow at fractional
-                     pixels, which makes the outline width "breathe" on corners
-                     while the button is held down. hover:/active: shadows live
-                     ONLY in the idle branch so they can never override the
-                     selected card's glow (same box-shadow property). -->
-                <div class="js-template-card card cursor-pointer rounded-box border bg-base-100 transition duration-200 ease-out active:bg-base-200
-                            {{ 'card-selected' if t.id == selected_id else 'border-base-300 shadow-sm hover:border-base-content/20 hover:shadow-md' }}"
+                <!-- Behavior lives in .gys-card (input.css); markup only
+                     marks the selected row via card-selected. -->
+                <div class="js-template-card card gys-card rounded-box border bg-base-100
+                            {{ 'card-selected' if t.id == selected_id }}"
                      data-template-card data-template-id="{{ t.id }}">
                     <div class="card-body flex-col gap-2 p-3 sm:flex-row sm:items-center">
                         <!-- The whole name zone is one button: the card itself is clickable.
@@ -99,15 +95,12 @@
     // editor swap itself is driven by each card's own hx-get attributes.
     if (!window.__adminScorecardsInit) {
         window.__adminScorecardsInit = true;
-        var IDLE = ["border-base-300", "hover:border-base-content/20"];
         document.addEventListener("click", function (event) {
             var card = event.target.closest("[data-template-card]");
             if (!card || !document.getElementById("template-list")) return;
             document.querySelectorAll("[data-template-card]").forEach(function (node) {
                 node.classList.remove("card-selected");
-                node.classList.add.apply(node.classList, IDLE);
             });
-            card.classList.remove.apply(card.classList, IDLE);
             card.classList.add("card-selected");
         });
     }

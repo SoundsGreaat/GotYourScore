@@ -196,23 +196,6 @@
         };
     </script>
 
-    <style>
-        .scorecard-ghost {
-            opacity: 0.4;
-            outline: 1px dashed color-mix(in oklab, var(--color-base-content) 45%, transparent);
-            outline-offset: 2px;
-        }
-        .scorecard-chosen {
-            opacity: 0.85;
-            cursor: grabbing;
-        }
-        .scorecard-drag {
-            opacity: 0.95;
-            cursor: grabbing;
-            box-shadow: 0 10px 24px color-mix(in oklab, var(--color-base-content) 20%, transparent);
-        }
-    </style>
-
     <div id="editor-alert" class="space-y-2">
         {% if error %}<div role="alert" class="alert alert-error"><span>{{ error }}</span></div>{% endif %}
         {% if saved %}<div role="status" class="alert alert-success alert-soft"><span>Saved.</span></div>{% endif %}

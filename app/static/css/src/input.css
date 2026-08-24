@@ -1,0 +1,525 @@
+/* =====================================================================
+   GotYourScore styles — single source of truth.
+   Built with:  npm run css:build   (watch: npm run css:watch)
+   Output:      app/static/css/app.css  (served at /static/css/app.css)
+
+   Structure:
+     1. Tailwind v4 + daisyUI v5 plugin + vendored Quill snow CSS
+     2. Explicit sources (Jinja templates + hand-written JS); auto-detect
+        is disabled so stray files never change the bundle
+     3. Brand theme variables (light/dark) — plain CSS custom properties
+     4. Motion/glow system (--gys-speed / --gys-ease tokens), component
+        polish and the Quill reskin
+   ===================================================================== */
+
+@import "tailwindcss" source(none);
+/* Quill snow theme CSS — vendored by npm run vendor. Must live in the
+   top import block: an @import placed after @plugin/@source rules is
+   an invalid CSS position and the build silently drops its rules. */
+@import "./vendor/quill.snow.css";
+
+@source "../../../templates";
+@source "../../../static/js";
+
+@plugin "daisyui";
+
+/* ---- Inter Variable (self-hosted via @fontsource-variable/inter).
+   woff2 files are vendored to /static/fonts by npm run vendor.
+   Subsets + unicode-ranges mirror Google Fonts' default coverage, so
+   Cyrillic/Latin text renders identically to the old CDN setup. ---- */
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-cyrillic-ext-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-cyrillic-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-latin-ext-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-latin-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ---- Tailwind theme tokens (fonts, menu animation) ---- */
+        @theme {
+            --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+            --animate-menu-pop: menu-pop 0.2s cubic-bezier(0, 0, 0.2, 1);
+            @keyframes menu-pop {
+                from {
+                    opacity: 0;
+                }
+                to {
+                    opacity: 1;
+                }
+            }
+        }
+    
+
+/* ---- Brand themes (light/dark) + motion/glow system ---- */
+        :where(:root),
+        [data-theme="light"] {
+            color-scheme: light;
+            --color-base-100: oklch(100% 0 0);
+            --color-base-200: oklch(98.5% 0.002 248.7);
+            --color-base-300: oklch(92.8% 0.006 264.4);
+            --color-base-content: oklch(33.3% 0.047 288.6);
+            --color-primary: oklch(76.6% 0.158 166.7);
+            --color-primary-content: oklch(33.3% 0.047 288.6);
+            --color-secondary: oklch(80.2% 0.117 357.2);
+            --color-secondary-content: oklch(33.3% 0.047 288.6);
+            --color-accent: oklch(93.8% 0.174 118.3);
+            --color-accent-content: oklch(33.3% 0.047 288.6);
+            --color-neutral: oklch(33.3% 0.047 288.6);
+            --color-neutral-content: oklch(100% 0 0);
+            --color-info: oklch(62.3% 0.214 259.8);
+            --color-info-content: oklch(100% 0 0);
+            --color-success: oklch(69.6% 0.17 162.5);
+            --color-success-content: oklch(100% 0 0);
+            --color-warning: oklch(76.9% 0.188 70.1);
+            --color-warning-content: oklch(33.3% 0.047 288.6);
+            --color-error: oklch(64.7% 0.222 16.4);
+            --color-error-content: oklch(100% 0 0);
+            --radius-selector: 0.5rem;
+            --radius-field: 0.5rem;
+            --radius-box: 1rem;
+            --size-selector: 0.25rem;
+            --size-field: 0.25rem;
+            --border: 1px;
+            --depth: 0;
+            --noise: 0;
+        }
+
+        [data-theme="dark"] {
+            color-scheme: dark;
+            --color-base-100: oklch(27.8% 0.03 256.9);            --color-base-200: oklch(21% 0.032 264.7);
+            --color-base-300: oklch(13% 0.027 261.7);
+            --color-base-content: oklch(96.7% 0.003 264.4);
+            --color-primary: oklch(76.6% 0.158 166.7);
+            --color-primary-content: oklch(21% 0.032 264.7);
+            --color-secondary: oklch(80.2% 0.117 357.2);
+            --color-secondary-content: oklch(21% 0.032 264.7);
+            --color-accent: oklch(93.8% 0.174 118.3);
+            --color-accent-content: oklch(21% 0.032 264.7);
+            --color-neutral: oklch(13% 0.027 261.7);
+            --color-neutral-content: oklch(87.2% 0.009 258.4);
+            --color-info: oklch(70% 0.165 254.6);
+            --color-info-content: oklch(21% 0.032 264.7);
+            --color-success: oklch(69.6% 0.17 162.5);
+            --color-success-content: oklch(21% 0.032 264.7);
+            --color-warning: oklch(76.9% 0.188 70.1);
+            --color-warning-content: oklch(21% 0.032 264.7);
+            --color-error: oklch(64.7% 0.222 16.4);
+            --color-error-content: oklch(100% 0 0);
+            --radius-selector: 0.5rem;
+            --radius-field: 0.5rem;
+            --radius-box: 1rem;
+            --size-selector: 0.25rem;
+            --size-field: 0.25rem;
+            --border: 1px;
+            --depth: 0;
+            --noise: 0;
+        }
+
+        /* Motion tokens: ONE duration and curve for every hover/focus/
+           selection transition, so nothing feels faster or slower
+           anywhere. The curve matches Tailwind's ease-out (what the
+           `transition duration-200 ease-out` utilities resolve to). */
+        :root {
+            --gys-speed: 0.2s;
+            --gys-ease: cubic-bezier(0, 0, 0.2, 1);
+        }
+
+        /* Focus glow, project-wide: a soft primary halo instead of the
+           default browser ring. Declared AFTER the daisyUI CDN sheet so
+           it wins the cascade at equal specificity. Covers text fields
+           (.input incl. label wrappers via :focus-within), dropdown
+           triggers (the shared macro renders them as .select) and the
+           Quill editor; checkboxes/toggles/buttons get the same halo
+           on keyboard focus (:focus-visible). The halo REPLACES the
+           outline — never removed without a visible replacement. */
+        :where(.input:focus, .input:focus-within,
+               .textarea:focus, .select:focus,
+               .checkbox:focus-visible, .radio:focus-visible,
+               .toggle:focus-visible, .btn:focus-visible,
+               .focus-halo:focus-visible,
+               .ql-editor:focus, .glow-shell:focus-within) {
+            outline: none;
+        }
+        :where(.input:focus, .input:focus-within,
+               .textarea:focus, .select:focus) {
+            border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+            box-shadow:
+                0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+                0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
+        }
+        /* Glow shell: a ROUNDED + overflow-hidden wrapper around a rich
+           editor (Quill). The inner .ql-editor's own box-shadow would be
+           clipped by overflow-hidden (only the top sliver escaped), so
+           the halo is drawn on the wrapper via :focus-within instead.
+           Markup: <div class="glow-shell rounded-box border ..."><div
+           class="ql-container ql-snow">… */
+        .glow-shell:focus-within {
+            border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+            box-shadow:
+                0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+                0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
+        }
+        :where(.checkbox:focus-visible, .radio:focus-visible,
+               .toggle:focus-visible, .btn:focus-visible,
+               .focus-halo:focus-visible) {
+            box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
+        }
+
+        /* Smooth glow in BOTH directions for every field: the focus
+           styles above otherwise snap on/off. Plain selectors (no
+           :where) so they win the cascade over daisyUI component
+           defaults at equal specificity — this block loads after the
+           daisyUI sheet. background-color/color are kept in the list
+           so toggles and checkboxes do not lose their own daisyUI
+           color animation to this shorthand. */
+        .input, .textarea, .select, .checkbox, .radio, .toggle,
+        .focus-halo, .glow-shell, .ql-editor {
+            transition:
+                border-color var(--gys-speed) var(--gys-ease),
+                box-shadow var(--gys-speed) var(--gys-ease),
+                background-color var(--gys-speed) var(--gys-ease),
+                color var(--gys-speed) var(--gys-ease);
+        }
+
+        /* Buttons: normalize daisyUI's own transition onto the same
+           tokens (its default curve differs, which read as "slower"). */
+        .btn {
+            transition-property: color, background-color, border-color,
+                box-shadow, transform;
+            transition-duration: var(--gys-speed);
+            transition-timing-function: var(--gys-ease);
+        }
+
+        /* Dropdown menu options and tabs: their active/hover background
+           used to snap instantly (no transition at all), which read as
+           "faster" next to the smoothed fields. */
+        .dropdown.menu button,
+        .tab {
+            transition:
+                background-color var(--gys-speed) var(--gys-ease),
+                color var(--gys-speed) var(--gys-ease),
+                border-color var(--gys-speed) var(--gys-ease);
+        }
+
+        /* Rest-state shadow matching the halo's structure (two OUTSET
+           layers). daisyUI's default field shadow is two INSET layers,
+           and an inset<->outset list change is NOT interpolable — the
+           glow snapped on instantly instead of transitioning (borders
+           still animated, which made fields feel inconsistent vs the
+           Quill shell). This transparent pair is invisible and gives
+           the transition a matching start value. */
+        :where(.input:not(:focus):not(:focus-within),
+               .textarea:not(:focus),
+               .select:not(:focus)) {
+            box-shadow:
+                0 0 0 3px #0000,
+                0 0 12px 0 #0000;
+        }
+
+        /* Master-detail cards (admin Scorecards). ALL behavior lives
+           here so --gys-speed/--gys-ease govern it like every other
+           transition; markup only carries `gys-card` (+ `card-selected`
+           on the row being edited). Press feedback is a background tint,
+           NOT a scale transform: scaling re-rasterizes the 1px border +
+           glow at fractional pixels, which makes the outline width
+           "breathe" on rounded corners while held down. Hover elevation
+           applies ONLY when idle — hover:/active: shadows would share
+           the same box-shadow property and override the selected glow.
+           Must stay ABOVE .card-selected so selection wins the cascade. */
+        .gys-card {
+            cursor: pointer;
+            border-color: var(--color-base-300);
+            box-shadow: var(--shadow-sm);
+            transition:
+                background-color var(--gys-speed) var(--gys-ease),
+                border-color var(--gys-speed) var(--gys-ease),
+                box-shadow var(--gys-speed) var(--gys-ease);
+        }
+        .gys-card:hover:not(.card-selected) {
+            border-color: color-mix(in oklab, var(--color-base-content) 20%, transparent);
+            box-shadow: var(--shadow-md);
+        }
+        .gys-card:active {
+            background-color: var(--color-base-200);
+        }
+
+        /* ---- Scorecard rule-editor drag-and-drop (SortableJS class hooks).
+           Class names are built by JS ("scorecard-grip-" + kind), but these
+           state classes below are literal hooks — keep the names stable. */
+        .scorecard-ghost {
+            opacity: 0.4;
+            outline: 1px dashed color-mix(in oklab, var(--color-base-content) 45%, transparent);
+            outline-offset: 2px;
+        }
+        .scorecard-chosen {
+            opacity: 0.85;
+            cursor: grabbing;
+        }
+        .scorecard-drag {
+            opacity: 0.95;
+            cursor: grabbing;
+            box-shadow: 0 10px 24px color-mix(in oklab, var(--color-base-content) 20%, transparent);
+        }
+
+        /* Selected card in master-detail lists (admin Scorecards).
+           A class instead of ring-* utilities: ring color variants for
+           theme colors proved unreliable under the CSS build, and a
+           bare ring-2 falls back to currentColor (an ugly dark ring).
+           Plain selector (NOT :where): it must out-rank .gys-card's
+           idle border/shadow at equal specificity via source order. */
+        .card-selected {
+            border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+            box-shadow:
+                0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+                0 0 12px color-mix(in oklab, var(--color-primary) 25%, transparent);
+        }
+    
+
+/* ---- Quill snow re-skin on daisyUI tokens ---- */
+        /* Re-skin Quill snow to follow the daisyUI theme tokens. */
+        .ql-toolbar.ql-snow {
+            border: none;
+            border-bottom: 1px solid var(--color-base-300);
+            background-color: var(--color-base-200);
+        }
+
+        .ql-container.ql-snow {
+            border: none;
+            background-color: var(--color-base-100);
+            color: var(--color-base-content);
+            font-family: inherit;
+        }
+
+        .ql-snow .ql-clipboard,
+        .ql-snow .ql-clipboard input {
+            position: absolute;
+            top: 0;
+            left: -100000px;
+            width: 1px;
+            height: 1px;
+            overflow: hidden;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .ql-editor.ql-blank::before {
+            color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+            font-style: italic;
+        }
+
+        .ql-snow .ql-stroke,
+        .ql-snow .ql-stroke-miter {
+            stroke: var(--color-base-content);
+        }
+
+        .ql-snow .ql-fill,
+        .ql-snow .ql-stroke.ql-fill {
+            fill: var(--color-base-content);
+        }
+
+        .ql-snow .ql-stroke.ql-active {
+            stroke: var(--color-primary);
+        }
+
+        .ql-snow .ql-fill.ql-active,
+        .ql-snow .ql-stroke.ql-fill.ql-active {
+            fill: var(--color-primary);
+        }
+
+        .ql-snow .ql-picker,
+        .ql-snow .ql-picker-label,
+        .ql-snow .ql-picker-item {
+            color: var(--color-base-content);
+        }
+
+        .ql-snow .ql-picker-options {
+            background-color: var(--color-base-100);
+            border-color: var(--color-base-300);
+            color: var(--color-base-content);
+        }
+
+        .ql-snow .ql-picker.ql-expanded .ql-picker-label {
+            color: var(--color-primary);
+        }
+
+        .ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-fill {
+            fill: var(--color-primary);
+        }
+
+        .ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke,
+        .ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke-miter {
+            stroke: var(--color-primary);
+        }
+
+        .ql-snow .ql-toolbar button,
+        .ql-snow.ql-toolbar button {
+            border-radius: var(--radius-selector);
+            width: 28px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color var(--gys-speed) var(--gys-ease);
+        }
+
+        .ql-snow.ql-toolbar button:hover,
+        .ql-snow .ql-toolbar button:hover,
+        .ql-snow.ql-toolbar button:focus,
+        .ql-snow .ql-toolbar button:focus {
+            background-color: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+        }
+
+        .ql-snow.ql-toolbar button.ql-active,
+        .ql-snow .ql-toolbar button.ql-active {
+            background-color: color-mix(in oklab, var(--color-primary) 15%, transparent);
+        }
+
+        .ql-snow.ql-toolbar button:hover,
+        .ql-snow .ql-toolbar button:hover,
+        .ql-snow.ql-toolbar button:focus,
+        .ql-snow .ql-toolbar button:focus,
+        .ql-snow.ql-toolbar button.ql-active,
+        .ql-snow .ql-toolbar button.ql-active,
+        .ql-snow.ql-toolbar .ql-picker-label:hover,
+        .ql-snow .ql-toolbar .ql-picker-label:hover,
+        .ql-snow.ql-toolbar .ql-picker-label.ql-active,
+        .ql-snow .ql-toolbar .ql-picker-label.ql-active,
+        .ql-snow.ql-toolbar .ql-picker-item:hover,
+        .ql-snow .ql-toolbar .ql-picker-item:hover,
+        .ql-snow.ql-toolbar .ql-picker-item.ql-selected,
+        .ql-snow .ql-toolbar .ql-picker-item.ql-selected {
+            color: var(--color-primary);
+        }
+
+        .ql-snow.ql-toolbar button:hover .ql-fill,
+        .ql-snow .ql-toolbar button:hover .ql-fill,
+        .ql-snow.ql-toolbar button:focus .ql-fill,
+        .ql-snow .ql-toolbar button:focus .ql-fill,
+        .ql-snow.ql-toolbar button.ql-active .ql-fill,
+        .ql-snow .ql-toolbar button.ql-active .ql-fill,
+        .ql-snow.ql-toolbar .ql-picker-label:hover .ql-fill,
+        .ql-snow .ql-toolbar .ql-picker-label:hover .ql-fill,
+        .ql-snow.ql-toolbar .ql-picker-label.ql-active .ql-fill,
+        .ql-snow .ql-toolbar .ql-picker-label.ql-active .ql-fill,
+        .ql-snow.ql-toolbar .ql-picker-item:hover .ql-fill,
+        .ql-snow .ql-toolbar .ql-picker-item:hover .ql-fill,
+        .ql-snow.ql-toolbar .ql-picker-item.ql-selected .ql-fill,
+        .ql-snow .ql-toolbar .ql-picker-item.ql-selected .ql-fill,
+        .ql-snow.ql-toolbar button:hover .ql-stroke.ql-fill,
+        .ql-snow .ql-toolbar button:hover .ql-stroke.ql-fill,
+        .ql-snow.ql-toolbar button:focus .ql-stroke.ql-fill,
+        .ql-snow .ql-toolbar button:focus .ql-stroke.ql-fill,
+        .ql-snow.ql-toolbar button.ql-active .ql-stroke.ql-fill,
+        .ql-snow .ql-toolbar button.ql-active .ql-stroke.ql-fill {
+            fill: var(--color-primary);
+        }
+
+        .ql-snow.ql-toolbar button:hover .ql-stroke,
+        .ql-snow .ql-toolbar button:hover .ql-stroke,
+        .ql-snow.ql-toolbar button:focus .ql-stroke,
+        .ql-snow .ql-toolbar button:focus .ql-stroke,
+        .ql-snow.ql-toolbar button.ql-active .ql-stroke,
+        .ql-snow .ql-toolbar button.ql-active .ql-stroke,
+        .ql-snow.ql-toolbar .ql-picker-label:hover .ql-stroke,
+        .ql-snow .ql-toolbar .ql-picker-label:hover .ql-stroke,
+        .ql-snow.ql-toolbar .ql-picker-label.ql-active .ql-stroke,
+        .ql-snow .ql-toolbar .ql-picker-label.ql-active .ql-stroke,
+        .ql-snow.ql-toolbar .ql-picker-item:hover .ql-stroke,
+        .ql-snow .ql-toolbar .ql-picker-item:hover .ql-stroke,
+        .ql-snow.ql-toolbar .ql-picker-item.ql-selected .ql-stroke,
+        .ql-snow .ql-toolbar .ql-picker-item.ql-selected .ql-stroke {
+            stroke: var(--color-primary);
+        }
+
+        .ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-label,
+        .ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-options {
+            border-color: var(--color-base-300);
+        }
+
+        .ql-toolbar.ql-snow .ql-color-picker .ql-picker-item.ql-selected,
+        .ql-toolbar.ql-snow .ql-color-picker .ql-picker-item:hover {
+            border-color: var(--color-primary);
+        }
+
+        .ql-snow .ql-editor table td {
+            border-color: var(--color-base-300);
+        }
+
+        .ql-snow .ql-editor li[data-list="checked"] > .ql-ui,
+        .ql-snow .ql-editor li[data-list="unchecked"] > .ql-ui {
+            color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+        }
+
+        .ql-snow .ql-editor blockquote {
+            border-left-color: var(--color-base-300);
+        }
+
+        .ql-snow .ql-editor code,
+        .ql-snow .ql-editor .ql-code-block-container {
+            background-color: var(--color-base-200);
+            color: var(--color-base-content);
+        }
+
+        .ql-snow .ql-tooltip {
+            background-color: var(--color-base-100);
+            border-color: var(--color-base-300);
+            box-shadow: 0 0 5px color-mix(in oklab, var(--color-base-content) 20%, transparent);
+            color: var(--color-base-content);
+        }
+
+        .ql-snow .ql-tooltip input[type="text"] {
+            background-color: var(--color-base-100);
+            border-color: var(--color-base-300);
+            color: var(--color-base-content);
+        }
+
+        .ql-snow .ql-tooltip a {
+            color: var(--color-primary);
+        }
+
+        .ql-snow .ql-tooltip a.ql-action::after {
+            border-right-color: var(--color-base-300);
+        }
+
+        @media (pointer: coarse) {
+            .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-fill,
+            .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-fill,
+            .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-stroke.ql-fill,
+            .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-stroke.ql-fill {
+                fill: var(--color-base-content);
+            }
+
+            .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-stroke,
+            .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-stroke,
+            .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-stroke-miter,
+            .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-stroke-miter {
+                stroke: var(--color-base-content);
+            }
+        }
+    
