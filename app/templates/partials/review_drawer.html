@@ -855,7 +855,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     document.getElementById('score-notes-action').addEventListener('click', async function () {
         var button = this;
-        hideMenu(true);
         setLoading(button, 'Drafting…', true);
         try {
             var agentId = document.getElementById('review-agent').value;
@@ -881,6 +880,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             quill.clipboard.dangerouslyPasteHTML(0, clean);
             quill.setSelection(quill.getLength());
         saveDraft();
+        hideMenu(true);
         showToast('Notes drafted from the current score.', 'alert-success');
         } catch (error) {
             showToast(error.message || 'AI note drafting failed');
