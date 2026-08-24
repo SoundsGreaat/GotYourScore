@@ -68,6 +68,9 @@ class ReviewCreate(RawScorecardValidation, BaseModel):
     case_number: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     raw_scorecard: dict[str, int] | None = None
+    # Error keys whose progressive multiplier is waived for this review
+    # (persisted in scorecard_data.multiplier_exemptions).
+    no_multiplier_keys: list[str] = Field(default_factory=list, max_length=60)
 
     @model_validator(mode="after")
     def validate_no_cases_has_empty_scorecard(self) -> "ReviewCreate":
@@ -258,6 +261,9 @@ class ReviewUpdate(RawScorecardValidation, BaseModel):
     case_number: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     raw_scorecard: dict[str, int] | None = None
+    # Tri-state like the other rescore fields: ABSENT = keep the stored
+    # multiplier_exemptions, PRESENT (even empty) = replace them.
+    no_multiplier_keys: list[str] | None = Field(default=None, max_length=60)
 
 
 class AutoScoreCreate(BaseModel):
@@ -323,11 +329,16 @@ class ScorePreviewRequest(BaseModel):
 
     support_agent_id: int
     case_type: str
+    # Editing an existing review: exclude its own stored scorecard from
+    # the progressive-multiplier history.
+    exclude_review_id: int | None = None
     # Upper bound guards against pathological request sizes; values are
     # whole numbers >= 1 (booleans are rejected by pydantic's int rules).
     raw_scorecard: dict[str, Annotated[int, Field(ge=1)]] = Field(
         max_length=60
     )
+    # Error keys whose progressive multiplier the preview must waive.
+    no_multiplier_keys: list[str] = Field(default_factory=list, max_length=60)
 
 
 class ScorePreviewResponse(BaseModel):

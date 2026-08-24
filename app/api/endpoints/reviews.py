@@ -203,7 +203,8 @@ async def create_review(
     else:
         breakdown, final_score, total_penalty = (
             await multiplier_service.calculate_final_score(
-                agent.id, payload.raw_scorecard or {}, db
+                agent.id, payload.raw_scorecard or {}, db,
+                no_multiplier_keys=set(payload.no_multiplier_keys),
             )
         )
         rules_snapshot = await scorecard_service.get_active_rules(
@@ -215,6 +216,7 @@ async def create_review(
             "total_penalty": total_penalty,
             "final_score": final_score,
             "breakdown": breakdown,
+            "multiplier_exemptions": sorted(payload.no_multiplier_keys),
         }
 
     review = Review(
@@ -275,7 +277,9 @@ async def score_preview(
 
     breakdown, final_score, total_penalty = (
         await multiplier_service.calculate_final_score(
-            agent.id, payload.raw_scorecard, db
+            agent.id, payload.raw_scorecard, db,
+            exclude_review_id=payload.exclude_review_id,
+            no_multiplier_keys=set(payload.no_multiplier_keys),
         )
     )
     return ScorePreviewResponse(
@@ -996,9 +1000,20 @@ async def update_review(
         review.scorecard_data = None
         review.final_score = None
     elif payload.raw_scorecard is not None:
+        # Absent no_multiplier_keys keeps the stored exemptions so a
+        # rescore reproduces the original waives; present replaces them.
+        if "no_multiplier_keys" in provided:
+            multiplier_exemptions = sorted(payload.no_multiplier_keys or [])
+        else:
+            multiplier_exemptions = list(
+                (review.scorecard_data or {}).get("multiplier_exemptions")
+                or []
+            )
         breakdown, final_score, total_penalty = (
             await multiplier_service.calculate_final_score(
-                review.support_agent_id, payload.raw_scorecard, db
+                review.support_agent_id, payload.raw_scorecard, db,
+                exclude_review_id=review.id,
+                no_multiplier_keys=set(multiplier_exemptions),
             )
         )
         rules_snapshot = await scorecard_service.get_active_rules(
@@ -1012,6 +1027,7 @@ async def update_review(
             "total_penalty": total_penalty,
             "final_score": final_score,
             "breakdown": breakdown,
+            "multiplier_exemptions": multiplier_exemptions,
         }
         review.final_score = final_score
 

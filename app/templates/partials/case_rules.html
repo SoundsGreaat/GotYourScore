@@ -27,7 +27,7 @@
         <div class="flex items-center gap-2 py-1.5" data-rule-row>
             <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
                 <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" data-error-name="{{ item.error_name }}" data-penalty="{{ item.penalty_points }}" />
-                <span class="truncate text-sm">{{ item.display_name }}</span>
+                <span class="min-w-0 break-words whitespace-normal text-sm">{{ item.display_name }}</span>
             </label>
             <input type="number" min="1" max="{{ item.penalty_points }}" value="{{ item.penalty_points }}"
                    data-deduction disabled aria-label="Deducted points for {{ item.display_name }}"

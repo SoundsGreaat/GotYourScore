@@ -396,6 +396,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // per real type change).
     var loadedRulesType = null;
 
+    // QA-waived progressive multipliers (unchecked rows in the Score
+    // preview): error keys whose progression is not applied. Persisted
+    // server-side as scorecard_data.multiplier_exemptions.
+    var multiplierExemptions = {};
+    var multiplierExemptionsDirty = false;
+
     async function loadCaseRules() {
         if (disposed) return;
         var seq = ++rulesSeq;
@@ -468,6 +474,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // init has fully finished.
     function applyEntry(review, mode) {
         if (!review || typeof review !== 'object') return;
+        // Fresh entry: restore the stored waives so preview and save
+        // reproduce the review's original exemptions.
+        multiplierExemptions = {};
+        multiplierExemptionsDirty = false;
+        var storedExemptions = ((review.scorecard_data || {}).multiplier_exemptions) || [];
+        storedExemptions.forEach(function (key) { multiplierExemptions[key] = true; });
         // The hook arrived — the default-load fallback is no longer needed.
         window.clearTimeout(hookFallbackTimer);
         drawerState.mode = mode === 'complete' ? 'complete' : 'edit';
@@ -606,7 +618,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 body: JSON.stringify({
                     support_agent_id: Number(agentId),
                     case_type: caseType,
-                    raw_scorecard: deductions
+                    raw_scorecard: deductions,
+                    // Editing/completing an existing review: its own
+                    // stored scorecard must not inflate the preview.
+                    exclude_review_id: drawerState.reviewId || null,
+                    no_multiplier_keys: Object.keys(multiplierExemptions)
                 })
             });
             if (!response.ok) throw new Error('Score preview failed');
@@ -617,6 +633,16 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
     }
 
+    // Breakdown keys are immutable error_names; resolve the readable
+    // display_name from the rules fragment next to each checkbox.
+    function displayNameFor(errorName) {
+        var box = rulesArea.querySelector(
+            'input[data-error-name="' + CSS.escape(errorName) + '"]');
+        var row = box && box.closest('[data-rule-row]');
+        var label = row && row.querySelector('label span');
+        return (label && label.textContent.trim()) || errorName;
+    }
+
     function renderPreview(data) {
         var panel = document.querySelector('.js-ai-score-result');
         var content = document.getElementById('ai-score-content');
@@ -625,17 +651,54 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             content.innerHTML = '';
             return;
         }
-        var multipliers = Object.entries(data.breakdown || {})
-            .filter(function (entry) { return Number(entry[1].multiplier) > 1; })
-            .map(function (entry) { return escapeHtml(entry[0]) + ' ×' + escapeHtml(String(entry[1].multiplier)); })
-            .join(', ');
+        // One ROW per repeated error: checkbox (waive the progression) +
+        // wrapping display_name + effective multiplier. Exempted rows stay
+        // visible with a struck-through x1 so the waive is discoverable.
+        var rows = Object.entries(data.breakdown || {})
+            .filter(function (entry) {
+                return Number(entry[1].deducted) > 0
+                    && (Number(entry[1].multiplier) > 1
+                        || multiplierExemptions[entry[0]]);
+            })
+            .map(function (entry) {
+                var key = entry[0];
+                var applied = !multiplierExemptions[key];
+                return '<label class="flex items-start gap-2 text-xs">'
+                    + '<input type="checkbox" class="checkbox checkbox-xs"'
+                    + ' data-mult-toggle="' + escapeHtml(key) + '"'
+                    + (applied ? ' checked' : '') + ' />'
+                    + '<span class="min-w-0 break-words whitespace-normal">'
+                    + escapeHtml(displayNameFor(key))
+                    + ' <span class="font-semibold '
+                    + (applied ? 'text-warning' : 'text-base-content/40 line-through')
+                    + '">×' + Number(entry[1].multiplier) + '</span></span>'
+                    + '</label>';
+            });
         content.innerHTML =
             '<p class="text-3xl font-bold text-primary">' + escapeHtml(String(data.final_score)) + '</p>' +
             '<p class="mt-1 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(data.total_penalty)) + '</p>' +
-            (multipliers ? '<p class="mt-2 text-xs text-base-content/60">' + multipliers + '</p>' : '');
+            (rows.length
+                ? '<div class="mt-2 flex flex-col items-stretch gap-1.5">' + rows.join('') + '</div>'
+                : '');
         panel.classList.remove('hidden');
     }
 
+    document.getElementById('ai-score-content').addEventListener('change', function (event) {
+        var box = event.target.closest('[data-mult-toggle]');
+        if (!box) return;
+        var key = box.getAttribute('data-mult-toggle');
+        if (box.checked) delete multiplierExemptions[key];
+        else multiplierExemptions[key] = true;
+        multiplierExemptionsDirty = true;
+        schedulePreview();
+    }, { signal: controller.signal });
+
+    // A case-type switch starts a fresh scoring context: drop any
+    // multiplier waives carried over from the previous type.
+    document.addEventListener('case-type-change', function () {
+        multiplierExemptions = {};
+        multiplierExemptionsDirty = false;
+    }, { signal: controller.signal });
     document.addEventListener('case-type-change', loadCaseRules, { signal: controller.signal });
     document.addEventListener('case-type-change', saveDraft, { signal: controller.signal });
     document.addEventListener('review-agent-change', schedulePreview, { signal: controller.signal });
@@ -822,10 +885,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             // raw_scorecard={} still completes the row (base score, no
             // penalties). Only the payload presence flips it to completed.
             payload.raw_scorecard = deductions;
-        } else if (!drawerState.isPending && !sameScorecard(deductions, drawerState.initialScorecard)) {
-            // Only resend the scorecard when rules changed: an unchanged
-            // payload keeps the stored breakdown (and its multipliers).
+            payload.no_multiplier_keys = Object.keys(multiplierExemptions);
+        } else if (!drawerState.isPending && (!sameScorecard(deductions, drawerState.initialScorecard) || multiplierExemptionsDirty)) {
+            // Only resend the scorecard when rules or multiplier waives
+            // changed: an unchanged payload keeps the stored breakdown.
             payload.raw_scorecard = deductions;
+            payload.no_multiplier_keys = Object.keys(multiplierExemptions);
         }
         // else: pending metadata-only save (no raw_scorecard key at all),
         // so the row stays pending and quota-neutral.
