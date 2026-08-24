@@ -192,26 +192,13 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // (set programmatically via window.openReviewDrawerForReview).
     var drawerState = { mode: 'create', reviewId: null, initialScorecard: null, isPending: false };
 
-    function showToast(message, kind) {
-        var toast = document.createElement('div');
-        toast.setAttribute('role', 'alert');
-        toast.className = 'alert ' + (kind || 'alert-error') + ' fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg';
-        toast.textContent = message;
-        document.body.appendChild(toast);
-        window.setTimeout(function () { toast.remove(); }, 3500);
-    }
+    var showToast = window.gysToast;
 
     function sanitizeHtml(html) {
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
     }
 
-    function extractErrorDetail(payload, statusCode) {
-        if (payload && payload.detail) {
-            if (typeof payload.detail === 'string') return payload.detail;
-            if (payload.detail.message) return payload.detail.message;
-        }
-        return 'Request failed (' + statusCode + ').';
-    }
+    var extractErrorDetail = window.extractDetail;
 
     // Stored scorecards come in two shapes: nested under "breakdown"
     // (current rows) or the flat breakdown itself (legacy rows).
@@ -258,11 +245,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
     }
 
-    function escapeHtml(value) {
-        var element = document.createElement('span');
-        element.textContent = value;
-        return element.innerHTML;
-    }
+    var escapeHtml = window.escapeHtml;
 
     function saveDraft() {
         // Drafts are a create-flow convenience; editing an existing

@@ -1,5 +1,6 @@
 {% import "macros/dropdowns.html" as dd %}
 {% import "macros/icons.html" as icons %}
+{% import "macros/modals.html" as modals %}
 <section id="reviews-view"
          hx-get="{{ endpoint }}"
          hx-trigger="reviews-changed from:body"
@@ -163,16 +164,7 @@
     </div>
     {% endif %}
 
-    <dialog id="my-reviews-notes-modal" class="modal">
-        <div class="modal-box w-11/12 max-w-2xl">
-            <form method="dialog">
-                <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">{{ icons.x() }}</button>
-            </form>
-            <h3 id="my-reviews-notes-title" class="pr-8 text-lg font-bold"></h3>
-            <div id="my-reviews-notes-body" class="mt-3 max-h-[60vh] overflow-y-auto text-sm leading-relaxed [&_p]:my-2 [&_ul]:pl-5 [&_ul]:[list-style-type:disc] [&_ol]:pl-5 [&_ol]:[list-style-type:decimal]"></div>
-        </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
-    </dialog>
+    {{ modals.notes_modal('my-reviews') }}
 
     <script>
     (function () {
@@ -182,50 +174,8 @@
         var titleElement = document.getElementById('my-reviews-notes-title');
         var bodyElement = document.getElementById('my-reviews-notes-body');
 
-        function showToast(message, kind) {
-            var toast = document.createElement('div');
-            toast.setAttribute('role', 'alert');
-            toast.className = 'alert ' + (kind || 'alert-error') + ' fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-            window.setTimeout(function () { toast.remove(); }, 3500);
-        }
-
-        // Fetches the review, mounts a fresh drawer partial into the
-        // dashboard's drawer container, then flips it into edit/complete
-        // mode once its script has registered the entry hook.
-        function openReviewDrawer(reviewId, mode) {
-            fetch('/api/reviews/' + reviewId, { credentials: 'same-origin' })
-                .then(function (response) {
-                    if (!response.ok) throw new Error('Review request failed');
-                    return response.json();
-                })
-                .then(function (review) {
-                    if (!window.htmx) return Promise.reject(new Error('htmx unavailable'));
-                    // The fresh drawer skips its default rules load; the
-                    // entry hook drives exactly ONE load for THIS type.
-                    window.__reviewDrawerHookPending = true;
-                    // Claim the drawer epoch BEFORE the swap: waitForHook
-                    // then ignores any previous mount's stale hook.
-                    window.__reviewDrawerEpoch = (window.__reviewDrawerEpoch || 0) + 1;
-                    var expectedEpoch = window.__reviewDrawerEpoch;
-                    return htmx.ajax('GET', '/partials/review-drawer', { target: '#drawer-container', swap: 'innerHTML' })
-                        .then(function () { return { review: review, expectedEpoch: expectedEpoch }; });
-                })
-                .then(function (payload) {
-                    var attempts = 0;
-                    (function waitForHook() {
-                        if (payload.expectedEpoch === window.__reviewDrawerReadyEpoch
-                            && typeof window.openReviewDrawerForReview === 'function') {
-                            window.openReviewDrawerForReview(payload.review, mode);
-                            return;
-                        }
-                        if (++attempts > 40) { showToast('Unable to open the review.'); return; }
-                        window.setTimeout(waitForHook, 50);
-                    })();
-                })
-                .catch(function () { showToast('Unable to open the review.'); });
-        }
+        var showToast = window.gysToast;
+        var openReviewDrawer = window.openReviewDrawer;
 
         section.addEventListener('click', function (event) {
             var completeButton = event.target.closest ? event.target.closest('[data-review-complete]') : null;

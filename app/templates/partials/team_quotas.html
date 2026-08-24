@@ -129,13 +129,7 @@
         function hideAlert() {
             if (alertBox) alertBox.classList.add('hidden');
         }
-        function extractDetail(payload, statusCode) {
-            if (payload && payload.detail) {
-                if (typeof payload.detail === 'string') return payload.detail;
-                if (payload.detail.message) return payload.detail.message;
-            }
-            return 'Request failed (' + statusCode + ').';
-        }
+        var extractDetail = window.extractDetail;
 
         // Restores the initial state: QA back to its gray placeholder,
         // agent/case-type back to their "Any …" defaults.

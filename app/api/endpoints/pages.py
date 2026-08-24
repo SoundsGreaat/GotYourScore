@@ -674,8 +674,8 @@ async def _assignment_groups(db: AsyncSession) -> list[dict[str, object]]:
     ]
 
 
-async def _support_agents(db: AsyncSession) -> list[User]:
-    """All ACTIVE users holding the Support role, ordered by name.
+async def _users_with_role(db: AsyncSession, role: RoleEnum) -> list[User]:
+    """All ACTIVE users holding `role`, ordered by name.
 
     Soft-deleted users are excluded (``User.active_filter``) so they
     vanish from every "add to new work" surface while their historical
@@ -684,21 +684,18 @@ async def _support_agents(db: AsyncSession) -> list[User]:
     result = await db.execute(
         select(User)
         .join(UserRole, User.id == UserRole.user_id)
-        .where(UserRole.role == RoleEnum.SUPPORT, User.active_filter())
+        .where(UserRole.role == role, User.active_filter())
         .order_by(User.name)
     )
     return list(result.scalars().all())
+
+
+async def _support_agents(db: AsyncSession) -> list[User]:
+    return await _users_with_role(db, RoleEnum.SUPPORT)
 
 
 async def _qas(db: AsyncSession) -> list[User]:
-    """All ACTIVE users holding the QA role, ordered by name."""
-    result = await db.execute(
-        select(User)
-        .join(UserRole, User.id == UserRole.user_id)
-        .where(UserRole.role == RoleEnum.QA, User.active_filter())
-        .order_by(User.name)
-    )
-    return list(result.scalars().all())
+    return await _users_with_role(db, RoleEnum.QA)
 
 
 def _forbidden() -> PlainTextResponse:
