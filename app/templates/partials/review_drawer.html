@@ -732,9 +732,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     editorContainer.addEventListener('contextmenu', function (event) {
-        // AI assist creates NEW reviews only — no context menu when
-        // editing or completing an existing one.
-        if (drawerState.mode !== 'create') return;
         if (!event.target.closest('.ql-editor')) return;
         event.preventDefault();
         menuOpenedAt = Date.now();
