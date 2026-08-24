@@ -131,10 +131,13 @@ async def notes_from_score(
     The deducted rules are rendered with the case type's ACTIVE
     scorecard rules (human-readable display names, categories and the
     deducted points); deduction keys unknown to those rules are skipped.
-    The system prompt is the newest ACTIVE ``notes_from_score``
-    SystemPrompt row (hardcoded fallback when none exists). The response
-    fragment is not sanitized server-side — the client sanitizes it with
-    DOMPurify before insertion (same trust boundary as /refactor).
+    When ``support_agent_id`` is sent, progressive multipliers and the
+    final score are computed for that agent (same engine as saving a
+    review) so the notes justify the real number. The system prompt is
+    the newest ACTIVE ``notes_from_score`` SystemPrompt row (hardcoded
+    fallback when none exists). The response fragment is not sanitized
+    server-side — the client sanitizes it with DOMPurify before
+    insertion (same trust boundary as /refactor).
 
     - 400 when ``case_type`` is 'No Cases' (no scorecard to reference).
     - 503 when ``OPENROUTER_API_KEY`` is not configured.
@@ -149,7 +152,12 @@ async def notes_from_score(
         )
     try:
         notes_html = await ai_service.draft_notes_from_score(
-            payload.case_type, payload.raw_scorecard, db
+            payload.case_type,
+            payload.raw_scorecard,
+            db,
+            support_agent_id=payload.support_agent_id,
+            exclude_review_id=payload.exclude_review_id,
+            no_multiplier_keys=payload.no_multiplier_keys,
         )
     except ValueError as exc:
         raise HTTPException(

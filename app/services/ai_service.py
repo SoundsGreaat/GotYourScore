@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate, SystemPrompt
+from app.services import multiplier_service
 from app.services.scorecard_service import get_active_rules
 
 
@@ -173,9 +174,14 @@ internal quality-assurance record.
 
 You will receive the case type, the scorecard rules that were DEDUCTED
 (each as its human-readable rule name, its category, and the deducted
-points), and how many rules stayed clean. Write the review NOTES that
-justify the resulting score: the notes must read as if a professional
-QA analyst had written them by hand about the agent's case.
+points), and how many rules stayed clean. A deducted rule may also show
+a progressive multiplier annotation ("−5 ×2 → −10"): the agent repeated
+this mistake in recent cases, so the penalty is amplified — reflect
+that repetition naturally in the notes (e.g. "recurring issue"). When a
+final score after multipliers is provided, the notes must be consistent
+with it. Write the review NOTES that justify the resulting score: the
+notes must read as if a professional QA analyst had written them by
+hand about the agent's case.
 
 Strict output rules:
 - Reply with ONLY a sanitized HTML fragment. Allowed tags: <p>, <ul>,
@@ -653,6 +659,9 @@ async def draft_notes_from_score(
     case_type: CaseTypeEnum,
     raw_scorecard: dict[str, int],
     db_session: AsyncSession,
+    support_agent_id: int | None = None,
+    exclude_review_id: int | None = None,
+    no_multiplier_keys: set[str] | None = None,
 ) -> str:
     """Draft review notes (sanitized HTML fragment) from ticked deductions.
 
@@ -663,6 +672,12 @@ async def draft_notes_from_score(
 
     Deduction keys missing from the active rules of ``case_type`` are
     skipped silently so stale client payloads cannot crash the call.
+    When ``support_agent_id`` is given, progressive multipliers are
+    computed for that agent (same engine as saving a review — see
+    ``multiplier_service.calculate_final_score``, including
+    ``exclude_review_id`` and ``no_multiplier_keys`` semantics) and the
+    user message carries the amplified per-rule penalties plus the
+    final score, so the drafted notes justify the real number.
     The output is NOT sanitized server-side — the client sanitizes it
     with DOMPurify before insertion (same trust boundary as
     ``refactor_qa_notes``).
@@ -672,17 +687,47 @@ async def draft_notes_from_score(
     rules_by_key = {item["error_name"]: item for item in items}
 
     total_rules = len(items)
-    deducted_lines: list[str] = []
+    known_raw: dict[str, int] = {
+        error_key: deduction
+        for error_key, deduction in raw_scorecard.items()
+        if error_key in rules_by_key
+    }
 
-    for error_key, deduction in raw_scorecard.items():
-        rule = rules_by_key.get(error_key)
-        if rule is None:
-            continue
-        category = str(rule.get("category") or "").strip() or "General"
-        # Pass the deducted amount exactly as sent; no capping.
-        deducted_lines.append(
-            f"- {rule['display_name']} ({category}) −{deduction}"
+    # Multiplier context: identical math to what saving the review will
+    # produce, so the notes match the persisted final score. Without an
+    # agent (or with no rules matched) the request degrades gracefully
+    # to raw deductions only.
+    breakdown: dict[str, dict[str, int]] = {}
+    final_score: int | None = None
+    if support_agent_id is not None:
+        (
+            breakdown,
+            final_score,
+            _total_penalty,
+        ) = await multiplier_service.calculate_final_score(
+            support_agent_id,
+            known_raw,
+            db_session,
+            exclude_review_id=exclude_review_id,
+            no_multiplier_keys=no_multiplier_keys,
         )
+
+    deducted_lines: list[str] = []
+    for error_key, deduction in known_raw.items():
+        rule = rules_by_key[error_key]
+        category = str(rule.get("category") or "").strip() or "General"
+        entry = breakdown.get(error_key) or {}
+        multiplier = entry.get("multiplier")
+        final_penalty = entry.get("final_penalty")
+        if multiplier is not None and final_penalty is not None:
+            deducted_lines.append(
+                f"- {rule['display_name']} ({category}) "
+                f"−{deduction} ×{multiplier} → −{final_penalty}"
+            )
+        else:
+            deducted_lines.append(
+                f"- {rule['display_name']} ({category}) −{deduction}"
+            )
 
     clean_count = total_rules - len(deducted_lines)
 
@@ -695,6 +740,12 @@ async def draft_notes_from_score(
             "No violations were ticked: the raw scorecard is empty."
         )
     user_parts.append(f"{clean_count} of {total_rules} rules stayed clean.")
+    if final_score is not None:
+        user_parts.append(
+            f"Final score after progressive multipliers: "
+            f"{final_score}/100 (a repeated recent mistake counts "
+            f"several times; '×1' means first occurrence or waived)."
+        )
 
     # DB-stored prompt wins; the hardcoded constant is only a fallback.
     db_prompt = await _active_system_prompt(NOTES_FROM_SCORE_PROMPT_KEY, db_session)

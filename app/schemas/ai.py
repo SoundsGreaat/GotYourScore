@@ -77,6 +77,14 @@ class NotesFromScoreIn(BaseModel):
     (booleans are rejected by pydantic's int rules) and a size cap
     against pathological request sizes.
 
+    ``support_agent_id`` is optional: when given, the service computes
+    the agent's progressive multipliers (past occurrences of each
+    repeated error) and the final score, so the drafted notes can
+    justify the amplified penalties. ``exclude_review_id`` and
+    ``no_multiplier_keys`` mirror ScorePreviewRequest semantics (the
+    edited row's own deductions must not inflate its multipliers;
+    QA-waived progressions keep multiplier 1).
+
     ``case_type='No Cases'`` is rejected by the ENDPOINT with 400 (not
     here) because there is no scorecard to reference — a schema-level
     validator would produce a 422 instead.
@@ -88,6 +96,9 @@ class NotesFromScoreIn(BaseModel):
     raw_scorecard: dict[str, Annotated[int, Field(ge=1)]] = Field(
         max_length=60
     )
+    support_agent_id: int | None = None
+    exclude_review_id: int | None = None
+    no_multiplier_keys: set[str] = Field(default_factory=set, max_length=60)
 
 
 class NotesFromScoreOut(BaseModel):

@@ -858,13 +858,19 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         hideMenu(true);
         setLoading(button, 'Drafting…', true);
         try {
+            var agentId = document.getElementById('review-agent').value;
             var response = await fetch('/api/ai/notes-from-score', {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     case_type: document.getElementById('case-type').value,
-                    raw_scorecard: collectDeductions()
+                    raw_scorecard: collectDeductions(),
+                    // Same multiplier context as the score preview: the
+                    // drafted notes must justify the REAL final score.
+                    support_agent_id: agentId ? Number(agentId) : null,
+                    exclude_review_id: drawerState.reviewId || null,
+                    no_multiplier_keys: Object.keys(multiplierExemptions)
                 })
             });
             var data = await response.json().catch(function () { return {}; });
