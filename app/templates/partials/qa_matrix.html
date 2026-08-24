@@ -167,7 +167,7 @@
                 <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">{{ icons.x() }}</button>
             </form>
             <h3 class="text-lg font-bold">Delegate case</h3>
-            <p class="mt-1 text-xs text-base-content/60">Hand real cases to QAs â€” they stay pending (quota-neutral) until scored.</p>
+            <p class="mt-1 text-xs text-base-content/60">Hand real cases to QAs – they stay pending (quota-neutral) until scored.</p>
             <div id="delegate-alert" role="alert" class="alert alert-error mt-3 hidden"></div>
 
             <div role="tablist" class="tabs tabs-box mt-3">
@@ -181,7 +181,7 @@
                     {{ dd.dropdown('delegate-agent',
                         items=support_users,
                         value_attr='id', label_attr='name',
-                        placeholder='Select agentâ€¦',
+                        placeholder='Select agent…',
                         menu_w='w-64') }}
                 </fieldset>
                 <fieldset class="fieldset">
@@ -189,7 +189,7 @@
                     {{ dd.dropdown('delegate-case-type',
                         items=delegate_case_types,
                         value_attr='value', label_attr='value',
-                        placeholder='Select case typeâ€¦',
+                        placeholder='Select case type…',
                         menu_w='w-64') }}
                 </fieldset>
                 <fieldset class="fieldset">
@@ -201,7 +201,7 @@
                     {{ dd.dropdown('delegate-qa',
                         items=qas,
                         value_attr='id', label_attr='name',
-                        placeholder='Select QAâ€¦',
+                        placeholder='Select QA…',
                         menu_w='w-64') }}
                     <p class="text-xs text-base-content/60">Leave empty to send the case to the shared queue for all QAs.</p>
                 </fieldset>
@@ -431,7 +431,7 @@
                     assigned_qa_id: document.getElementById('delegate-qa').value || null
                 };
                 if (!payload.support_agent_id || !payload.case_type) {
-                    showDelegateAlert('Support agent and case type are required â€” case number and assignee are optional.');
+                    showDelegateAlert('Support agent and case type are required; case number and assignee are optional.');
                     return;
                 }
                 try {
@@ -590,7 +590,7 @@
         });
 
         // qaMatrixSetDropdown (shared with the Single pane) calls this
-        // after every pick â€” keep it pointing at the summary refresh.
+        // after every pick — keep it pointing at the summary refresh.
         window.qaMatrixScheduleBatchPreview = updateBatchSummary;
 
         // Filling ANY control in the trailing row grows the list by one,
