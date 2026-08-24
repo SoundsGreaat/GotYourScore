@@ -18,6 +18,7 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean,
     DateTime,
+    Index,
     Integer,
     String,
     Text,
@@ -33,6 +34,16 @@ class SystemPrompt(Base):
     """A named, versioned LLM system prompt."""
 
     __tablename__ = "system_prompts"
+    # DB-level backstop for "at most one active row per key" (the CRUD
+    # service normally deactivates siblings first).
+    __table_args__ = (
+        Index(
+            "uq_system_prompts_key_active",
+            "key",
+            unique=True,
+            postgresql_where=text("is_active"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     key: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
