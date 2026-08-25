@@ -4,15 +4,42 @@
  * names instead of re-declaring its own copy.
  */
 
-/* Transient toast in the bottom-right corner. kind is a daisyUI alert
- * modifier, e.g. 'alert-error' (default) or 'alert-success'. */
+/* Floating notifications: every transient note surfaces bottom-center
+ * as translucent gradient glass (.gys-float-note in input.css). kind:
+ * 'alert-success' for the mint look, anything else renders as
+ * error-tinted. options.html replaces the text content (trusted,
+ * caller-built markup); options.timeout overrides 3.5s. */
+window.gysFloatNote = function (content, kind, timeout) {
+    // Host choice matters: an open <dialog> lives in the TOP LAYER and
+    // paints OVER anything appended to <body> (z-index is powerless
+    // against it), so the stack must be created inside the open dialog
+    // whenever one exists — that keeps notes visible above its glass.
+    var host = document.querySelector('dialog[open]') || document.body;
+    var stack = host.querySelector(':scope > .gys-float-stack');
+    if (!stack) {
+        stack = document.createElement('div');
+        stack.className = 'gys-float-stack';
+        host.appendChild(stack);
+    }
+    var note = document.createElement('div');
+    note.setAttribute('role', 'alert');
+    note.className = 'gys-float-note' + (kind === 'alert-success' ? '' : ' gys-error');
+    if (typeof content === 'string' && /<[a-z][\s\S]*>/i.test(content)) {
+        note.innerHTML = content; // trusted: built by our own code only
+    } else {
+        note.textContent = content;
+    }
+    stack.appendChild(note);
+    window.setTimeout(function () {
+        note.classList.add('gys-leaving');
+        window.setTimeout(function () { note.remove(); }, 250);
+    }, timeout || 3500);
+};
+
+/* Thin wrapper keeping the old call signature: message text plus a
+ * daisyUI alert modifier ('alert-error' default, 'alert-success'). */
 window.gysToast = function (message, kind) {
-    var toast = document.createElement('div');
-    toast.setAttribute('role', 'alert');
-    toast.className = 'alert ' + (kind || 'alert-error') + ' fixed bottom-4 right-4 z-50 w-auto max-w-sm shadow-lg';
-    toast.textContent = message;
-    document.body.appendChild(toast);
-    window.setTimeout(function () { toast.remove(); }, 3500);
+    window.gysFloatNote(message, kind);
 };
 
 /* Human-readable message from an API error payload. */

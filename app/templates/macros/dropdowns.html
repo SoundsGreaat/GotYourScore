@@ -21,7 +21,7 @@
                   "Unassigned — shared queue", ...); omit when a choice
                   is mandatory
      placeholder  trigger text while nothing is picked and any_label unset
-     menu_w       menu width utility class (default w-64)
+     menu_w       optional menu width utility; empty = shrink-to-fit text
      btn_cls      full class list of the trigger button
      aria_label   accessible name of the trigger button
      display_sel  selector of an id-less display span (e.g.
@@ -39,7 +39,7 @@
 #}
 {% macro dropdown(id, items=[], value_attr='value', label_attr='label',
                   selected='', any_label='', placeholder='',
-                  menu_w='w-64', btn_cls='select select-sm w-full flex items-center',
+                  btn_cls='select select-sm w-full flex items-center',
                   aria_label='', display_sel='', hidden_attrs='',
                   opt_data='', js_fn='setDropdownValue') -%}
 {% set anchor = '--' ~ id ~ '-anchor' %}

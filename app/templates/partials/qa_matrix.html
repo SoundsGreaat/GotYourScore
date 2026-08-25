@@ -182,7 +182,6 @@
                                 value_attr='id', label_attr='name',
                                 any_label='Unassigned shared queue',
                                 placeholder='QA agent (optional)',
-                                menu_w='w-56',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='QA agent (optional)',
                                 hidden_attrs='data-field="assigned_qa_id"',
@@ -193,7 +192,6 @@
                                 items=support_users,
                                 value_attr='id', label_attr='name',
                                 placeholder='Select agent…',
-                                menu_w='w-56',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='Support agent',
                                 hidden_attrs='data-field="support_agent_id"',
@@ -204,7 +202,6 @@
                                 items=delegate_case_types,
                                 value_attr='value', label_attr='value',
                                 placeholder='Select case type…',
-                                menu_w='w-56',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='Case type',
                                 hidden_attrs='data-field="case_type"',
@@ -237,7 +234,6 @@
                                 value_attr='id', label_attr='name',
                                 any_label='— any —',
                                 placeholder='All rows…',
-                                menu_w='w-52',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='Override QA agent for all rows',
                                 hidden_attrs='data-field="override_assigned_qa_id"',
@@ -250,7 +246,6 @@
                                 value_attr='id', label_attr='name',
                                 any_label='— any —',
                                 placeholder='All rows…',
-                                menu_w='w-52',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='Override support agent for all rows',
                                 hidden_attrs='data-field="override_support_agent_id"',
@@ -263,7 +258,6 @@
                                 value_attr='value', label_attr='value',
                                 any_label='— any —',
                                 placeholder='All rows…',
-                                menu_w='w-52',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='Override case type for all rows',
                                 hidden_attrs='data-field="override_case_type"',
@@ -277,7 +271,6 @@
                 <div id="delegate-batch-rows" class="space-y-2"></div>
                 <div id="delegate-batch-alert" role="alert" class="alert alert-error hidden"></div>
                 <div id="delegate-batch-summary" class="gys-accent-panel hidden px-3 py-2 text-sm"></div>
-                <div id="delegate-batch-result-area"></div>
                 <button type="button" id="delegate-batch-submit" class="btn btn-primary btn-block btn-sm" disabled>Delegate 0 cases</button>
             </div>
         </div>
@@ -413,7 +406,6 @@
         var batchPane = document.getElementById('delegate-batch-pane');
         var batchRows = document.getElementById('delegate-batch-rows');
         var batchSummary = document.getElementById('delegate-batch-summary');
-        var batchResultArea = document.getElementById('delegate-batch-result-area');
         var batchSubmit = document.getElementById('delegate-batch-submit');
         var batchAlert = document.getElementById('delegate-batch-alert');
 
@@ -499,27 +491,28 @@
             batchSummary.classList.remove('hidden');
         }
 
+        // The batch outcome surfaces as a bottom-center floating note
+        // (gysFloatNote) instead of an inline block: the modal stays
+        // clean, and the report is visible even over the dialog glass.
         function renderBatchResult(data) {
-            if (!batchResultArea) return;
-            var html = '<div class="space-y-2">';
-            if (data.created_count) {
-                html += '<div class="alert alert-soft"><div class="min-w-0">'
-                    + '<h4 class="font-semibold">Created ' + data.created_count + ' case' + (data.created_count === 1 ? '' : 's') + '</h4>'
-                    + '<ul class="ml-4 list-disc text-sm">'
-                    + data.created.map(function (row) {
-                        return '<li>' + escapeHtml(row.case_number || '#' + row.id) + '</li>';
-                    }).join('')
-                    + '</ul></div></div>';
-            } else {
-                html += '<div class="alert alert-soft"><span>No cases created.</span></div>';
+            var created = data.created_count || 0;
+            var skipped = data.skipped || [];
+            var html = '<strong>Delegated ' + created + ' case'
+                + (created === 1 ? '' : 's') + '</strong>';
+            if (skipped.length) {
+                html += '<div class="mt-1 text-xs opacity-80">' + skipped.length
+                    + ' skipped (duplicate agent + case number)</div>';
             }
-            (data.skipped || []).forEach(function (row) {
-                html += '<div class="alert alert-error py-2 text-xs"><span>'
-                    + escapeHtml(row.case_number || '(no case number)') + ' \u2014 ' + escapeHtml(row.reason)
-                    + '</span></div>';
-            });
-            html += '</div>';
-            batchResultArea.innerHTML = html;
+            window.gysFloatNote(html, created ? 'alert-success' : 'alert-error', 6000);
+            if (skipped.length) {
+                var detail = '<strong>Skipped rows:</strong><ul>'
+                    + skipped.map(function (row) {
+                        return '<li>' + escapeHtml(row.case_number || '(no case number)')
+                            + ' \u2014 ' + escapeHtml(row.reason) + '</li>';
+                    }).join('')
+                    + '</ul>';
+                window.gysFloatNote(detail, 'alert-error', 9000);
+            }
         }
 
         // qaMatrixSetDropdown (shared with the Single pane) calls this
@@ -676,7 +669,6 @@
                 }
             });
             resetBatchRows();
-            if (batchResultArea) batchResultArea.innerHTML = '';
             if (batchAlert) batchAlert.classList.add('hidden');
             updateBatchSummary();
         }

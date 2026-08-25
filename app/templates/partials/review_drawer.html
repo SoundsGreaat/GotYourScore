@@ -24,7 +24,6 @@
                         items=agents,
                         value_attr='id', label_attr='name',
                         placeholder='Select agent…',
-                        menu_w='w-80',
                         display_sel='.js-review-agent-display',
                         opt_data='data-agent-id',
                         js_fn='updateCustomDropdown') }}
@@ -44,7 +43,6 @@
                             items=qas,
                             value_attr='id', label_attr='name',
                             any_label='Unassigned — shared queue',
-                            menu_w='w-80',
                             display_sel='.js-review-assigned-qa-display',
                             opt_data='data-assigned-qa-id',
                             js_fn='updateCustomDropdown') }}
@@ -65,7 +63,6 @@
                         items=case_types,
                         value_attr='value', label_attr='value',
                         selected='Service Request',
-                        menu_w='w-64',
                         display_sel='.js-case-type-display',
                         js_fn='updateCustomDropdown') }}
                 </fieldset>
