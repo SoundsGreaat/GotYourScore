@@ -74,11 +74,13 @@ REFACTOR_PROMPT_KEY = "notes_refactor"
 NOTES_FROM_SCORE_PROMPT_KEY = "notes_from_score"
 
 # OpenRouter provider routing:
-# - "latency" = prefer the provider with the lowest latency;
+# - "price" = prefer the provider with the lowest price;
 # - allow_fallbacks = if the preferred provider fails/unavailable,
 #   OpenRouter may try another provider.
 OPENROUTER_PROVIDER = {
-    "sort": "latency",
+    "sort": "price",
+    "order": ["Relace"],
+    "quantizations": ["fp4"],
     "allow_fallbacks": True,
 }
 
