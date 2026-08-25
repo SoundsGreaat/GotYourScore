@@ -366,6 +366,19 @@
             }
         }
 
+        /* Accent panel: THE shared primary-tinted callout surface
+           (bulk override, status summaries, informational strips).
+           Single source — never re-declare tinted borders/backgrounds
+           per template, add this class instead. Empty states keep their
+           neutral dashed look on purpose (absence ≠ highlight). */
+        .gys-accent-panel {
+            border: 1px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
+            border-radius: var(--radius-box);
+            background: linear-gradient(135deg,
+                color-mix(in oklab, var(--color-primary) 10%, transparent),
+                color-mix(in oklab, var(--color-primary) 3%, transparent));
+        }
+
         /* Buttons: normalize daisyUI's own transition onto the same
            tokens (its default curve differs, which read as "slower"). */
         .btn {
