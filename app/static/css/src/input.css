@@ -289,7 +289,23 @@
             /* Signature mint tint instead of daisyUI's faint
                base-content wash: clearly visible on the always-dark
                drawer, still in the project's primary-accent language. */
-            background-color: color-mix(in oklab, var(--color-primary) 20%, transparent);
+            background-color: color-mix(in oklab, var(--color-primary) 26%, transparent);
+        }
+        /* Section headers (menu-title, e.g. "Reviews") are NOT links —
+           render them as muted uppercase labels so they can't be mistaken
+           for clickable entries. */
+        aside .menu .menu-title {
+            color: rgb(255 255 255 / 0.45);
+            font-size: 0.72rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        /* daisyUI paints the nested-menu guide line ("Reviews" separator)
+           with the LIGHT theme's base-content color — invisible on our
+           always-dark drawer. White-alpha matches the hover language. */
+        aside .menu li ul::before {
+            background-color: rgb(255 255 255 / 1);
         }
         @media (prefers-reduced-motion: no-preference) {
             aside .menu a {
