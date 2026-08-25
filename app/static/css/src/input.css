@@ -276,6 +276,36 @@
                 grid-template-columns var(--gys-speed) var(--gys-ease);
         }
 
+        /* Sidebar active entry: plain daisyUI menu-active highlight in
+           the project's common style — same --radius-box rounding and
+           motion tokens as everywhere else. The drawer is always
+           bg-neutral regardless of theme, hence the explicit readable
+           text color. Transition lives on the BASE link selector: if it
+           sat on .menu-active, the item LOSING the highlight would snap
+           instead of fading out. */
+        aside .menu .menu-active {
+            color: rgb(255 255 255);
+            font-weight: 500;
+            /* Signature mint tint instead of daisyUI's faint
+               base-content wash: clearly visible on the always-dark
+               drawer, still in the project's primary-accent language. */
+            background-color: color-mix(in oklab, var(--color-primary) 20%, transparent);
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            aside .menu a {
+                transition:
+                    background-color var(--gys-speed) var(--gys-ease),
+                    color var(--gys-speed) var(--gys-ease);
+            }
+        }
+        /* daisyUI ships its own menu-link transition WITHOUT a
+           reduced-motion guard — silence it explicitly here. */
+        @media (prefers-reduced-motion: reduce) {
+            aside .menu a {
+                transition: none;
+            }
+        }
+
         /* Buttons: normalize daisyUI's own transition onto the same
            tokens (its default curve differs, which read as "slower"). */
         .btn {
