@@ -398,6 +398,7 @@
         [popover].dropdown.menu {
             background-image: var(--gys-sheen-primary);
             padding-inline: 0.5rem;
+            min-width: 12rem;
         }
 
         /* Floating notifications: every transient note — toasts, alerts,
