@@ -78,8 +78,8 @@ NOTES_FROM_SCORE_PROMPT_KEY = "notes_from_score"
 # - allow_fallbacks = if the preferred provider fails/unavailable,
 #   OpenRouter may try another provider.
 OPENROUTER_PROVIDER = {
-    "sort": "price",
-    "order": ["Relace"],
+    "order": ["relace"],
+    "ignore": ["open-inference"],
     "quantizations": ["fp4"],
     "allow_fallbacks": True,
 }
@@ -90,10 +90,13 @@ OPENROUTER_PROVIDER = {
 # ---------------------------------------------------------------------------
 
 # Fail fast instead of pinning a worker on a hanging LLM call.
-REQUEST_TIMEOUT_SECONDS = 60.0
+# Hard ceiling for the WHOLE AI exchange: MAX_RETRIES is 0 because the
+# SDK applies the timeout PER ATTEMPT — a retry would double the wait.
+REQUEST_TIMEOUT_SECONDS = 30.0
 
-# OpenAI SDK retries transient failures automatically.
-MAX_RETRIES = 1
+# OpenAI SDK retries transient failures automatically; disabled here so
+# the 30s timeout above is the true total, not per-attempt.
+MAX_RETRIES = 0
 
 
 # ---------------------------------------------------------------------------

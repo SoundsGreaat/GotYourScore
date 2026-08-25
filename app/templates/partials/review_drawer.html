@@ -774,21 +774,43 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         hideMenu();
     }, { capture: true, signal: controller.signal });
 
+    // AI endpoints cap at 30s server-side; the extra second lets the
+    // server's own error land first. If nothing arrives at all (hung
+    // connection/proxy), the abort fires so the UI always gets feedback.
+    var AI_TIMEOUT_MS = 31000;
+    function aiFetch(url, payload) {
+        var ctrl = new AbortController();
+        var timer = window.setTimeout(function () { ctrl.abort(); }, AI_TIMEOUT_MS);
+        return fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: ctrl.signal
+        }).finally(function () { window.clearTimeout(timer); });
+    }
+    function aiErrorMessage(error) {
+        return error.name === 'AbortError'
+            ? 'AI request timed out.'
+            : 'AI request failed.';
+    }
+
     refactorButton.addEventListener('click', async function () {
         setLoading(refactorButton, 'Refactoring…', true);
         try {
-            var response = await fetch('/api/ai/refactor', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ html: quill.root.innerHTML })
-            });
+            var response = await aiFetch('/api/ai/refactor', { html: quill.root.innerHTML });
             if (!response.ok) throw new Error('Refactor request failed');
-            quill.root.innerHTML = sanitizeHtml((await response.json()).html);
+            // Replace content through the Quill API: a direct
+            // quill.root.innerHTML write desyncs Quill's internal delta,
+            // and its mutation sync then deletes everything (editor ends
+            // up empty) — same recipe as the Score-to-Notes flow.
+            var clean = sanitizeHtml((await response.json()).html);
+            quill.deleteText(0, quill.getLength());
+            quill.clipboard.dangerouslyPasteHTML(0, clean);
             saveDraft();
             hideMenu(true);
         } catch (error) {
-            showToast('Unable to refactor notes.');
+            showToast(aiErrorMessage(error));
         } finally {
             setLoading(refactorButton, 'Refactoring…', false);
         }
@@ -797,12 +819,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     scoreButton.addEventListener('click', async function () {
         setLoading(scoreButton, 'Scoring…', true);
         try {
-            var response = await fetch('/api/ai/score', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ html: quill.root.innerHTML, case_type: document.getElementById('case-type').value })
-            });
+            var response = await aiFetch('/api/ai/score', { html: quill.root.innerHTML, case_type: document.getElementById('case-type').value });
             if (!response.ok) throw new Error('Score request failed');
             var result = await response.json();
             var matched = 0;
@@ -825,7 +842,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             window.clearTimeout(previewTimer);
             recalcScore();
         } catch (error) {
-            showToast('Unable to generate a score.');
+            showToast(aiErrorMessage(error));
         } finally {
             setLoading(scoreButton, 'Scoring…', false);
         }
@@ -858,19 +875,14 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         setLoading(button, 'Drafting…', true);
         try {
             var agentId = document.getElementById('review-agent').value;
-            var response = await fetch('/api/ai/notes-from-score', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    case_type: document.getElementById('case-type').value,
-                    raw_scorecard: collectDeductions(),
-                    // Same multiplier context as the score preview: the
-                    // drafted notes must justify the REAL final score.
-                    support_agent_id: agentId ? Number(agentId) : null,
-                    exclude_review_id: drawerState.reviewId || null,
-                    no_multiplier_keys: Object.keys(multiplierExemptions)
-                })
+            var response = await aiFetch('/api/ai/notes-from-score', {
+                case_type: document.getElementById('case-type').value,
+                raw_scorecard: collectDeductions(),
+                // Same multiplier context as the score preview: the
+                // drafted notes must justify the REAL final score.
+                support_agent_id: agentId ? Number(agentId) : null,
+                exclude_review_id: drawerState.reviewId || null,
+                no_multiplier_keys: Object.keys(multiplierExemptions)
             });
             var data = await response.json().catch(function () { return {}; });
             if (!response.ok) throw new Error(data.detail || 'AI note drafting failed');
@@ -883,7 +895,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         hideMenu(true);
         showToast('Notes drafted from the current score.', 'alert-success');
         } catch (error) {
-            showToast(error.message || 'AI note drafting failed');
+            showToast(error.name === 'AbortError' ? 'AI request timed out.'
+                : (error.message || 'AI note drafting failed'));
         } finally {
             setLoading(button, '', false);
         }
