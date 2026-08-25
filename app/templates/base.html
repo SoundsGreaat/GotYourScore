@@ -103,6 +103,10 @@
     <!-- Shared partial helpers (toast, drawer handoff, escaping). -->
     <script defer src="/static/js/common.js"></script>
 
+    <!-- "View notes" modal: one document-level click delegation opens the
+         shared .js-notes-modal from any [data-case-notes] trigger. -->
+    <script defer src="/static/js/notes_modal.js"></script>
+
     <!-- Quill 2: the full build registers the snow theme (there is no separate
          themed JS bundle). Loaded once so HTMX-swapped partials can initialize
          the editor without dynamic script injection. -->

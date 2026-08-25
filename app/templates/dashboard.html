@@ -221,9 +221,9 @@
    into the location hash — as "#view", or "#view@YYYY-MM" when a
    non-current reporting period is selected — and restored BEFORE
    htmx fires its initial load: reloads (and direct /#my-reviews@2026-07-style
-   links) reopen the same view AND period. Sidebar links and tracker
-   tabs are rewritten at click time to carry the selected period, so
-   switching views never drops it. Hashes that match no visible link
+   links) reopen the same view AND period. View switches carry the
+   selected period via a configRequest parameter injection, so
+   navigating never drops it. Hashes that match no visible link
    (RBAC-hidden views) fall back to the server-chosen default. */
 (function () {
     var container = document.getElementById('view-container');
@@ -314,11 +314,10 @@
 
     // Carry the selected period into view switches. Gotcha: htmx strips
     // a query string from hx-get when the requester is an <a> (anchor
-    // path resolution), so rewriting sidebar links is pointless — the
-    // period is injected as a REQUEST PARAMETER in configRequest
-    // instead (serialized into the query string for GETs). Forms and
-    // section refetches keep their own period (hidden input / baked
-    // ?period= URL — both survive) and are skipped here.
+    // path resolution), so the period is injected as a REQUEST PARAMETER
+    // in configRequest (serialized into the query string for GETs).
+    // Section refetches keep their own period via the baked ?period=
+    // URL and are skipped here.
     document.body.addEventListener('htmx:configRequest', function (event) {
         if (!state.period) return;
         var detail = event.detail;
