@@ -29,6 +29,20 @@
                         js_fn='updateCustomDropdown') }}
                 </fieldset>
 
+                <!-- Create mode only: backfill a past reporting period
+                     ("YYYY-MM", the period's CLOSING month). The server
+                     stamps created_at to that period's last second and
+                     enforces ITS quota. Hidden for edit/complete. -->
+                <fieldset class="fieldset js-period-fieldset">
+                    <label class="label" for="review-period">Reporting period</label>
+                    {{ dd.dropdown('review-period',
+                        items=period_options,
+                        selected=period_value,
+                        aria_label='Reporting period',
+                        display_sel='.js-review-period-display') }}
+                    <p class="text-xs text-base-content/60">Pick a past month to backfill the case into that period &mdash; it counts toward its quota.</p>
+                </fieldset>
+
                 <!-- Pending delegations only: empty means the case sits in
                      the shared queue visible to every QA. -->
                 <!-- Canonical settle warning: htmx's post-swap settle step
@@ -207,6 +221,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // Entry mode: 'create' (default, unchanged flow), 'edit' or 'complete'
     // (set programmatically via window.openReviewDrawerForReview).
     var drawerState = { mode: 'create', reviewId: null, initialScorecard: null, isPending: false };
+    // The period the drawer mounted with (the current one) — the draft
+    // is only "pristine" while the picker still holds it.
+    var initialPeriod = (document.getElementById('review-period') || {}).value || '';
 
     var showToast = window.gysToast;
 
@@ -274,6 +291,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     && !document.getElementById('review-agent').value
                     && !document.getElementById('case-number').value
                     && document.getElementById('case-type').value === 'Service Request'
+                    && document.getElementById('review-period').value === initialPeriod
                     && Object.keys(collectDeductions()).length === 0;
                 if (pristine) {
                     window.localStorage.removeItem(draftKey);
@@ -285,6 +303,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                         agent_name: document.querySelector('.js-review-agent-display').textContent,
                         case_number: document.getElementById('case-number').value,
                         case_type: document.getElementById('case-type').value,
+                        period: document.getElementById('review-period').value,
+                        period_label: (document.querySelector('.js-review-period-display') || {}).textContent || '',
                         deductions: collectDeductions()
                     }));
                 }
@@ -376,6 +396,19 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             // clearing it the macro's default stays lit.
             document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
                 var match = btn.textContent.trim() === draft.case_type;
+                btn.classList.toggle('active', match);
+                btn.classList.toggle('menu-active', match);
+            });
+        }
+        if (draft.period) {
+            document.getElementById('review-period').value = draft.period;
+            var periodDisplay = document.querySelector('.js-review-period-display');
+            if (periodDisplay) {
+                periodDisplay.textContent = draft.period_label || draft.period;
+                periodDisplay.classList.remove('text-base-content/70');
+            }
+            document.querySelectorAll('#review-period-menu button').forEach(function (btn) {
+                var match = btn.textContent.trim() === (draft.period_label || '').trim();
                 btn.classList.toggle('active', match);
                 btn.classList.toggle('menu-active', match);
             });
@@ -511,6 +544,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
         var assignedQaFieldset = document.querySelector('.assigned-qa-fieldset');
         if (assignedQaFieldset) assignedQaFieldset.classList.toggle('hidden', !drawerState.isPending);
+
+        // Backfilling is a create-flow decision: an existing review's
+        // period is immutable (its created_at is already stamped).
+        var periodFieldset = document.querySelector('.js-period-fieldset');
+        if (periodFieldset) periodFieldset.classList.add('hidden');
 
         var title = document.getElementById('review-drawer-title');
         if (title) {
@@ -729,6 +767,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     document.addEventListener('review-agent-change', schedulePreview, { signal: controller.signal });
     document.addEventListener('review-agent-change', saveDraft, { signal: controller.signal });
     document.getElementById('case-number').addEventListener('input', saveDraft);
+    document.getElementById('review-period').addEventListener('change', saveDraft);
     rulesArea.addEventListener('change', function (event) {
         if (event.target.matches && event.target.matches('input[data-error-name]')) {
             // Enable the points input only while the violation is ticked.
@@ -975,16 +1014,25 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     case_type: document.getElementById('case-type').value,
                     case_number: document.getElementById('case-number').value || null,
                     notes: sanitizeHtml(quill.root.innerHTML),
-                    raw_scorecard: collectDeductions()
+                    raw_scorecard: collectDeductions(),
+                    // Backfill: omitted/current keeps "now"; a past
+                    // period makes the server stamp created_at and
+                    // enforce that period's quota.
+                    period: document.getElementById('review-period').value || null
                 })
             });
-            if (!response.ok) throw new Error('Review save failed');
+            if (!response.ok) {
+                // Surface the server's detail (e.g. the backfill
+                // period's 409 quota message) instead of a generic note.
+                var errorPayload = await response.json().catch(function () { return null; });
+                throw new Error(extractErrorDetail(errorPayload, response.status));
+            }
             clearDraft();
             document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
             showToast('Review saved.', 'alert-success');
             document.getElementById('review-drawer-toggle').checked = false;
         } catch (error) {
-            showToast('Unable to save review.');
+            showToast(error.message || 'Unable to save review.');
         } finally {
             setLoading(saveButton, 'Saving…', false);
             updateSaveState();

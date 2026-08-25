@@ -58,7 +58,8 @@ RBAC matrix:
   reviews yield 404 for everyone.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -95,6 +96,11 @@ from app.services import (
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
+# ReviewCreate.period wire format: the closing month of a reporting
+# period ("YYYY-MM"). Format is already enforced by the schema pattern;
+# this re-check powers the endpoint-level future-period rejection.
+_PERIOD_RE = re.compile(r"^(\d{4})-(1[0-2]|0[1-9])$")
+
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 # RoleChecker returns the authenticated User, so the handler receives it.
@@ -127,6 +133,39 @@ def _current_closing_period() -> tuple[int, int]:
     return closing_year, closing_month
 
 
+def _backfill_period(
+    raw: str | None,
+) -> tuple[int, int] | None:
+    """Resolve ``ReviewCreate.period`` into a PAST closing (year, month).
+
+    Returns None when the payload omits the period or targets the
+    CURRENT one (both mean "stamp created_at with now"). Raises 400
+    for a future period — backfilling work that has not happened yet
+    would silently corrupt quota history.
+    """
+    if not raw:
+        return None
+    match = _PERIOD_RE.match(raw)
+    if match is None:  # schema pattern already rejects; defense in depth
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Invalid reporting period "
+                f"{raw!r} — expected 'YYYY-MM'."
+            ),
+        )
+    year, month = int(match.group(1)), int(match.group(2))
+    current_year, current_month = _current_closing_period()
+    if (year, month) > (current_year, current_month):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reporting period cannot be in the future.",
+        )
+    if (year, month) == (current_year, current_month):
+        return None
+    return year, month
+
+
 async def _get_support_agent_or_error(agent_id: int, db: AsyncSession) -> User:
     """Resolve the review target; 404 unknown, 400 non-Support."""
     agent = await db.get(User, agent_id)
@@ -147,14 +186,19 @@ async def _get_support_agent_or_error(agent_id: int, db: AsyncSession) -> User:
     return agent
 
 
-async def _reject_quota_reached(agent: User, db: AsyncSession) -> None:
-    """409 once the agent reached MONTHLY_QUOTA in the current period.
+async def _reject_quota_reached(
+    agent: User,
+    db: AsyncSession,
+    closing: tuple[int, int] | None = None,
+) -> None:
+    """409 once the agent reached MONTHLY_QUOTA in the target period.
 
-    Not race-free: two concurrent POSTs can both pass the check; use
-    pg_advisory_xact_lock(agent_id) around check+insert if strictness
-    is ever required.
+    ``closing`` selects an explicit backfill (past) period; None means
+    the current one. Not race-free: two concurrent POSTs can both pass
+    the check; use pg_advisory_xact_lock(agent_id) around check+insert
+    if strictness is ever required.
     """
-    closing_year, closing_month = _current_closing_period()
+    closing_year, closing_month = closing or _current_closing_period()
     quota = await quota_service.get_agent_quota(
         agent.id, closing_year, closing_month, db
     )
@@ -185,6 +229,12 @@ async def create_review(
       Support role.
     - 409 if the agent already reached the reporting-period quota
       (``completed >= target`` reviews this period).
+    - ``period`` ("YYYY-MM", optional) BACKDATES the review into a
+      past reporting period: the quota gate runs against that period
+      and ``created_at`` is stamped to its last second (23:59:59 UTC
+      on the closing month's 25th) so quota math and every listing
+      agree. Omitted — or the current period — keeps the default
+      "now"; a future period is a 400.
     - ``case_type='No Cases'`` skips the math entirely: null
       scorecard_data and null final_score (still counts towards quota).
     - Otherwise the ACTIVE scorecard rules are snapshotted into
@@ -195,7 +245,8 @@ async def create_review(
       recorded as ``created_by``; the row is created ``completed``.
     """
     agent = await _get_support_agent_or_error(payload.support_agent_id, db)
-    await _reject_quota_reached(agent, db)
+    backfill = _backfill_period(payload.period)
+    await _reject_quota_reached(agent, db, backfill)
 
     if payload.case_type is CaseTypeEnum.NO_CASES:
         scorecard_data: dict[str, Any] | None = None
@@ -219,6 +270,14 @@ async def create_review(
             "multiplier_exemptions": sorted(payload.no_multiplier_keys),
         }
 
+    # Backfill: pin the row to the chosen period's last second so it
+    # lands inside that period's bounds everywhere (quota, partials).
+    # None (or the current period) leaves created_at to server_default.
+    created_at = None
+    if backfill is not None:
+        _, period_end = reporting_period.reporting_period_bounds(*backfill)
+        created_at = period_end - timedelta(seconds=1)
+
     review = Review(
         support_agent_id=agent.id,
         qa_id=current_user.id,
@@ -229,6 +288,7 @@ async def create_review(
         scorecard_data=scorecard_data,
         notes=payload.notes,
         final_score=final_score,
+        created_at=created_at,
     )
     db.add(review)
     await db.commit()

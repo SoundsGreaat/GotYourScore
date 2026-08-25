@@ -1,11 +1,26 @@
 ﻿{% import "macros/dropdowns.html" as dd %}
 {% import "macros/icons.html" as icons %}
 {% import "macros/modals.html" as modals %}
-<section hx-get="/partials/qa-matrix" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
+<!-- data-period: the dashboard hash-sync reads it to mirror
+     #view@YYYY-MM into the location hash across swaps. The ?period=
+     on hx-get keeps the selection across reviews-changed refetches
+     (this partial has no filter form to carry a hidden input). -->
+<section data-period="{{ period_value }}" hx-get="/partials/qa-matrix?period={{ period_value }}" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">QA Matrix</h2>
         <div class="flex flex-wrap items-center gap-2">
-            <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} · {{ period_range }}</span>
+            <!-- Period switcher: its own mini-form so the hidden input's
+                 change event refetches the whole view with ?period=... -->
+            <form hx-get="/partials/qa-matrix"
+                  hx-target="closest section" hx-swap="outerHTML"
+                  hx-trigger="change" class="flex items-center">
+                {{ dd.dropdown('matrix-period',
+                    items=period_options,
+                    selected=period_value,
+                    aria_label='Reporting period',
+                    hidden_attrs='name="period"') }}
+            </form>
+            <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_range }}</span>
             {% if can_delegate %}
             <button type="button" class="btn btn-primary btn-sm" data-delegate-open>Delegate case</button>
             {% endif %}

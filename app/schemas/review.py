@@ -71,6 +71,15 @@ class ReviewCreate(RawScorecardValidation, BaseModel):
     # Error keys whose progressive multiplier is waived for this review
     # (persisted in scorecard_data.multiplier_exemptions).
     no_multiplier_keys: list[str] = Field(default_factory=list, max_length=60)
+    # Optional BACKFILL: the CLOSING month ("YYYY-MM") of a PAST
+    # reporting period the review belongs to. The server stamps
+    # ``created_at`` to that period's last second and enforces the
+    # quota against it; omitted (or the current period) keeps the
+    # default "now". Future periods are rejected at the endpoint.
+    period: str | None = Field(
+        default=None,
+        pattern=r"^\d{4}-(1[0-2]|0[1-9])$",
+    )
 
     @model_validator(mode="after")
     def validate_no_cases_has_empty_scorecard(self) -> "ReviewCreate":

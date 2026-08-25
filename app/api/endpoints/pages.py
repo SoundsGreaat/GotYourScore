@@ -16,6 +16,7 @@ response (HTMX surfaces it; no redirect). my-reviews is personal and
 review-drawer is left accessible for all authenticated users.
 """
 
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
@@ -63,6 +64,92 @@ def _period_range_label(start: datetime, end_exclusive: datetime) -> str:
         f"{_MONTH_ABBREVS[start.month - 1]} {start.day}"
         f" \u2013 {_MONTH_ABBREVS[last_day.month - 1]} {last_day.day}"
     )
+
+
+# Reporting-period switcher wire format: the CLOSING month as
+# "YYYY-MM" (e.g. "2026-09" = the Aug 26 – Sep 25 period).
+_PERIOD_RE = re.compile(r"^(\d{4})-(1[0-2]|0[1-9])$")
+# Hard cap on the switcher's option list, in case the earliest review
+# is ancient (legacy imports, restored backups, ...).
+_MAX_PERIOD_OPTIONS = 60
+
+
+def _current_closing() -> tuple[int, int]:
+    """(closing_year, closing_month) of the period covering now (UTC)."""
+    _, _, closing_year, closing_month = reporting_period.reporting_period_for(
+        datetime.now(timezone.utc)
+    )
+    return closing_year, closing_month
+
+
+def _resolve_period(params) -> tuple[datetime, datetime, int, int, str]:
+    """Resolve the requested reporting period from query params.
+
+    Accepts ``?period=YYYY-MM`` (the period's CLOSING month). Invalid
+    or FUTURE periods silently fall back to the current one, so a stale
+    bookmark or hand-edited URL never 500s — the same policy as the
+    reviews-table filters.
+
+    Returns ``(period_start, period_end_exclusive, closing_year,
+    closing_month, period_value)`` where ``period_value`` is the
+    canonical "YYYY-MM" wire format actually rendered.
+    """
+    closing_year, closing_month = _current_closing()
+    match = _PERIOD_RE.match((params.get("period") or "").strip())
+    if match:
+        year, month = int(match.group(1)), int(match.group(2))
+        if (year, month) < (closing_year, closing_month):
+            closing_year, closing_month = year, month
+    period_start, period_end = reporting_period.reporting_period_bounds(
+        closing_year, closing_month
+    )
+    return (
+        period_start,
+        period_end,
+        closing_year,
+        closing_month,
+        f"{closing_year:04d}-{closing_month:02d}",
+    )
+
+
+async def _period_options(db: AsyncSession) -> list[dict[str, str]]:
+    """Dropdown options for the period switcher, newest first.
+
+    Spans from the CURRENT period back to the period containing the
+    earliest non-deleted review (no point offering months that can
+    never hold data); with no reviews at all it collapses to the
+    current period alone. Values use the "YYYY-MM" wire format.
+    """
+    cur_year, cur_month = _current_closing()
+    earliest = (
+        await db.execute(
+            select(func.min(Review.created_at)).where(
+                Review.deleted_at.is_(None)
+            )
+        )
+    ).scalar_one()
+    if earliest is not None:
+        min_year, min_month = reporting_period.reporting_period_for(
+            earliest
+        )[2:]
+    else:
+        min_year, min_month = cur_year, cur_month
+
+    options: list[dict[str, str]] = []
+    year, month = cur_year, cur_month
+    for _ in range(_MAX_PERIOD_OPTIONS):
+        label = reporting_period.period_label(year, month)
+        if (year, month) == (cur_year, cur_month):
+            label += " (current)"
+        options.append({"value": f"{year:04d}-{month:02d}", "label": label})
+        if (year, month) <= (min_year, min_month):
+            break
+        # Step back one closing month via the period's own start (the
+        # 26th of the previous month) — public API only, no private
+        # month arithmetic duplicated here.
+        period_start, _ = reporting_period.reporting_period_bounds(year, month)
+        year, month = period_start.year, period_start.month
+    return options
 
 # Anchored to this file so the app works regardless of the CWD it is
 # launched from (service manager, container, --app-dir, ...).
@@ -256,19 +343,22 @@ async def _render_reviews_view(
     review of everyone; Support-only users get a bare 403 like the other
     aggregate partials.
 
-    Both scopes are restricted to the CURRENT reporting period (26th ->
-    25th UTC, named after its closing month). Soft-deleted rows are
-    excluded everywhere. Optional filters arrive as query params:
-    ``agent`` / ``qa`` (ids), ``case_type`` (enum value) and
-    ``case_number`` (case-insensitive substring); invalid values are
-    silently ignored so a stale bookmark never 500s. Person filters only
-    apply for reviewers — a personal agent view has no other people to
-    filter on. Counterpart display names are batch-loaded with a single
-    in_() query (no N+1). Per-row action flags: ``can_complete`` marks
-    pending rows assigned to the viewer; ``can_edit`` is true for every
-    reviewer-visible row — the reviews API deliberately lets ANY
-    QA/Supervisor/Admin edit or delete ANY review, so the all-scope
-    table exposes those buttons on foreign rows too.
+    Both scopes are restricted to a REPORTING period (26th -> 25th UTC,
+    named after its closing month) selected via ``?period=YYYY-MM`` —
+    the current period by default, past periods for history lookups
+    (future/invalid values silently fall back to the current period).
+    Soft-deleted rows are excluded everywhere. Optional filters arrive
+    as query params: ``agent`` / ``qa`` (ids), ``case_type`` (enum
+    value) and ``case_number`` (case-insensitive substring); invalid
+    values are silently ignored so a stale bookmark never 500s. Person
+    filters only apply for reviewers — a personal agent view has no
+    other people to filter on. Counterpart display names are
+    batch-loaded with a single in_() query (no N+1). Per-row action
+    flags: ``can_complete`` marks pending rows assigned to the viewer;
+    ``can_edit`` is true for every reviewer-visible row — the reviews
+    API deliberately lets ANY QA/Supervisor/Admin edit or delete ANY
+    review, so the all-scope table exposes those buttons on foreign
+    rows too.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -280,8 +370,8 @@ async def _render_reviews_view(
     performed_by_me = auth.has_role(
         RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
     )
-    period_start, period_end, closing_year, closing_month = (
-        reporting_period.reporting_period_for(datetime.now(timezone.utc))
+    period_start, period_end, closing_year, closing_month, period_value = (
+        _resolve_period(request.query_params)
     )
 
     if scope == "all":
@@ -413,10 +503,9 @@ async def _render_reviews_view(
                 "/partials/all-reviews" if scope == "all"
                 else "/partials/my-reviews"
             ),
-            "period_label": reporting_period.period_label(
-                closing_year, closing_month
-            ),
             "period_range": _period_range_label(period_start, period_end),
+            "period_value": period_value,
+            "period_options": await _period_options(db),
             "filters": {
                 "agents": [
                     {"id": user.id, "name": user.nickname}
@@ -550,10 +639,11 @@ async def partial_team_quotas(
 
     Context: every QA analyst with their quota-compliance totals
     (``{"id", "name", "completed", "required", "deficit"}``) for the
-    current REPORTING period (26th→25th, named after the closing
-    month). Global aggregate data: reviewer roles only — Support-only
-    users get a bare 403 (no redirect). The per-QA compliance lookups
-    are N+1 queries — acceptable for a small team.
+    selected REPORTING period (26th→25th, named after the closing
+    month; ``?period=YYYY-MM`` picks a past one, default current).
+    Global aggregate data: reviewer roles only — Support-only users
+    get a bare 403 (no redirect). The per-QA compliance lookups are
+    N+1 queries — acceptable for a small team.
 
     Supervisors/Admins additionally get the assignment-management
     context (``can_manage`` + QAAssignment rows keyed by QA + the
@@ -566,8 +656,8 @@ async def partial_team_quotas(
     if not is_reviewer(auth):
         return _forbidden()
 
-    period_start, period_end, closing_year, closing_month = (
-        reporting_period.reporting_period_for(datetime.now(timezone.utc))
+    period_start, period_end, closing_year, closing_month, period_value = (
+        _resolve_period(request.query_params)
     )
     assignments_by_qa = await _assignments_by_qa(db)
     rows = []
@@ -588,10 +678,9 @@ async def partial_team_quotas(
     can_manage = auth.has_role(RoleEnum.SUPERVISOR, RoleEnum.ADMIN)
     context: dict[str, object] = {
         "rows": rows,
-        "period_label": reporting_period.period_label(
-            closing_year, closing_month
-        ),
         "period_range": _period_range_label(period_start, period_end),
+        "period_value": period_value,
+        "period_options": await _period_options(db),
         "can_manage": can_manage,
         # Read-only agent chips render for every reviewer; the
         # drag-and-drop palette only appears for managers.
@@ -710,8 +799,9 @@ async def partial_qa_matrix(
 ) -> Response:
     """Render the 'QA Matrix' HTMX partial for authenticated users.
 
-    Context: every Support agent with their current REPORTING-period
-    quota (26th→25th, named after the closing month) and their
+    Context: every Support agent with their quota for the SELECTED
+    REPORTING period (26th→25th, named after the closing month;
+    ``?period=YYYY-MM`` picks a past one, default current) and their
     lifetime average final score as
     ``{"id", "name", "completed", "target", "avg_score"}`` (avg_score
     is None when the agent has no scored reviews). Global data:
@@ -732,8 +822,8 @@ async def partial_qa_matrix(
     if not is_reviewer(auth):
         return _forbidden()
 
-    period_start, period_end, closing_year, closing_month = (
-        reporting_period.reporting_period_for(datetime.now(timezone.utc))
+    period_start, period_end, closing_year, closing_month, period_value = (
+        _resolve_period(request.query_params)
     )
     support_users = await _support_agents(db)
     agent_ids = [user.id for user in support_users]
@@ -785,7 +875,15 @@ async def partial_qa_matrix(
         quota = await quota_service.get_agent_quota(
             user.id, closing_year, closing_month, db
         )
-        latest = reviews_by_agent.get(user.id, [])[: quota["target"]]
+        # The chip strip visualizes THIS period's quota — filter the
+        # agent's reviews to the selected period before slicing, or a
+        # historical view would show the agent's newest all-time cases.
+        period_reviews = [
+            review
+            for review in reviews_by_agent.get(user.id, [])
+            if period_start <= review.created_at < period_end
+        ]
+        latest = period_reviews[: quota["target"]]
         agents.append(
             {
                 "id": user.id,
@@ -834,10 +932,9 @@ async def partial_qa_matrix(
         context={
             "agents": agents,
             "cases": cases,
-            "period_label": reporting_period.period_label(
-                closing_year, closing_month
-            ),
             "period_range": _period_range_label(period_start, period_end),
+            "period_value": period_value,
+            "period_options": await _period_options(db),
             "can_delegate": auth.has_role(RoleEnum.SUPERVISOR, RoleEnum.ADMIN),
             "qas": [
                 {"id": qa.id, "name": qa.nickname} for qa in await _qas(db)
@@ -871,8 +968,10 @@ async def partial_review_drawer(
 
     Context: the Support agents (``{"id", "name"}``) selectable as
     review targets, the QA analysts (``{"id", "name"}``) selectable as
-    delegate assignees, and the case type values for the case-type
-    picker.
+    delegate assignees, the case type values for the case-type picker,
+    and the reporting-period options for backdating a new review
+    (current period preselected; past periods stamp ``created_at`` and
+    quota accounting server-side).
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -882,6 +981,7 @@ async def partial_review_drawer(
         {"id": user.id, "name": user.nickname} for user in await _support_agents(db)
     ]
 
+    closing_year, closing_month = _current_closing()
     return templates.TemplateResponse(
         request=request,
         name="partials/review_drawer.html",
@@ -889,6 +989,8 @@ async def partial_review_drawer(
             "agents": agents,
             "qas": [{"id": qa.id, "name": qa.nickname} for qa in await _qas(db)],
             "case_types": [case_type.value for case_type in CaseTypeEnum],
+            "period_value": f"{closing_year:04d}-{closing_month:02d}",
+            "period_options": await _period_options(db),
         },
     )
 

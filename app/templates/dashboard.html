@@ -215,13 +215,16 @@
 {% endif %}
 
 <script>
-/* Hash-synced view state. Every sidebar link swaps a partial into
-   #view-container while the URL stays "/", so a reload always landed on
-   the default view. The active partial is mirrored into the location
-   hash and restored BEFORE htmx fires its initial load — reloads (and
-   direct /#my-reviews-style links) reopen the same view, and the
-   sidebar highlights it via menu-active. Hashes that match no visible
-   link (RBAC-hidden views) fall back to the server-chosen default. */
+/* Hash-synced view + reporting-period state. Every sidebar link swaps
+   a partial into #view-container while the URL stays "/", so a reload
+   always landed on the default view. The active partial is mirrored
+   into the location hash — as "#view", or "#view@YYYY-MM" when a
+   non-current reporting period is selected — and restored BEFORE
+   htmx fires its initial load: reloads (and direct /#my-reviews@2026-07-style
+   links) reopen the same view AND period. Sidebar links and tracker
+   tabs are rewritten at click time to carry the selected period, so
+   switching views never drops it. Hashes that match no visible link
+   (RBAC-hidden views) fall back to the server-chosen default. */
 (function () {
     var container = document.getElementById('view-container');
     if (!container) return;
@@ -230,8 +233,26 @@
     );
     if (!links.length) return;
 
-    function partialOf(link) {
-        return (link.getAttribute('hx-get') || '').split('/').pop();
+    var state = { period: null };
+
+    function baseHx(url) {
+        return (url || '').split('?')[0];
+    }
+    function partialOf(source) {
+        var url = typeof source === 'string'
+            ? source
+            : ((source && (source.getAttribute('hx-get') || source.getAttribute('hx-post'))) || '');
+        return baseHx(url).split('/').pop();
+    }
+    function withPeriod(url, period) {
+        return period ? baseHx(url) + '?period=' + encodeURIComponent(period) : baseHx(url);
+    }
+    function parseHash() {
+        var raw = window.location.hash.replace('#', '');
+        var at = raw.indexOf('@');
+        return at === -1
+            ? { view: raw, period: null }
+            : { view: raw.slice(0, at), period: raw.slice(at + 1) || null };
     }
     function setActive(partial) {
         links.forEach(function (link) {
@@ -245,26 +266,86 @@
         return null;
     }
 
-    var wanted = window.location.hash.replace('#', '');
-    var target = wanted ? linkFor(wanted) : null;
+    // Restore BEFORE htmx initializes so the load-trigger fetches the
+    // hashed view (and period) instead of the server-side default.
+    var wanted = parseHash();
+    var target = wanted.view ? linkFor(wanted.view) : null;
     if (target) {
-        // Rewrite before htmx initializes so the load-trigger fetches
-        // the hashed view instead of the server-side default.
-        container.setAttribute('hx-get', target.getAttribute('hx-get'));
+        state.period = wanted.period;
+        container.setAttribute(
+            'hx-get', withPeriod(target.getAttribute('hx-get'), wanted.period));
     }
-    var current = target ? wanted : (container.getAttribute('hx-get') || '').split('/').pop();
+    var current = target ? wanted.view : partialOf(container);
     setActive(current);
 
     // Mirror every successful swap into the hash + sidebar highlight.
-    // Forbidden views (403) never swap, so the hash stays truthful.
-    document.body.addEventListener('htmx:afterRequest', function (event) {
-        var elt = event.detail.elt;
-        if (!elt || elt.getAttribute('hx-target') !== '#view-container') return;
-        if (!event.detail.successful) return;
-        var partial = partialOf(elt);
-        history.replaceState(null, '', '#' + partial);
+    // afterSwap fires ONLY on real swaps, so 403s (forbidden views)
+    // never touch the hash. Gotcha: for outerHTML swaps detail.target
+    // is the DETACHED old node (closest('#view-container') is null),
+    // so relevance is judged by the requesting element (which may be
+    // the fresh, attached section), its hx-target, or an explicit
+    // container target. The view name comes from the request path and
+    // the period from the fresh partial's data-period attribute.
+    document.body.addEventListener('htmx:afterSwap', function (event) {
+        var detail = event.detail || {};
+        var elt = detail.elt;
+        var swapped = detail.target;
+        var touchesView =
+            swapped === container ||
+            !!(swapped && swapped.closest && swapped.closest('#view-container')) ||
+            !!elt && (
+                elt === container ||
+                (elt.getAttribute && elt.getAttribute('hx-target') === '#view-container') ||
+                !!(elt.closest && elt.closest('#view-container'))
+            );
+        if (!touchesView) return;
+        var source = (detail.requestConfig && detail.requestConfig.path) || elt;
+        var partial = partialOf(source);
+        if (!partial) return;
+        // Sticky selection: views WITHOUT a period picker (e.g.
+        // To-review) don't reset it — switching there and back must
+        // keep the chosen month.
+        var periodNode = container.querySelector('[data-period]');
+        if (periodNode) state.period = periodNode.getAttribute('data-period');
+        history.replaceState(
+            null, '', '#' + partial + (state.period ? '@' + state.period : ''));
         setActive(partial);
     });
+
+    // Carry the selected period into view switches. Gotcha: htmx strips
+    // a query string from hx-get when the requester is an <a> (anchor
+    // path resolution), so rewriting sidebar links is pointless — the
+    // period is injected as a REQUEST PARAMETER in configRequest
+    // instead (serialized into the query string for GETs). Forms and
+    // section refetches keep their own period (hidden input / baked
+    // ?period= URL — both survive) and are skipped here.
+    document.body.addEventListener('htmx:configRequest', function (event) {
+        if (!state.period) return;
+        var detail = event.detail;
+        var elt = detail.elt;
+        var isViewSwitch =
+            elt === container ||
+            !!(elt && elt.getAttribute &&
+               elt.getAttribute('hx-target') === '#view-container');
+        if (!isViewSwitch) return;
+        if (detail.parameters && detail.parameters.period === undefined &&
+            (detail.path || '').indexOf('period=') === -1) {
+            detail.parameters.period = state.period;
+        }
+    });
+
+    // Tracker tabs call htmx.ajax with an explicit path (no element to
+    // intercept in configRequest), so the path itself is rewritten at
+    // click time — this capture-phase listener runs BEFORE the tab's
+    // own handler reads the attribute.
+    document.addEventListener('click', function (event) {
+        if (!state.period) return;
+        var tab = event.target.closest
+            ? event.target.closest('button[data-tracker-tab][data-partial]') : null;
+        if (tab && !tab.disabled) {
+            tab.setAttribute('data-partial', withPeriod(tab.getAttribute('data-partial'), state.period));
+        }
+    }, true);
 })();
 
 /* Tracker tabs: the underline glides to the clicked section; only

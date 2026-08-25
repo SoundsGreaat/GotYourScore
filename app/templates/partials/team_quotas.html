@@ -1,10 +1,28 @@
 {% import "macros/icons.html" as icons %}
-<section hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
+{% import "macros/dropdowns.html" as dd %}
+<!-- data-period: the dashboard hash-sync reads it to mirror
+     #view@YYYY-MM into the location hash across swaps. The ?period=
+     on hx-get keeps the selection across reviews-changed refetches
+     (this partial has no filter form to carry a hidden input). -->
+<section data-period="{{ period_value }}" hx-get="/partials/team-quotas?period={{ period_value }}" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Team Quotas
             <span class="block text-xs font-normal text-base-content/60">Period progress across your assigned agents</span>
         </h2>
-        <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_label }} &middot; {{ period_range }}</span>
+        <div class="flex flex-wrap items-center gap-2">
+            <!-- Period switcher: its own mini-form so the hidden input's
+                 change event refetches the whole view with ?period=... -->
+            <form hx-get="/partials/team-quotas"
+                  hx-target="closest section" hx-swap="outerHTML"
+                  hx-trigger="change" class="flex items-center">
+                {{ dd.dropdown('quotas-period',
+                    items=period_options,
+                    selected=period_value,
+                    aria_label='Reporting period',
+                    hidden_attrs='name="period"') }}
+            </form>
+            <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_range }}</span>
+        </div>
     </div>
     {% if rows %}
     <div id="quotas-scope" class="card rounded-box bg-base-100 shadow-sm">

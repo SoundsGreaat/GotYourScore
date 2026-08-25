@@ -1,0 +1,86 @@
+{#- Shared card + table for the To-review partial.
+
+    Both queues ("Assigned to you" and "Unassigned — grab any") MUST
+    render through this one macro: two hand-copied tables drift apart
+    and their auto-sized columns stop lining up (each table sized its
+    columns to its own content). table-fixed + the shared colgroup
+    below pin both tables to identical column geometry; content that
+    does not fit truncates with an ellipsis (full value in the title
+    tooltip).
+
+    Params:
+      rows        — to-review row dicts (created_at, support_agent_name,
+                    delegated_by_name, case_type, case_number,
+                    assigned_qa_name, id).
+      unassigned  — true for the shared-queue table: swaps the heading,
+                    the warning "Unassigned" badge and the grab tooltip.
+-#}
+{% macro card(rows, unassigned=false) %}
+<div class="card rounded-box bg-base-100 shadow-sm">
+    <div class="card-body min-w-0 p-3 sm:p-4">
+        {% if unassigned %}
+        <h3 class="flex items-center gap-2 text-base font-semibold">
+            Unassigned &mdash; grab any
+            <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
+        </h3>
+        {% else %}
+        <h3 class="flex items-center gap-2 text-base font-semibold">
+            Assigned to you
+            <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
+        </h3>
+        {% endif %}
+        <div class="max-w-full overflow-x-auto">
+            <!-- table-fixed + colgroup: identical column geometry for
+                 both queues regardless of content; min-w keeps mobile
+                 on the horizontal scroll instead of squishing. -->
+            <table class="table table-sm table-fixed w-full min-w-[640px]">
+                <colgroup>
+                    <col class="w-[13%]" /><!-- Date -->
+                    <col class="w-[12%]" /><!-- Agent -->
+                    <col class="w-[13%]" /><!-- Delegated by -->
+                    <col class="w-[15%]" /><!-- Case type -->
+                    <col class="w-[17%]" /><!-- Case # -->
+                    <col class="w-[16%]" /><!-- Assigned QA -->
+                    <col class="w-[14%]" /><!-- Actions -->
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Agent</th>
+                        <th>Delegated by</th>
+                        <th>Case type</th>
+                        <th>Case #</th>
+                        <th>Assigned QA</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td class="truncate" title="{{ row.created_at.strftime('%b %d, %Y') }}">{{ row.created_at.strftime('%b %d, %Y') }}</td>
+                        <th class="truncate font-medium" title="{{ row.support_agent_name }}">{{ row.support_agent_name }}</th>
+                        <td class="truncate" title="{{ row.delegated_by_name }}">{{ row.delegated_by_name }}</td>
+                        <td class="truncate" title="{{ row.case_type.value }}">{{ row.case_type.value }}</td>
+                        <td class="truncate" title="{{ row.case_number or '' }}">{% if row.case_number %}{{ row.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                        <td class="truncate">
+                            {% if unassigned %}
+                            <span class="badge badge-warning badge-sm">Unassigned</span>
+                            {% else %}
+                            <span class="badge badge-soft badge-sm">{{ row.assigned_qa_name or 'You' }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="whitespace-nowrap">
+                            <button type="button"
+                                    class="btn btn-primary btn-xs"
+                                    data-review-complete="{{ row.id }}"
+                                    aria-label="Complete delegated case {{ row.case_number or row.id }}"
+                                    title="{{ 'Grab and score this case' if unassigned else 'Open the review drawer and score this case' }}">Complete</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endmacro %}
