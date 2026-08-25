@@ -15,7 +15,6 @@ class CaseTypeEnum(str, enum.Enum):
     """
 
     INITIAL_FIX = "Initial Fix"
-    SCHEDULED_FIX = "Scheduled Fix"
     SERVICE_REQUEST = "Service Request"
     SECURITY_FIX = "Security Fix"
     INCIDENT_FIX = "Incident Fix"
