@@ -65,10 +65,17 @@
             </div>
 
             {% if can_review %}
-            <div role="tablist" class="tabs tabs-box">
-                <input type="radio" name="tracker_tabs" class="tab" aria-label="QA Score" checked="checked" />
-                <input type="radio" name="tracker_tabs" class="tab" aria-label="Bad Feedback" disabled />
-                <input type="radio" name="tracker_tabs" class="tab" aria-label="Refund Check" disabled />
+            <!-- Tracker tabs: sliding-underline selector (same pattern as
+                 the delegation switcher). Bad Feedback / Refund Check are
+                 future features — muted and unclickable for now. -->
+            <div class="gys-tracker-tabs" role="tablist" aria-label="Tracker sections">
+                <button type="button" class="active" data-tracker-tab="qa-score"
+                        data-partial="/partials/qa-matrix" aria-selected="true">QA Score</button>
+                <button type="button" data-tracker-tab="bad-feedback" disabled
+                        aria-disabled="true">Bad Feedback</button>
+                <button type="button" data-tracker-tab="refund-check" disabled
+                        aria-disabled="true">Refund Check</button>
+                <span class="gys-tracker-line" aria-hidden="true"></span>
             </div>
             {% endif %}
 
@@ -258,6 +265,50 @@
         history.replaceState(null, '', '#' + partial);
         setActive(partial);
     });
+})();
+
+/* Tracker tabs: the underline glides to the clicked section; only
+   sections with a live view are clickable (future ones stay muted).
+   Reduced-motion users get instant repositioning via CSS. */
+(function () {
+    var track = document.querySelector('.gys-tracker-tabs');
+    if (!track) return;
+    var line = track.querySelector('.gys-tracker-line');
+    var buttons = Array.prototype.slice.call(track.querySelectorAll('button[data-tracker-tab]'));
+    if (!line || !buttons.length) return;
+    var armed = false;
+
+    function place() {
+        var active = track.querySelector('button.active');
+        if (!active) return;
+        line.style.left = active.offsetLeft + 'px';
+        line.style.width = active.offsetWidth + 'px';
+        if (!armed) {
+            // Arm transitions one frame AFTER first placement so page
+            // load never slides the line in from x=0.
+            requestAnimationFrame(function () {
+                track.classList.add('gys-ready');
+                armed = true;
+            });
+        }
+    }
+    buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            if (btn.disabled) return;
+            buttons.forEach(function (b) {
+                b.classList.toggle('active', b === btn);
+                b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+            });
+            place();
+            var partial = btn.getAttribute('data-partial');
+            if (partial && window.htmx) window.htmx.ajax('GET', partial, '#view-container');
+        });
+    });
+    place();
+    window.addEventListener('resize', function () { place(); });
+    if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(function () { place(); });
+    }
 })();
 </script>
 {% endblock %}

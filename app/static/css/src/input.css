@@ -322,6 +322,50 @@
             }
         }
 
+        /* Dashboard tracker tabs (QA Score / Bad Feedback / Refund
+           Check): text buttons with a sliding underline, same pattern
+           the delegation switcher used. JS positions .gys-tracker-line;
+           transitions arm only once first placed (.gys-ready) so page
+           load never slides the line in from x=0. Disabled entries are
+           future features — visibly muted and unclickable. */
+        .gys-tracker-tabs {
+            position: relative;
+            display: flex;
+            gap: 26px;
+            padding: 0 2px 1px;
+        }
+        .gys-tracker-tabs button {
+            border: none;
+            background: transparent;
+            padding: 10px 2px;
+            font: inherit;
+            font-size: 0.92rem;
+            cursor: pointer;
+            color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
+        }
+        .gys-tracker-tabs button.active {
+            color: var(--color-primary);
+            font-weight: 600;
+        }
+        .gys-tracker-tabs button[disabled] {
+            cursor: default;
+            opacity: 0.45;
+        }
+        .gys-tracker-line {
+            position: absolute;
+            bottom: 0;
+            height: 2px;
+            border-radius: 2px;
+            background: var(--color-primary);
+        }
+        @media (prefers-reduced-motion: no-preference) {
+            .gys-tracker-tabs.gys-ready .gys-tracker-line {
+                transition:
+                    left var(--gys-speed) var(--gys-ease),
+                    width var(--gys-speed) var(--gys-ease);
+            }
+        }
+
         /* Buttons: normalize daisyUI's own transition onto the same
            tokens (its default curve differs, which read as "slower"). */
         .btn {

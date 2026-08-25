@@ -183,13 +183,18 @@ window.setDropdownValue = function (hiddenId, displayRef, value, text, btnEl) {
         display.classList.remove('text-base-content/70');
     }
     if (btnEl) {
-        var siblings = btnEl.closest('ul').querySelectorAll('button');
-        siblings.forEach(function (btn) {
-            btn.classList.remove('active');
-            btn.classList.remove('menu-active');
-        });
-        btnEl.classList.add('active');
-        btnEl.classList.add('menu-active');
+        // btnEl is normally the clicked menu OPTION (inside the popover
+        // <ul>), but programmatic callers may pass any trigger — the
+        // option-deselect step only applies when a list is present.
+        var list = btnEl.closest('ul');
+        if (list) {
+            list.querySelectorAll('button').forEach(function (btn) {
+                btn.classList.remove('active');
+                btn.classList.remove('menu-active');
+            });
+            btnEl.classList.add('active');
+            btnEl.classList.add('menu-active');
+        }
     }
     // Popover-API menus stay open after an inner click — close on pick.
     var pop = btnEl && btnEl.closest('[popover]');

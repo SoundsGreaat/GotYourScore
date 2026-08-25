@@ -162,7 +162,7 @@
 
     {% if can_delegate %}
     <dialog id="delegate-case-modal" class="modal">
-        <div class="modal-box w-11/12 max-w-md">
+        <div class="modal-box w-11/12 max-w-3xl">
             <form method="dialog">
                 <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">{{ icons.x() }}</button>
             </form>
@@ -170,50 +170,12 @@
             <p class="mt-1 text-xs text-base-content/60">Hand real cases to QAs – they stay pending (quota-neutral) until scored.</p>
             <div id="delegate-alert" role="alert" class="alert alert-error mt-3 hidden"></div>
 
-            <div role="tablist" class="tabs tabs-box mt-3">
-                <button type="button" role="tab" class="tab tab-active" data-delegate-tab="single" aria-selected="true">Single</button>
-                <button type="button" role="tab" class="tab" data-delegate-tab="batch" aria-selected="false">Batch</button>
-            </div>
-
-            <form id="delegate-form" data-delegate-pane="single" class="mt-3 space-y-3">
-                <fieldset class="fieldset">
-                    <label class="label" for="delegate-agent-button">Support agent</label>
-                    {{ dd.dropdown('delegate-agent',
-                        items=support_users,
-                        value_attr='id', label_attr='name',
-                        placeholder='Select agent…',
-                        menu_w='w-64') }}
-                </fieldset>
-                <fieldset class="fieldset">
-                    <label class="label" for="delegate-case-type-button">Case type</label>
-                    {{ dd.dropdown('delegate-case-type',
-                        items=delegate_case_types,
-                        value_attr='value', label_attr='value',
-                        placeholder='Select case type…',
-                        menu_w='w-64') }}
-                </fieldset>
-                <fieldset class="fieldset">
-                    <label class="label" for="delegate-case-number">Case number (optional)</label>
-                    <input id="delegate-case-number" type="text" class="input input-sm w-full" placeholder="123456" />
-                </fieldset>
-                <fieldset class="fieldset">
-                    <label class="label" for="delegate-qa-button">QA agent (optional)</label>
-                    {{ dd.dropdown('delegate-qa',
-                        items=qas,
-                        value_attr='id', label_attr='name',
-                        placeholder='Select QA…',
-                        menu_w='w-64') }}
-                    <p class="text-xs text-base-content/60">Leave empty to send the case to the shared queue for all QAs.</p>
-                </fieldset>
-                <button type="submit" class="btn btn-primary btn-block btn-sm">Delegate</button>
-            </form>
-
-            <div id="delegate-batch-pane" data-delegate-pane="batch" class="mt-3 space-y-3 hidden">
+            <div id="delegate-batch-pane" class="mt-3 space-y-3">
                 <template id="delegate-batch-row-template">
                     <!-- __ROW__ is rewritten to a unique number per cloned
                          row (ids, popovertarget targets and CSS anchor
                          names must never collide across rows). -->
-                    <div class="delegate-batch-row relative grid grid-cols-2 gap-2 rounded-box border border-base-300 bg-base-200/30 p-2 pr-9">
+                    <div class="delegate-batch-row relative grid grid-cols-2 gap-2 rounded-box border border-base-300 bg-base-200/30 p-2 sm:grid-cols-4">
                         <div class="min-w-0">
                             {{ dd.dropdown('dbqa__ROW__',
                                 items=qas,
@@ -230,7 +192,7 @@
                             {{ dd.dropdown('dbag__ROW__',
                                 items=support_users,
                                 value_attr='id', label_attr='name',
-                                placeholder='(Select agentâ€¦)',
+                                placeholder='Select agent…',
                                 menu_w='w-56',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='Support agent',
@@ -241,20 +203,77 @@
                             {{ dd.dropdown('dbct__ROW__',
                                 items=delegate_case_types,
                                 value_attr='value', label_attr='value',
-                                placeholder='Select case typeâ€¦',
+                                placeholder='Select case type…',
                                 menu_w='w-56',
                                 btn_cls='select select-sm w-full min-w-0 flex items-center',
                                 aria_label='Case type',
                                 hidden_attrs='data-field="case_type"',
                                 js_fn='qaMatrixSetDropdown') }}
                         </div>
-                        <input type="text" class="input input-sm w-full min-w-0 self-start" data-field="case_number"
-                               placeholder="Case # (optional)" aria-label="Case number (optional)" />
-                        <button type="button" class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1"
-                                data-remove-row aria-label="Remove row" title="Remove row">{{ icons.x() }}</button>
+                        <!-- Remove button lives INSIDE the case-number
+                             cell (overlaying its right edge): no reserved
+                             strip, so the input reaches the row border. -->
+                        <div class="relative min-w-0">
+                            <input type="text" class="input input-sm w-full min-w-0 pr-8" data-field="case_number"
+                                   placeholder="Case # (optional)" aria-label="Case number (optional)" />
+                            <button type="button" class="btn btn-ghost btn-xs btn-circle absolute right-1 top-1/2 -translate-y-1/2"
+                                    data-remove-row aria-label="Remove row" title="Remove row">{{ icons.x() }}</button>
+                        </div>
                     </div>
                 </template>
                 <p class="text-xs text-base-content/60">One delegation per row &mdash; filling a row reveals the next one. Rows without a QA go to the shared queue.</p>
+                <!-- Bulk override: picking a value in a column forces that
+                     column onto EVERY row (new rows included) and locks it;
+                     the "— any —" option releases the column back to its
+                     per-row choices. Case # is never overridden — case
+                     numbers are per-case. -->
+                <div class="rounded-box border border-primary/30 bg-primary/5 p-3">
+                    <p class="mb-2 text-[0.7rem] font-semibold uppercase tracking-wider text-primary">Bulk override</p>
+                    <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div class="min-w-0">
+                            <label class="label pb-1 text-xs" for="delegate-batch-override-qa-button">QA agent</label>
+                            {{ dd.dropdown('delegate-batch-override-qa',
+                                items=qas,
+                                value_attr='id', label_attr='name',
+                                any_label='— any —',
+                                placeholder='All rows…',
+                                menu_w='w-52',
+                                btn_cls='select select-sm w-full min-w-0 flex items-center',
+                                aria_label='Override QA agent for all rows',
+                                hidden_attrs='data-field="override_assigned_qa_id"',
+                                js_fn="qaMatrixOverrideChanged('assigned_qa_id')") }}
+                        </div>
+                        <div class="min-w-0">
+                            <label class="label pb-1 text-xs" for="delegate-batch-override-agent-button">Support agent</label>
+                            {{ dd.dropdown('delegate-batch-override-agent',
+                                items=support_users,
+                                value_attr='id', label_attr='name',
+                                any_label='— any —',
+                                placeholder='All rows…',
+                                menu_w='w-52',
+                                btn_cls='select select-sm w-full min-w-0 flex items-center',
+                                aria_label='Override support agent for all rows',
+                                hidden_attrs='data-field="override_support_agent_id"',
+                                js_fn="qaMatrixOverrideChanged('support_agent_id')") }}
+                        </div>
+                        <div class="min-w-0">
+                            <label class="label pb-1 text-xs" for="delegate-batch-override-case-type-button">Case type</label>
+                            {{ dd.dropdown('delegate-batch-override-case-type',
+                                items=delegate_case_types,
+                                value_attr='value', label_attr='value',
+                                any_label='— any —',
+                                placeholder='All rows…',
+                                menu_w='w-52',
+                                btn_cls='select select-sm w-full min-w-0 flex items-center',
+                                aria_label='Override case type for all rows',
+                                hidden_attrs='data-field="override_case_type"',
+                                js_fn="qaMatrixOverrideChanged('case_type')") }}
+                        </div>
+                    </div>
+                    <p class="mt-2 text-xs text-base-content/60">A picked value locks its column on every row; «— any —» releases it back to per-row choices.</p>
+                </div>
+
+                <div class="divider mt-5 mb-3 text-xs text-base-content/50">Rows</div>
                 <div id="delegate-batch-rows" class="space-y-2"></div>
                 <div id="delegate-batch-alert" role="alert" class="alert alert-error hidden"></div>
                 <div id="delegate-batch-summary" class="hidden rounded-box border border-base-300 bg-base-200/50 px-3 py-2 text-sm"></div>
@@ -367,49 +386,16 @@
         var delegateModal = document.getElementById('delegate-case-modal');
         var delegateOpen = section.querySelector('[data-delegate-open]');
         var delegateAlert = document.getElementById('delegate-alert');
-        var delegateForm = document.getElementById('delegate-form');
-
-        function showDelegateAlert(message) {
-            if (!delegateAlert) return;
-            delegateAlert.textContent = message;
-            delegateAlert.classList.remove('hidden');
-        }
-
-        // Every delegate dropdown is required: restore gray placeholders and
-        // clear hidden values so a reopened modal starts clean.
-        function resetDelegateDropdowns() {
-            [
-                ['delegate-agent', 'delegate-agent-display', 'Select agent\u2026'],
-                ['delegate-case-type', 'delegate-case-type-display', 'Select case type\u2026'],
-                ['delegate-qa', 'delegate-qa-display', 'Select QA\u2026']
-            ].forEach(function (spec) {
-                var hidden = document.getElementById(spec[0]);
-                var display = document.getElementById(spec[1]);
-                if (hidden) hidden.value = '';
-                if (display) {
-                    display.textContent = spec[2];
-                    display.classList.add('text-base-content/70');
-                }
-                var menu = document.getElementById(spec[0] + '-menu');
-                if (!menu) return;
-                menu.querySelectorAll('button').forEach(function (btn) {
-                    btn.classList.remove('active');
-                    btn.classList.remove('menu-active');
-                });
-            });
-        }
 
         if (delegateModal && delegateOpen) {
             delegateOpen.addEventListener('click', function () {
                 delegateAlert.classList.add('hidden');
-                resetDelegateDropdowns();
                 resetBatchPane();
                 // While the modal is open the section skips reviews-changed
                 // refreshes (see hx-trigger guard) so an in-progress batch
                 // is never wiped mid-edit; mutations performed here are
                 // replayed for this section when the dialog closes.
                 window.__qaMatrixDelegateModalOpen = true;
-                switchDelegateTab('single');
                 delegateModal.showModal();
             });
 
@@ -418,38 +404,6 @@
                 if (window.__qaMatrixNotifyOnClose) {
                     window.__qaMatrixNotifyOnClose = false;
                     document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
-                }
-            });
-
-            delegateForm.addEventListener('submit', async function (event) {
-                event.preventDefault();
-                delegateAlert.classList.add('hidden');
-                var payload = {
-                    support_agent_id: Number(document.getElementById('delegate-agent').value),
-                    case_type: document.getElementById('delegate-case-type').value,
-                    case_number: document.getElementById('delegate-case-number').value.trim() || null,
-                    assigned_qa_id: document.getElementById('delegate-qa').value || null
-                };
-                if (!payload.support_agent_id || !payload.case_type) {
-                    showDelegateAlert('Support agent and case type are required; case number and assignee are optional.');
-                    return;
-                }
-                try {
-                    var response = await fetch('/api/reviews/pending', {
-                        method: 'POST',
-                        credentials: 'same-origin',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    if (!response.ok) {
-                        var errorPayload = await response.json().catch(function () { return null; });
-                        throw new Error(extractDetail(errorPayload, response.status));
-                    }
-                    delegateModal.close();
-                    document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
-                    showToast('Case delegated.', 'alert-success');
-                } catch (error) {
-                    showDelegateAlert(error.message || 'Unable to delegate the case.');
                 }
             });
         }
@@ -568,27 +522,6 @@
             batchResultArea.innerHTML = html;
         }
 
-        function switchDelegateTab(name) {
-            section.querySelectorAll('[data-delegate-tab]').forEach(function (tab) {
-                var active = tab.getAttribute('data-delegate-tab') === name;
-                tab.classList.toggle('tab-active', active);
-                tab.setAttribute('aria-selected', active ? 'true' : 'false');
-            });
-            section.querySelectorAll('[data-delegate-pane]').forEach(function (pane) {
-                pane.classList.toggle('hidden', pane.getAttribute('data-delegate-pane') !== name);
-            });
-            if (name === 'batch') {
-                if (batchRows && !batchRows.querySelector('.delegate-batch-row')) addBatchRow();
-                updateBatchSummary();
-            }
-        }
-
-        section.querySelectorAll('[data-delegate-tab]').forEach(function (tab) {
-            tab.addEventListener('click', function () {
-                switchDelegateTab(tab.getAttribute('data-delegate-tab'));
-            });
-        });
-
         // qaMatrixSetDropdown (shared with the Single pane) calls this
         // after every pick — keep it pointing at the summary refresh.
         window.qaMatrixScheduleBatchPreview = updateBatchSummary;
@@ -596,10 +529,23 @@
         // Filling ANY control in the trailing row grows the list by one,
         // so there is always exactly one empty row at the bottom.
         function handleBatchRowEdit(event) {
-            var row = event.target.closest ? event.target.closest('.delegate-batch-row') : null;
+            // Override-driven writes dispatch change like user edits;
+            // growing on them recurses forever (every grown row gets
+            // written to again). Only real user edits grow the list.
+            var tgt = event.target;
+            var fieldName = tgt && tgt.getAttribute ? tgt.getAttribute('data-field') : null;
+            if (fieldName && batchIsOverriddenField(fieldName)) {
+                return;
+            }
+            var row = tgt && tgt.closest ? tgt.closest('.delegate-batch-row') : null;
             if (!row || !batchRows || !batchRows.contains(row)) return;
             var rows = batchRows.querySelectorAll('.delegate-batch-row');
-            if (row === rows[rows.length - 1] && batchRowTouched(row)) addBatchRow();
+            if (row === rows[rows.length - 1] && batchRowTouched(row)) {
+                addBatchRow();
+                // Rows grown while overrides are active are born locked
+                // to them as well.
+                batchApplyOverridesToRow(batchRows.querySelector('.delegate-batch-row:last-child'));
+            }
             updateBatchSummary();
         }
         if (batchRows) {
@@ -618,7 +564,117 @@
         }
 
         // Reopening the modal starts the Batch pane from scratch.
+        // ---- Bulk override: each override dropdown forces ITS column
+        // (QA / support agent / case type) onto every row and locks it;
+        // the "— any —" option restores that column's per-row snapshots
+        // and unlocks. Rows grown while overrides are active are born
+        // locked too (see handleBatchRowEdit). Case # is never overridden:
+        // case numbers are per-case and duplicates get skipped server-side.
+        var OVERRIDE_FIELDS = ['assigned_qa_id', 'support_agent_id', 'case_type'];
+        var overridePlaceholders = {
+            assigned_qa_id: 'All rows…',
+            support_agent_id: 'All rows…',
+            case_type: 'All rows…'
+        };
+        var overrideSnapshots = {}; // field -> { rowHiddenId: {value, text} }
+        var overrideTexts = {};     // field -> picked display label
+
+        function batchOverrideHidden(field) {
+            var suffix = { assigned_qa_id: 'qa', support_agent_id: 'agent', case_type: 'case-type' }[field];
+            return document.getElementById('delegate-batch-override-' + suffix);
+        }
+        function batchOverrideActive(field) {
+            var hidden = batchOverrideHidden(field);
+            return Boolean(hidden && hidden.value.trim());
+        }
+        function batchOverrideLabel(field) {
+            var hidden = batchOverrideHidden(field);
+            if (!hidden || !hidden.value.trim()) return '';
+            var display = document.getElementById(hidden.id + '-display');
+            return display ? display.textContent : '';
+        }
+
+        function batchRowControls(row, field) {
+            var hidden = row.querySelector('[data-field="' + field + '"]');
+            if (!hidden || !hidden.id) return null;
+            return {
+                hidden: hidden,
+                display: document.getElementById(hidden.id + '-display'),
+                button: document.getElementById(hidden.id + '-button')
+            };
+        }
+
+        function batchApplyFieldToRow(row, field) {
+            var ctl = batchRowControls(row, field);
+            if (!ctl || !batchOverrideActive(field)) {
+                if (ctl && ctl.button) ctl.button.disabled = false;
+                return;
+            }
+            if (!(field in overrideSnapshots)) overrideSnapshots[field] = {};
+            if (!(ctl.hidden.id in overrideSnapshots[field])) {
+                // Snapshot the row's own pick once so clearing the
+                // override can restore exactly what was chosen.
+                overrideSnapshots[field][ctl.hidden.id] = {
+                    value: ctl.hidden.value,
+                    text: ctl.display ? ctl.display.textContent : ''
+                };
+            }
+            window.setDropdownValue(ctl.hidden.id, ctl.hidden.id + '-display',
+                batchOverrideHidden(field).value.trim(), batchOverrideLabel(field), ctl.button);
+            if (ctl.button) ctl.button.disabled = true;
+        }
+
+        function batchRestoreFieldRow(row, field) {
+            var ctl = batchRowControls(row, field);
+            if (!ctl) return;
+            if (ctl.button) ctl.button.disabled = false;
+            var saved = (overrideSnapshots[field] || {})[ctl.hidden.id];
+            if (saved && saved.value) {
+                window.setDropdownValue(ctl.hidden.id, ctl.hidden.id + '-display',
+                    saved.value, saved.text, ctl.button);
+            } else if (saved) {
+                window.qaMatrixClearDropdown(ctl.hidden.id, ctl.hidden.id + '-display', saved.text);
+            }
+            if (overrideSnapshots[field]) delete overrideSnapshots[field][ctl.hidden.id];
+        }
+
+        function batchIsOverriddenField(field) {
+            return OVERRIDE_FIELDS.indexOf(field) !== -1 && batchOverrideActive(field);
+        }
+
+        function batchApplyOverridesToRow(row) {
+            OVERRIDE_FIELDS.forEach(function (field) {
+                if (batchIsOverriddenField(field)) batchApplyFieldToRow(row, field);
+            });
+        }
+
+        // Curried js_fn hook (dd.dropdown embeds it before its own args):
+        // a custom js_fn must update ITS OWN dropdown first (the default
+        // setDropdownValue is replaced by this hook), then fan the value
+        // out over every row's column.
+        window.qaMatrixOverrideChanged = function (field) {
+            return function (hiddenId, displayId, value, text, btnEl) {
+                window.setDropdownValue(hiddenId, displayId, value, text, btnEl);
+                overrideTexts[field] = value ? (text || '') : '';
+                var rows = batchRows ? Array.prototype.slice.call(batchRows.querySelectorAll('.delegate-batch-row')) : [];
+                rows.forEach(function (row) {
+                    if (value) batchApplyFieldToRow(row, field);
+                    else batchRestoreFieldRow(row, field);
+                });
+                if (!value && overrideSnapshots[field]) overrideSnapshots[field] = {};
+                updateBatchSummary();
+            };
+        };
+
         function resetBatchPane() {
+            overrideSnapshots = {};
+            overrideTexts = {};
+            OVERRIDE_FIELDS.forEach(function (field) {
+                var hidden = batchOverrideHidden(field);
+                if (hidden && window.qaMatrixClearDropdown) {
+                    window.qaMatrixClearDropdown(hidden.id, hidden.id + '-display', overridePlaceholders[field]);
+                }
+            });
             resetBatchRows();
             if (batchResultArea) batchResultArea.innerHTML = '';
             if (batchAlert) batchAlert.classList.add('hidden');
