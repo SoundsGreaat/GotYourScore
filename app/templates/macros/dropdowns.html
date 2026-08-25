@@ -42,46 +42,54 @@
                   btn_cls='select select-sm w-full flex items-center',
                   aria_label='', display_sel='', hidden_attrs='',
                   opt_data='', js_fn='setDropdownValue') -%}
-{% set anchor = '--' ~ id ~ '-anchor' %}
-{% set disp_ref = display_sel if display_sel else '#' ~ id ~ '-display' %}
-{# Jinja has no comprehension syntax, so option dicts are built in a
+    {% set anchor = '--' ~ id ~ '-anchor' %}
+    {% set disp_ref = display_sel if display_sel else '#' ~ id ~ '-display' %}
+    {# Jinja has no comprehension syntax, so option dicts are built in a
    plain loop. Subscripting falls back to attributes (dicts, ORM objects,
    enums all work); plain strings have neither attribute, yield Undefined
    and default to themselves. str-mixin enums must NOT be treated as
    strings here — their members still resolve value/label via the lookup. #}
-{% set ns = namespace(opts=[]) %}
-{% for it in items %}
-    {% set _ = ns.opts.append({
+    {% set ns = namespace(opts=[]) %}
+    {% for it in items %}
+        {% set _ = ns.opts.append({
         'value': it[value_attr] | default(it),
         'label': it[label_attr] | default(it)}) %}
-{% endfor %}
-{% set opts = ns.opts %}
-{% set match = opts | selectattr('value', 'equalto', selected) | list %}
-{% set span_cls = ((display_sel[1:] ~ ' ') if display_sel else '') ~ 'pointer-events-none truncate' ~ ('' if match else ' text-base-content/70') %}
-{% set shown = match[0].label if match else (any_label if any_label else placeholder) %}
-<button type="button" id="{{ id }}-button" popovertarget="{{ id }}-menu"
-        style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}
-        class="{{ btn_cls }}">
-    {% if display_sel %}
-    <span class="{{ span_cls }}">{{ shown }}</span>
-    {% else %}
-    <span id="{{ id }}-display" class="{{ span_cls }}">{{ shown }}</span>
-    {% endif %}
-</button>
-<ul id="{{ id }}-menu" popover style="position-anchor:{{ anchor }}"
-    class="dropdown menu menu-sm {{ menu_w }} flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48 ">
-    {%- if any_label %}
-    <li>
-        <button type="button"{% if opt_data %} {{ opt_data }}=""{% endif %}{% if not selected %} class="active menu-active"{% endif %}
-                onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '', '{{ any_label }}', this)">{{ any_label }}</button>
-    </li>
-    {% endif -%}
-    {%- for opt in opts %}
-    <li>
-        <button type="button"{% if opt_data %} {{ opt_data }}="{{ opt.value }}"{% endif %}{% if opt.value|string == selected|string %} class="active menu-active"{% endif %}
-                onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '{{ opt.value }}', '{{ opt.label }}', this)">{{ opt.label }}</button>
-    </li>
-    {% endfor -%}
-</ul>
-<input type="hidden" id="{{ id }}" value="{{ selected }}"{% if hidden_attrs %} {{ hidden_attrs | safe }}{% endif %}>
+    {% endfor %}
+    {% set opts = ns.opts %}
+    {% set match = opts | selectattr('value', 'equalto', selected) | list %}
+    {% set span_cls = ((display_sel[1:] ~ ' ') if display_sel else '') ~ 'pointer-events-none truncate' ~ ('' if match else ' text-base-content/70') %}
+    {% set shown = match[0].label if match else (any_label if any_label else placeholder) %}
+    <button type="button" id="{{ id }}-button" popovertarget="{{ id }}-menu"
+            style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}
+            class="{{ btn_cls }}">
+        {% if display_sel %}
+            <span class="{{ span_cls }}">{{ shown }}</span>
+        {% else %}
+            <span id="{{ id }}-display" class="{{ span_cls }}">{{ shown }}</span>
+        {% endif %}
+    </button>
+    <ul id="{{ id }}-menu" popover style="position-anchor:{{ anchor }}"
+        class="dropdown menu menu-sm {{ menu_w }} flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+        {%- if any_label %}
+            <li>
+                <button type="button"
+                        {{ (opt_data ~ '=""') if opt_data else '' }}
+                        class="{{ 'active menu-active' if not selected else '' }}"
+                        onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '', '{{ any_label }}', this)">
+                    {{ any_label }}
+                </button>
+            </li>
+        {% endif -%}
+        {%- for opt in opts %}
+            <li>
+                <button type="button"
+                        {{ (opt_data ~ '="' ~ opt.value ~ '"') if opt_data else '' }}
+                        class="{{ 'active menu-active' if opt.value|string == selected|string else '' }}"
+                        onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '{{ opt.value }}', '{{ opt.label }}', this)">
+                    {{ opt.label }}
+                </button>
+            </li>
+        {% endfor -%}
+    </ul>
+    <input type="hidden" id="{{ id }}" value="{{ selected }}"{% if hidden_attrs %} {{ hidden_attrs | safe }}{% endif %}>
 {%- endmacro %}

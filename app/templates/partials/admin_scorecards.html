@@ -1,16 +1,18 @@
 {# Scorecard templates partial (swapped into #admin-view).
-   Context: templates=[{id, name, case_type, is_active, item_count}],
-   case_types=[CaseTypeEnum], selected_id=int|None, error=str|None.
-   Master-detail: template cards on the LEFT, the rule editor on the
-   RIGHT. The editor column lazy-fetches the editor partial for
-   selected_id so the list context never needs editor variables.
-   Clicking a card swaps the editor AND highlights the card instantly
-   client-side (no list re-render), so selection never flickers or
-   scrolls away. Exactly ONE template per case type can be active:
-   toggling one ON demotes its same-type siblings server-side. #}
+Context: templates=[{id, name, case_type, is_active, item_count}],
+case_types=[CaseTypeEnum], selected_id=int|None, error=str|None.
+Master-detail: template cards on the LEFT, the rule editor on the
+RIGHT. The editor column lazy-fetches the editor partial for
+selected_id so the list context never needs editor variables.
+Clicking a card swaps the editor AND highlights the card instantly
+client-side (no list re-render), so selection never flickers or
+scrolls away. Exactly ONE template per case type can be active:
+toggling one ON demotes its same-type siblings server-side. #}
 {% import "macros/dropdowns.html" as dd %}
 <div id="scorecards-root">
-    {% if error %}<div role="alert" class="alert alert-error mb-3"><span>{{ error }}</span></div>{% endif %}
+    {% if error %}
+    <div role="alert" class="alert alert-error mb-3"><span>{{ error }}</span></div>
+    {% endif %}
 
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div class="w-full shrink-0 space-y-3 lg:w-80 xl:w-96">
@@ -20,13 +22,13 @@
                     <form hx-post="/admin/scorecards/create" hx-target="#admin-view" hx-swap="innerHTML"
                           class="flex flex-col gap-2">
                         <input name="name" required maxlength="200" placeholder="Template name"
-                               class="input input-sm w-full" aria-label="Template name" />
+                               class="input input-sm w-full" aria-label="Template name"/>
                         <div class="w-full">
                             {{ dd.dropdown('new-case',
-                                items=case_types,
-                                value_attr='value', label_attr='value',
-                                selected=case_types[0].value,
-                                hidden_attrs='name="case_type"') }}
+                            items=case_types,
+                            value_attr='value', label_attr='value',
+                            selected=case_types[0].value,
+                            hidden_attrs='name="case_type"') }}
                         </div>
                         <button type="submit" class="btn btn-primary btn-sm shrink-0">Create</button>
                     </form>
@@ -57,11 +59,13 @@
                                 <span class="text-xs text-base-content/60">{{ t.item_count }} rules</span>
                             </div>
                         </button>
-                        <label class="flex shrink-0 items-center gap-1 sm:flex-col" title="{{ 'Deactivate template' if t.is_active else 'Activate template (demotes other active templates of this case type)' }}">
-                            <input type="checkbox" class="toggle toggle-sm toggle-success" {{ 'checked' if t.is_active }}
+                        <label class="flex shrink-0 items-center gap-1 sm:flex-col"
+                               title="{{ 'Deactivate template' if t.is_active else 'Activate template (demotes other active templates of this case type)' }}">
+                            <input type="checkbox" class="toggle toggle-sm toggle-success"
+                                   {% if t.is_active %}checked{% endif %}
                                    aria-label="Toggle template active"
                                    hx-post="/admin/scorecards/{{ t.id }}/toggle"
-                                   hx-target="#admin-view" hx-swap="innerHTML" />
+                                   hx-target="#admin-view" hx-swap="innerHTML"/>
                             <span class="text-[10px] uppercase tracking-wide text-base-content/50">on</span>
                         </label>
                     </div>
@@ -77,7 +81,8 @@
         <div class="min-w-0 flex-1">
             <div id="scorecard-editor">
                 {% if selected_id %}
-                <div hx-get="/admin/partials/scorecard-editor/{{ selected_id }}" hx-trigger="load" hx-swap="innerHTML"></div>
+                <div hx-get="/admin/partials/scorecard-editor/{{ selected_id }}" hx-trigger="load"
+                     hx-swap="innerHTML"></div>
                 {% else %}
                 <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
                     Select a template on the left to edit its rules.
