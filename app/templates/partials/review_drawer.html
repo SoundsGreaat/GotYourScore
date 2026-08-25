@@ -347,7 +347,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     quill = window.Quill.find(editorContainer);
     if (!quill) quill = new window.Quill(editorContainer, {
         theme: 'snow',
-        modules: { toolbar: [['bold', 'italic', 'underline'], [{ color: [] }], ['image', 'code-block']] }
+        modules: { toolbar: [
+            ['bold', 'italic', 'underline'],
+            [{ list: 'ordered' }, { list: 'bullet' }],
+            [{ color: [] }],
+            ['image', 'code-block']
+        ] }
     });
     var draft = loadDraft();
     if (draft && draft.notes_html && !quill.getText().trim()) {
