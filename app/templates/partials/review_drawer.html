@@ -853,6 +853,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             quill.clipboard.dangerouslyPasteHTML(0, clean);
             saveDraft();
             hideMenu(true);
+            showToast('Notes refactored.', 'alert-success');
         } catch (error) {
             showToast(aiErrorMessage(error));
         } finally {
@@ -882,6 +883,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 }
             });
             if (!matched) showToast('No matching scorecard rules for the AI findings.');
+            else showToast(matched + ' rule(s) applied from the AI score.', 'alert-success');
             hideMenu(true);
             window.clearTimeout(previewTimer);
             recalcScore();
