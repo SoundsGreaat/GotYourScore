@@ -1042,6 +1042,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     case_number: document.getElementById('case-number').value || null,
                     notes: sanitizeHtml(quill.root.innerHTML),
                     raw_scorecard: collectDeductions(),
+                    // Waived multipliers (unchecked preview rows) must
+                    // reach the server on CREATE too — otherwise the
+                    // stored breakdown silently reapplies them and
+                    // only edit-mode saves honor the toggles.
+                    no_multiplier_keys: Object.keys(multiplierExemptions),
                     // Backfill: omitted/current keeps "now"; a past
                     // period makes the server stamp created_at and
                     // enforce that period's quota.
