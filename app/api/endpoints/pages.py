@@ -802,9 +802,10 @@ async def partial_qa_matrix(
     Context: every Support agent with their quota for the SELECTED
     REPORTING period (26th→25th, named after the closing month;
     ``?period=YYYY-MM`` picks a past one, default current) and their
-    lifetime average final score as
+    per-period average final score as
     ``{"id", "name", "completed", "target", "avg_score"}`` (avg_score
-    is None when the agent has no scored reviews). Global data:
+    is the average final score WITHIN THE SELECTED period and is None
+    when the agent has no scored reviews in it). Global data:
     reviewer roles only — Support-only users get a bare 403 (no
     redirect). The per-agent quota lookups are N+1 queries —
     acceptable for a small team; averages are one grouped query.
@@ -835,6 +836,8 @@ async def partial_qa_matrix(
                 Review.support_agent_id.in_(agent_ids),
                 Review.final_score.is_not(None),
                 Review.deleted_at.is_(None),
+                Review.created_at >= period_start,
+                Review.created_at < period_end,
             )
             .group_by(Review.support_agent_id)
         )
