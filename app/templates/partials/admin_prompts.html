@@ -1,6 +1,6 @@
 {# System prompts partial (swapped into #admin-view).
    Context: slots=[{key, title, description, versions(newest first),
-   active_id(id|None)}], error=str|None, saved=bool.
+   active_id(id|None)}], saved=bool.
    One full-width card per fixed slot: a prefilled editor that saves a
    NEW active version, plus the key's history as compact rows (any
    version can be re-activated or deleted; deleting the active one
@@ -8,8 +8,7 @@
    their preview instead of widening the card, so no horizontal
    scrollbar ever appears. #}
 <div id="admin-prompts-root" class="space-y-4">
-    {% if error %}<div role="alert" class="alert alert-error"><span>{{ error }}</span></div>{% endif %}
-    {% if saved %}<div role="status" class="alert alert-success alert-soft"><span>Saved as the active version.</span></div>{% endif %}
+    {% if saved %}<script>window.gysToast && window.gysToast('Saved as the active version.', 'alert-success');</script>{% endif %}
 
     {% for slot in slots %}
     {% set active_v = slot.versions | selectattr('id', 'equalto', slot.active_id) | list | first %}

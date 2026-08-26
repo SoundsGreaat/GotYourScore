@@ -1,32 +1,17 @@
 {# Scorecard rule editor partial (swapped into #scorecard-editor).
    Context: t=ScorecardTemplate, groups=[{category, items}],
-   case_types=[CaseTypeEnum], error=str|None, saved=bool.
+   case_types=[CaseTypeEnum], saved=bool.
    NOTE: groups entries are plain dicts — read the item list as
    ``group['items']`` (``group.items`` resolves to the dict METHOD).
 
    The save is built by hand (indexed display_name_{i} / category_{i} /
    penalty_{i} / active_{i} / item_id_{i} rows + removed_ids) and sent
    via htmx.ajax so row indices are computed at click time, not render
-   time. Validation failures return HTTP 400 with an alert-fragment
-   body that HTMX will NOT swap (non-2xx); the document-level
-   htmx:responseError listener below injects it into #editor-alert. #}
+   time. Validation failures return HTTP 400 JSON whose detail the
+   GLOBAL htmx error net (common.js) toasts. #}
 {% import "macros/dropdowns.html" as dd %}
 <div id="editor-root">
     <script>
-        if (!window.__adminEditorInit) {
-            window.__adminEditorInit = true;
-            document.body.addEventListener("htmx:responseError", function (evt) {
-                var xhr = evt.detail.xhr;
-                if (
-                    xhr.status === 400 &&
-                    evt.detail.target &&
-                    evt.detail.target.id === "scorecard-editor"
-                ) {
-                    var slot = document.getElementById("editor-alert");
-                    if (slot) slot.innerHTML = xhr.responseText;
-                }
-            });
-        }
         window.__editorRemoved = [];
 
         window.__gripButton = function (kind) {
@@ -196,10 +181,7 @@
         };
     </script>
 
-    <div id="editor-alert" class="space-y-2">
-        {% if error %}<div role="alert" class="alert alert-error"><span>{{ error }}</span></div>{% endif %}
-        {% if saved %}<div role="status" class="alert alert-success alert-soft"><span>Saved.</span></div>{% endif %}
-    </div>
+    {% if saved %}<script>window.gysToast && window.gysToast('Scorecard saved.', 'alert-success');</script>{% endif %}
 
     <form data-url="/admin/scorecards/{{ t.id }}/save" onsubmit="return false"
           class="card rounded-box mt-3 bg-base-100 shadow-sm">

@@ -14,9 +14,16 @@
                 </div>
 
                 {% if error %}
-                <div role="alert" class="alert alert-warning w-full text-left">
-                    <span>Sign-in failed ({{ error }}). Please try again.</span>
-                </div>
+                {# common.js is deferred — fire the toast once it lands. #}
+                <script>
+                    (function () {
+                        function fire() {
+                            window.gysToast('Sign-in failed ({{ error }}). Please try again.', 'alert-error');
+                        }
+                        if (window.gysToast) fire();
+                        else document.addEventListener('DOMContentLoaded', fire);
+                    })();
+                </script>
                 {% endif %}
 
                 <a href="/auth/login" class="btn btn-primary btn-lg btn-block">

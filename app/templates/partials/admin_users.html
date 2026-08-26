@@ -8,13 +8,11 @@
    hx-include stays scoped to that user's checkboxes, plus a Delete
    button that soft-deletes (deleted_at). The own-row Admin checkbox
    is disabled (disabled fields are never submitted; the server still
-   enforces the rule). Validation failures return HTTP 400
-   alert-fragment bodies that HTMX will NOT swap (non-2xx); the
-   document-level htmx:responseError listener below injects them into
-   #users-alert. Every mutation re-renders this whole partial. #}
+   enforces the rule). Validation failures return HTTP 400 JSON whose
+   detail the GLOBAL htmx error net (common.js) toasts. Every mutation
+   re-renders this whole partial. #}
 <div id="users-root" class="space-y-4">
-    <div id="users-alert"></div>
-    {% if status %}<div role="status" class="alert alert-success alert-soft"><span>{{ status }}</span></div>{% endif %}
+    {% if status %}<script>window.gysToast && window.gysToast({{ status | tojson }}, 'alert-success');</script>{% endif %}
 
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body gap-3 p-3 sm:p-4">
@@ -98,20 +96,6 @@
 </div>
 
 <script>
-    if (!window.__adminUsersInit) {
-        window.__adminUsersInit = true;
-        document.body.addEventListener("htmx:responseError", function (evt) {
-            var xhr = evt.detail.xhr;
-            var path = evt.detail.path || "";
-            var isUserMutation = path === "/admin/users/create" ||
-                /^\/admin\/users\/\d+\/(roles|delete)$/.test(path);
-            if (xhr.status === 400 && isUserMutation &&
-                evt.detail.target && evt.detail.target.id === "admin-view") {
-                var slot = document.getElementById("users-alert");
-                if (slot) slot.innerHTML = xhr.responseText;
-            }
-        });
-    }
     if (!window.__adminUsersSearchInit) {
         window.__adminUsersSearchInit = true;
         document.addEventListener('input', function (event) {

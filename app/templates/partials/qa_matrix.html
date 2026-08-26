@@ -208,7 +208,6 @@
             </form>
             <h3 class="text-lg font-bold">Delegate case</h3>
             <p class="mt-1 text-xs text-base-content/60">Hand real cases to QAs – they stay pending (quota-neutral) until scored.</p>
-            <div id="delegate-alert" role="alert" class="alert alert-error mt-3 hidden"></div>
 
             <div id="delegate-batch-pane" class="mt-3 space-y-3">
                 <template id="delegate-batch-row-template">
@@ -309,7 +308,6 @@
 
                 <div class="divider mt-5 mb-3 text-xs text-base-content/50">Rows</div>
                 <div id="delegate-batch-rows" class="space-y-2"></div>
-                <div id="delegate-batch-alert" role="alert" class="alert alert-error hidden"></div>
                 <div id="delegate-batch-summary" class="gys-accent-panel hidden px-3 py-2 text-sm"></div>
                 <button type="button" id="delegate-batch-submit" class="btn btn-primary btn-block btn-sm" disabled>Delegate 0 cases</button>
             </div>
@@ -405,11 +403,9 @@
 
         var delegateModal = document.getElementById('delegate-case-modal');
         var delegateOpen = section.querySelector('[data-delegate-open]');
-        var delegateAlert = document.getElementById('delegate-alert');
 
         if (delegateModal && delegateOpen) {
             delegateOpen.addEventListener('click', function () {
-                delegateAlert.classList.add('hidden');
                 resetBatchPane();
                 // While the modal is open the section skips reviews-changed
                 // refreshes (see hx-trigger guard) so an in-progress batch
@@ -434,7 +430,6 @@
         var batchRows = document.getElementById('delegate-batch-rows');
         var batchSummary = document.getElementById('delegate-batch-summary');
         var batchSubmit = document.getElementById('delegate-batch-submit');
-        var batchAlert = document.getElementById('delegate-batch-alert');
 
         var escapeHtml = window.escapeHtml;
 
@@ -702,7 +697,6 @@
                 }
             });
             resetBatchRows();
-            if (batchAlert) batchAlert.classList.add('hidden');
             updateBatchSummary();
         }
 
@@ -713,7 +707,6 @@
                     batchRows.querySelectorAll('.delegate-batch-row'), batchRowReady
                 );
                 if (!readyRows.length) return;
-                if (batchAlert) batchAlert.classList.add('hidden');
                 batchSubmit.disabled = true;
                 try {
                     var response = await fetch('/api/reviews/pending/bulk', {
@@ -743,10 +736,7 @@
                     window.__qaMatrixNotifyOnClose = true;
                     document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
                 } catch (error) {
-                    if (batchAlert) {
-                        batchAlert.textContent = error.message || 'Unable to delegate the cases.';
-                        batchAlert.classList.remove('hidden');
-                    }
+                    showToast(error.message || 'Unable to delegate the cases.', 'alert-error');
                 } finally {
                     updateBatchSummary();
                 }

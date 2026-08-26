@@ -115,7 +115,6 @@
                      JS mutations (hidden/disabled) from a dead mount would
                      leak into the fresh one (same reason the QA display
                      spans above are id-less). -->
-                <div class="js-drawer-alert alert alert-error hidden" role="alert"></div>
 
                 <!-- Sticky: pinned to the bottom while scrolling, rests
                      below the scorecard at full scroll. -->
@@ -263,16 +262,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         });
     }
 
+    // Errors toast bottom-center like every other notification — no
+    // inline alert box inside the drawer.
     function showDrawerError(message) {
-        var alertBox = document.querySelector('.js-drawer-alert');
-        if (!alertBox) { showToast(message); return; }
-        alertBox.textContent = message;
-        alertBox.classList.remove('hidden');
-    }
-
-    function hideDrawerError() {
-        var alertBox = document.querySelector('.js-drawer-alert');
-        if (alertBox) alertBox.classList.add('hidden');
+        showToast(message, 'alert-error');
     }
 
     var menuOpenedAt = 0;
@@ -552,7 +545,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         drawerState.initialScorecard = null;
         // Complete mode always targets a pending delegation.
         drawerState.isPending = review.status === 'pending' || drawerState.mode === 'complete';
-        hideDrawerError();
 
         var assignedQaFieldset = document.querySelector('.assigned-qa-fieldset');
         if (assignedQaFieldset) assignedQaFieldset.classList.toggle('hidden', !drawerState.isPending);
@@ -1020,7 +1012,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 var errorPayload = await response.json().catch(function () { return null; });
                 throw new Error(extractErrorDetail(errorPayload, response.status));
             }
-            hideDrawerError();
             document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
             showToast(completing ? 'Delegated case completed.' : 'Review updated.', 'alert-success');
             document.getElementById('review-drawer-toggle').checked = false;

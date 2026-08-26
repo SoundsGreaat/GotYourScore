@@ -1,6 +1,6 @@
 {# Scorecard templates partial (swapped into #admin-view).
 Context: templates=[{id, name, case_type, is_active, item_count}],
-case_types=[CaseTypeEnum], selected_id=int|None, error=str|None.
+case_types=[CaseTypeEnum], selected_id=int|None.
 Master-detail: template cards on the LEFT, the rule editor on the
 RIGHT. The editor column lazy-fetches the editor partial for
 selected_id so the list context never needs editor variables.
@@ -10,9 +10,6 @@ scrolls away. Exactly ONE template per case type can be active:
 toggling one ON demotes its same-type siblings server-side. #}
 {% import "macros/dropdowns.html" as dd %}
 <div id="scorecards-root">
-    {% if error %}
-    <div role="alert" class="alert alert-error mb-3"><span>{{ error }}</span></div>
-    {% endif %}
 
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
         <div class="w-full shrink-0 space-y-3 lg:w-80 xl:w-96">
