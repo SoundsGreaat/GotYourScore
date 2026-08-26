@@ -266,6 +266,23 @@
             --input-color: var(--color-base-content);
         }
 
+        /* daisyUI v5 opens modals with scale(.95→1); as a composited
+           transform that resamples the cached layer raster, and bilinear
+           filtering fattens the diagonal arcs of rounded corners while
+           straight hairline edges stay thin — the "outline thicker at
+           corners than edges" glitch visible mid-animation on bordered
+           content (btn-outline borders, table rules). Dropping ONLY the
+           scale keeps the entrance a crisp fade + small slide; closed
+           and open states both pin scale so close/open stays symmetric. */
+        .modal .modal-box,
+        .modal[open] > .modal-box {
+            transition:
+                translate var(--gys-speed) var(--gys-ease),
+                opacity var(--gys-speed) var(--gys-ease),
+                box-shadow var(--gys-speed) var(--gys-ease);
+            scale: none;
+        }
+
         /* Theme switch uses the View Transitions API (base.html): old and
            new palettes are compositor-crossfaded as full-page snapshots,
            which stays smooth in Chrome where per-element color
