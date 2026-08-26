@@ -96,7 +96,6 @@
                         <th>Case type</th>
                         <th>Case #</th>
                         <th>Score</th>
-                        <th>Notes</th>
                         {% if perspective == 'reviewer' %}
                         <th>Actions</th>
                         {% endif %}
@@ -155,7 +154,6 @@
                             <template data-notes-for="{{ row.id }}">{{ row.notes or '' }}</template>
                             {% endif %}
                         </td>
-                        <td class="max-w-60">{{ (row.notes or '')|truncate(80) }}</td>
                         {% if perspective == 'reviewer' %}
                         <td class="whitespace-nowrap">
                             {% if row.can_edit %}
