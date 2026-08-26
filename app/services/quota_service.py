@@ -155,7 +155,6 @@ async def get_qa_compliance(
             .join(User, User.id == QAAssignment.support_agent_id)
             .where(
                 QAAssignment.qa_id == qa_id,
-                QAAssignment.support_agent_id.is_not(None),
                 # Soft-deleted agents leave the compliance math; their
                 # historical reviews remain untouched in the DB.
                 User.active_filter(),

@@ -4,9 +4,10 @@ Business rules:
 - Base score is 100; the final score is floored at 0.
 - For each error key with a positive deduction, the penalty is multiplied
   by the number of past occurrences of that same error key (entries with
-  ``deducted > 0``) in the support agent's PAST reviews — all time, any
-  case type. 'No Cases' reviews have null ``scorecard_data`` and are
-  therefore never counted.
+  ``deducted > 0``) in the support agent's PAST reviews — any case type,
+  but only the agent's LAST SIX scored cases (see ``calculate_final_score``).
+  'No Cases' reviews have null ``scorecard_data`` and are therefore never
+  counted.
 - Multiplier for the current submission = past_occurrences + 1, so the
   first occurrence is penalized 1x, the second 2x, and so on.
 
@@ -114,7 +115,15 @@ async def calculate_final_score(
                     else true(),
                     # Only chronologically earlier reviews count: editing an
                     # OLD review must not pick up deductions from NEWER ones.
-                    Review.created_at < anchor.created_at
+                    # Backfilled rows share one timestamp, so equal stamps
+                    # are tie-broken by id (lower id = earlier row).
+                    (
+                        (Review.created_at < anchor.created_at)
+                        | (
+                            (Review.created_at == anchor.created_at)
+                            & (Review.id < exclude_review_id)
+                        )
+                    )
                     if anchor is not None else true(),
                     # Soft-deleted reviews must not inflate progressive
                     # multipliers (deleting a mistake erases its occurrence
