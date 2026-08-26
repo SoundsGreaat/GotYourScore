@@ -1,4 +1,4 @@
-/* "View notes" modal, shared by every review table (My/All Reviews,
+﻿/* "View notes" modal, shared by every review table (My/All Reviews,
    QA Matrix). Wired ONCE here via document-level delegation — the same
    pattern as dropdowns.js — so partials ship no per-view wiring and
    htmx swaps need no re-init.
@@ -6,6 +6,8 @@
    Markup contract (see macros/modals.html):
      <dialog class="modal js-notes-modal">          — one per section
        .js-notes-title / .js-notes-body
+       .js-notes-actions > .js-notes-edit           — "Edit review",
+         shown only when the clicked row is editable
 
    Trigger contract (row markup):
      <button data-case-notes="{id}"
@@ -42,6 +44,32 @@
         } else {
             bodyElement.textContent = raw;
         }
+
+        var editButton = modal.querySelector('.js-notes-edit');
+        if (editButton) {
+            var row = button.closest('tr');
+            var rowEditButton = row ? row.querySelector('[data-review-edit]') : null;
+            var rowCompleteButton = row && !rowEditButton ? row.querySelector('[data-review-complete]') : null;
+            if (rowEditButton || rowCompleteButton) {
+                editButton.dataset.reviewId = id;
+                editButton.dataset.reviewMode = rowEditButton
+                    ? (rowEditButton.getAttribute('data-review-mode') || 'edit')
+                    : 'complete';
+                editButton.classList.remove('hidden');
+            } else {
+                editButton.classList.add('hidden');
+            }
+        }
         modal.showModal();
+    });
+
+    document.addEventListener('click', function (event) {
+        var button = event.target.closest ? event.target.closest('.js-notes-modal .js-notes-edit') : null;
+        if (!button || !button.dataset.reviewId) return;
+        var openModal = button.closest('.js-notes-modal[open]');
+        if (openModal) openModal.close();
+        if (typeof window.openReviewDrawer === 'function') {
+            window.openReviewDrawer(button.dataset.reviewId, button.dataset.reviewMode || 'edit');
+        }
     });
 })();
