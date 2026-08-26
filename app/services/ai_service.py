@@ -19,8 +19,10 @@ importing this module never crashes when ``OPENROUTER_API_KEY`` is
 unset.
 
 Provider routing:
-- prefer the lowest-latency OpenRouter provider;
-- keep automatic fallback providers enabled.
+- the effective config comes from ``resolve_openrouter_provider``: the
+  DB-stored ``"openrouter_provider"`` AppSetting (admin-editable) or,
+  when none is stored, the hardcoded ``OPENROUTER_PROVIDER`` constant
+  (lowest throughput sort, fallbacks enabled).
 
 Error contract for callers (see the reviews/ai endpoints):
 - ``ValueError``: the API key is not configured -> HTTP 503.
@@ -45,7 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate, SystemPrompt
-from app.services import multiplier_service
+from app.services import app_setting_service, multiplier_service
 from app.services.scorecard_service import get_active_rules
 
 
@@ -77,10 +79,27 @@ NOTES_FROM_SCORE_PROMPT_KEY = "notes_from_score"
 # - "price" = prefer the provider with the lowest price;
 # - allow_fallbacks = if the preferred provider fails/unavailable,
 #   OpenRouter may try another provider.
+# Fallback + Admin-panel default: the DB-stored AppSetting
+# "openrouter_provider" (see app.services.app_setting_service) wins
+# whenever a row exists.
 OPENROUTER_PROVIDER = {
     "sort": "throughput",
     "allow_fallbacks": True,
 }
+
+
+async def resolve_openrouter_provider(db_session: AsyncSession) -> dict:
+    """Return the effective OpenRouter provider routing config.
+
+    The ``"openrouter_provider"`` AppSetting row (edited from the admin
+    panel) wins; with no row stored, the hardcoded
+    ``OPENROUTER_PROVIDER`` constant applies.
+    """
+    return (
+        await app_setting_service.get_value(
+            db_session, app_setting_service.OPENROUTER_PROVIDER_KEY
+        )
+    ) or dict(OPENROUTER_PROVIDER)
 
 
 # ---------------------------------------------------------------------------
@@ -544,6 +563,7 @@ async def analyze_support_ticket(
     # for an empty/inactive system_prompts table.
     db_prompt = await _active_system_prompt(SCORING_PROMPT_KEY, db_session)
     system_prompt = _build_scoring_prompt(rules, base_system_text=db_prompt)
+    provider = await resolve_openrouter_provider(db_session)
 
     # Release the DB connection before the multi-second network request.
     await db_session.commit()
@@ -570,9 +590,7 @@ async def analyze_support_ticket(
                 "type": "json_object",
             },
             temperature=0,
-            extra_body={
-                "provider": OPENROUTER_PROVIDER,
-            },
+            extra_body={"provider": provider},
         )
 
     except APIError as exc:
@@ -631,6 +649,7 @@ async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
     # DB-stored prompt wins; the hardcoded constant is only a fallback.
     db_prompt = await _active_system_prompt(REFACTOR_PROMPT_KEY, db_session)
     system_prompt = db_prompt if db_prompt else REFACTOR_SYSTEM_PROMPT
+    provider = await resolve_openrouter_provider(db_session)
 
     # Release the DB connection before the multi-second network request
     # (same commit-then-call pattern as analyze_support_ticket).
@@ -652,9 +671,7 @@ async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
                 },
             ],
             temperature=0,
-            extra_body={
-                "provider": OPENROUTER_PROVIDER,
-            },
+            extra_body={"provider": provider},
         )
 
     except APIError as exc:
@@ -784,6 +801,7 @@ async def draft_notes_from_score(
     # DB-stored prompt wins; the hardcoded constant is only a fallback.
     db_prompt = await _active_system_prompt(NOTES_FROM_SCORE_PROMPT_KEY, db_session)
     system_prompt = db_prompt if db_prompt else NOTES_FROM_SCORE_SYSTEM_PROMPT
+    provider = await resolve_openrouter_provider(db_session)
 
     # Release the DB connection before the multi-second network request
     # (same commit-then-call pattern as the scoring/refactor flows).
@@ -805,9 +823,7 @@ async def draft_notes_from_score(
                 },
             ],
             temperature=0,
-            extra_body={
-                "provider": OPENROUTER_PROVIDER,
-            },
+            extra_body={"provider": provider},
         )
 
     except APIError as exc:

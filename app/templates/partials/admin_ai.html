@@ -1,0 +1,76 @@
+{# AI settings partial (swapped into #admin-view).
+   Context: stored=dict|None (the "openrouter_provider" AppSetting
+   value), default=dict (hardcoded ai_service.OPENROUTER_PROVIDER),
+   error=str|None, saved=bool.
+   When no DB row is stored the hardcoded default applies and is shown
+   as such. The textarea holds pretty-printed JSON; Save upserts the
+   row, Reset deletes it (back to the built-in default).
+   Validation failures return HTTP 400 with an alert-fragment body
+   that HTMX will NOT swap (non-2xx); the document-level
+   htmx:responseError listener below injects it into #ai-alert. #}
+<div id="admin-ai-root" class="space-y-4">
+    <script>
+        if (!window.__adminAiInit) {
+            window.__adminAiInit = true;
+            document.body.addEventListener("htmx:responseError", function (evt) {
+                var xhr = evt.detail.xhr;
+                if (
+                    xhr.status === 400 &&
+                    evt.detail.path === "/admin/ai/provider" &&
+                    evt.detail.target &&
+                    evt.detail.target.id === "admin-view"
+                ) {
+                    var slot = document.getElementById("ai-alert");
+                    if (slot) slot.innerHTML = xhr.responseText;
+                }
+            });
+        }
+    </script>
+    <div id="ai-alert" class="space-y-2"></div>
+    {% if saved %}<div role="status" class="alert alert-success alert-soft"><span>Provider routing saved.</span></div>{% endif %}
+
+    <div class="card rounded-box border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 gap-3 p-4 sm:p-5">
+            <div class="flex flex-wrap items-center gap-2">
+                <h2 class="card-title text-base">OpenRouter provider routing</h2>
+                <span class="badge badge-sm font-mono">openrouter_provider</span>
+                {% if stored %}
+                <span class="badge badge-success badge-soft badge-sm">Custom config active</span>
+                {% else %}
+                <span class="badge badge-ghost badge-sm">Built-in default in use</span>
+                {% endif %}
+            </div>
+            <p class="text-xs text-base-content/60">
+                JSON object passed to OpenRouter with every AI request
+                (<code>extra_body.provider</code>). Allowed keys:
+                order / only / ignore / quantizations (lists of strings),
+                allow_fallbacks / require_parameters / zdr /
+                enforce_distillable_text (booleans),
+                data_collection ("allow" | "deny"),
+                sort ("price" | "throughput" | "latency" or an object
+                with by + optional partition),
+                preferred_min_throughput / preferred_max_latency
+                (number or p50/p75/p90/p99 object), max_price (object).
+                An empty object {} lets OpenRouter decide everything.
+            </p>
+
+            <form hx-post="/admin/ai/provider" hx-target="#admin-view" hx-swap="innerHTML" class="flex flex-col gap-2">
+                <label class="label" for="provider-json">
+                    <span class="text-xs font-semibold text-base-content/70">Provider routing JSON</span>
+                </label>
+                <textarea id="provider-json" name="provider" required spellcheck="false" aria-label="Provider routing JSON"
+                          class="textarea h-64 w-full font-mono text-xs leading-relaxed">{{ (stored or default) | tojson(indent=2) }}</textarea>
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm self-start">Save</button>
+                    <button type="button" class="btn btn-outline btn-error btn-sm"
+                            hx-post="/admin/ai/provider/reset"
+                            hx-confirm="Delete the stored config and fall back to the built-in default?"
+                            hx-target="#admin-view" hx-swap="innerHTML">Reset to default</button>
+                    {% if not stored %}
+                    <span class="text-xs text-base-content/60">Saving stores this JSON; until then the built-in default applies.</span>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

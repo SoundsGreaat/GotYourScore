@@ -42,7 +42,13 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services import scorecard_service, system_prompt_service, user_service
+from app.services import (
+    ai_service,
+    app_setting_service,
+    scorecard_service,
+    system_prompt_service,
+    user_service,
+)
 
 router = APIRouter(tags=["admin"])
 
@@ -523,6 +529,104 @@ async def toggle_scorecard(
 
     return _render_scorecards(
         request, await _scorecards_context(db, selected_id=template.id)
+    )
+
+
+# ---------------------------------------------------------------------------
+# AI provider routing
+# ---------------------------------------------------------------------------
+
+
+async def _ai_context(
+    db: AsyncSession, *, error: str | None = None, saved: bool = False
+) -> dict[str, object]:
+    """Context for the AI settings partial (shared by GET and POST flows).
+
+    ``stored`` is the DB row's value or None; when None the hardcoded
+    ``ai_service.OPENROUTER_PROVIDER`` constant is in effect.
+    """
+    stored = await app_setting_service.get_value(
+        db, app_setting_service.OPENROUTER_PROVIDER_KEY
+    )
+    return {
+        "stored": stored,
+        "default": ai_service.OPENROUTER_PROVIDER,
+        "error": error,
+        "saved": saved,
+    }
+
+
+@router.get(
+    "/admin/partials/ai",
+    name="admin_partial_ai",
+    summary="AI settings partial",
+    include_in_schema=False,
+)
+async def partial_ai(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Current OpenRouter provider routing + its JSON edit form."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_ai.html",
+        context=await _ai_context(db),
+    )
+
+
+@router.post("/admin/ai/provider", name="admin_save_ai_provider")
+async def save_ai_provider(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Upsert the ``openrouter_provider`` AppSetting from a JSON textarea.
+
+    Validation failures return 400 whose body is ONLY the alert
+    fragment for the frontend's ``#editor-alert`` swap target.
+    """
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    form = await request.form()
+    try:
+        value = app_setting_service.parse_openrouter_provider(
+            str(form.get("provider", ""))
+        )
+    except ValueError as exc:
+        return _error_alert(str(exc))
+
+    await app_setting_service.upsert(
+        db, app_setting_service.OPENROUTER_PROVIDER_KEY, value
+    )
+    await db.commit()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_ai.html",
+        context=await _ai_context(db, saved=True),
+    )
+
+
+@router.post("/admin/ai/provider/reset", name="admin_reset_ai_provider")
+async def reset_ai_provider(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Delete the stored row so the hardcoded default applies again."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    await app_setting_service.delete_key(
+        db, app_setting_service.OPENROUTER_PROVIDER_KEY
+    )
+    await db.commit()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_ai.html",
+        context=await _ai_context(db),
     )
 
 
