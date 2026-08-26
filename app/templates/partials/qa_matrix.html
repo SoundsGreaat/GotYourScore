@@ -72,6 +72,7 @@
                                             data-case-notes="{{ mc.id }}"
                                             data-case-label="{{ mc.case_number or 'N/C' }}"
                                             data-case-type="{{ mc.case_type.value }}"
+                                            data-notes-open="edit"
                                             aria-label="View notes for case {{ mc.case_number or mc.case_type.value }}"
                                             title="{{ mc.case_number or mc.case_type.value }} · {{ mc.created_at.strftime('%b %d') }}{% if mc.reviewer_name %} · by {{ mc.reviewer_name }}{% endif %}">
                                         {{ mc.final_score if mc.final_score is not none else ('N/C' if mc.case_type.value == 'No Cases' else (mc.case_number or '#' ~ mc.id)) }}
@@ -157,6 +158,7 @@
                                         data-case-notes="{{ case.id }}"
                                         data-case-label="{{ case.case_number or 'N/C' }}"
                                         data-case-type="{{ case.case_type.value }}"
+                                        data-notes-open="edit"
                                         aria-label="View notes for case {{ case.case_number or case.case_type.value }}"
                                         title="View notes">N/C</button>
                                 <template data-notes-for="{{ case.id }}">{{ case.notes or '' }}</template>
@@ -168,6 +170,7 @@
                                         data-case-notes="{{ case.id }}"
                                         data-case-label="{{ case.case_number or '#' ~ case.id }}"
                                         data-case-type="{{ case.case_type.value }}"
+                                        data-notes-open="edit"
                                         aria-label="View notes for case {{ case.case_number or case.id }}"
                                         title="View notes">{{ case.final_score }}</button>
                                 <template data-notes-for="{{ case.id }}">{{ case.notes or '' }}</template>

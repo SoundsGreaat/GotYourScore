@@ -136,6 +136,7 @@
                                     data-case-notes="{{ row.id }}"
                                     data-case-label="{{ row.case_number or 'N/C' }}"
                                     data-case-type="{{ row.case_type.value }}"
+                                    data-notes-open="{{ 'complete' if row.can_complete else ('edit' if row.can_edit else '') }}"
                                     aria-label="View notes for case {{ row.case_number or row.case_type.value }}"
                                     title="View notes">N/C
                             </button>
@@ -148,6 +149,7 @@
                                     data-case-notes="{{ row.id }}"
                                     data-case-label="{{ row.case_number or '#' ~ row.id }}"
                                     data-case-type="{{ row.case_type.value }}"
+                                    data-notes-open="{{ 'complete' if row.can_complete else ('edit' if row.can_edit else '') }}"
                                     aria-label="View notes for case {{ row.case_number or row.id }}"
                                     title="View notes">{{ row.final_score }}
                             </button>

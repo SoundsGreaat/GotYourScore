@@ -12,7 +12,8 @@
    Trigger contract (row markup):
      <button data-case-notes="{id}"
              data-case-label="{case number | fallback}"
-             data-case-type="{case type}">…</button>
+             data-case-type="{case type}"
+             data-notes-open="{'edit'|'complete'|'' = hidden}">…</button>
      <template data-notes-for="{id}">{raw notes html}</template>
 
    The title reads "Case {label} · {case type}"; the body is sanitized
@@ -47,14 +48,15 @@
 
         var editButton = modal.querySelector('.js-notes-edit');
         if (editButton) {
-            var row = button.closest('tr');
-            var rowEditButton = row ? row.querySelector('[data-review-edit]') : null;
-            var rowCompleteButton = row && !rowEditButton ? row.querySelector('[data-review-complete]') : null;
-            if (rowEditButton || rowCompleteButton) {
+            // Availability rides on the TRIGGER (data-notes-open), not
+            // on the row's action buttons: some tables render notes
+            // triggers without an Actions column at all (QA-matrix
+            // quota chips), which used to hide the button for reviews
+            // that are perfectly editable elsewhere.
+            var mode = button.getAttribute('data-notes-open') || '';
+            if (mode === 'edit' || mode === 'complete') {
                 editButton.dataset.reviewId = id;
-                editButton.dataset.reviewMode = rowEditButton
-                    ? (rowEditButton.getAttribute('data-review-mode') || 'edit')
-                    : 'complete';
+                editButton.dataset.reviewMode = mode;
                 editButton.classList.remove('hidden');
             } else {
                 editButton.classList.add('hidden');
