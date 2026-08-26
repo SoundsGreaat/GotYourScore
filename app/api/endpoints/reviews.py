@@ -1018,12 +1018,9 @@ async def update_review(
                     "empty raw_scorecard."
                 ),
             )
-    elif (
-        not payload.raw_scorecard
-        and review.scorecard_data is None
-        and not is_pending
-    ):
-        # Completed rows only: a pending row legitimately has no stored
+    elif not payload.raw_scorecard and review.scorecard_data is None:
+        # Completed rows only (the pending case was consumed by the
+        # first branch): a pending row legitimately has no stored
         # scorecard yet (kept null until completion).
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1032,6 +1029,45 @@ async def update_review(
                 "scorecard data to keep."
             ),
         )
+
+    # Duplicate-guard parity with creation: an edited PENDING row must
+    # not collide with ANOTHER open handoff for the resulting
+    # (support agent, case number) pair — checked against the EFFECTIVE
+    # post-PATCH values, before any mutation touches the row.
+    if is_pending:
+        effective_agent_id = (
+            new_support_agent.id
+            if new_support_agent is not None
+            else review.support_agent_id
+        )
+        effective_case_number = review.case_number
+        if "case_number" in provided:
+            stripped = (
+                payload.case_number.strip()
+                if payload.case_number is not None
+                else ""
+            )
+            effective_case_number = stripped or None
+        if effective_case_number is not None:
+            result = await db.execute(
+                select(Review.id).where(
+                    tuple_(
+                        Review.support_agent_id, Review.case_number
+                    ).in_([(effective_agent_id, effective_case_number)]),
+                    Review.status == ReviewStatusEnum.PENDING,
+                    Review.deleted_at.is_(None),
+                    Review.id != review.id,
+                )
+            )
+            if result.first() is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"Support agent {effective_agent_id} already has a "
+                        f"pending review for case_number "
+                        f"'{effective_case_number}'."
+                    ),
+                )
 
     # Only provided fields change.
     if payload.case_type is not None:
