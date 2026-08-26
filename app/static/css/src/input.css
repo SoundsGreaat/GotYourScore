@@ -158,6 +158,15 @@
                 rgb(255 255 255 / 0.04));
         }
 
+        /* Reserve the vertical-scrollbar gutter permanently: pages swap
+           HTMX partials of very different heights (admin tabs, dashboard
+           views), and without a reserved gutter the scrollbar appearing/
+           disappearing resizes the viewport, shifting every mx-auto-
+           centered container sideways (layout jump on tab switch). */
+        html {
+            scrollbar-gutter: stable;
+        }
+
         /* Focus glow, project-wide: a soft primary halo instead of the
            default browser ring. Declared AFTER the daisyUI CDN sheet so
            it wins the cascade at equal specificity. Covers text fields
