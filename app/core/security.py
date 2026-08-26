@@ -40,7 +40,9 @@ async def get_current_user(
 ) -> User:
     """FastAPI dependency: resolve the logged-in User from the session.
 
-    Raises 401 when there is no session or the user no longer exists.
+    Raises 401 when there is no session, the user no longer exists, or
+    the user was soft-deleted after the session was issued (login is
+    not the only gate — a live cookie must not outlive an account).
     """
     user_id = request.session.get(SESSION_USER_ID_KEY)
     if user_id is None:
@@ -49,7 +51,7 @@ async def get_current_user(
             detail="Not authenticated",
         )
     user = await db.get(User, user_id)
-    if user is None:
+    if user is None or user.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User no longer exists",
