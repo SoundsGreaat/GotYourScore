@@ -286,14 +286,21 @@ def _htmx_redirect_if_needed(auth: object, request: Request) -> Response | None:
     """Adapt an auth RedirectResponse for HTMX requests.
 
     A plain 303 would make HTMX follow the redirect and swap the whole
-    login page into #main-content; the HX-Redirect header instead makes
-    the browser navigate to /login properly. Returns None when the
-    request is authenticated and rendering should proceed.
+    target page into #main-content; the HX-Redirect header instead makes
+    the browser navigate to the redirect's destination (login for
+    anonymous users, the dashboard for authenticated non-admins hitting
+    admin-only views). Returns None when the request is authenticated
+    and rendering should proceed.
     """
     if not isinstance(auth, RedirectResponse):
         return None
     if request.headers.get("HX-Request"):
-        return Response(status_code=status.HTTP_200_OK, headers={"HX-Redirect": "/login"})
+        return Response(
+            status_code=status.HTTP_200_OK,
+            headers={
+                "HX-Redirect": auth.headers.get("location", "/login")
+            },
+        )
     return auth
 
 
