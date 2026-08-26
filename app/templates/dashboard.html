@@ -65,17 +65,18 @@
             </div>
 
             {% if can_review %}
-            <!-- Tracker tabs: sliding-underline selector (same pattern as
-                 the delegation switcher). Bad Feedback / Refund Check are
-                 future features — muted and unclickable for now. -->
-            <div class="gys-tracker-tabs" role="tablist" aria-label="Tracker sections">
-                <button type="button" class="active" data-tracker-tab="qa-score"
-                        data-partial="/partials/qa-matrix" aria-selected="true">QA Score</button>
-                <button type="button" data-tracker-tab="bad-feedback" disabled
+            <!-- Tracker tabs: shared sliding-underline strip (js/tabs.js).
+                 Bad Feedback / Refund Check are future features — muted
+                 and unclickable for now. -->
+            <div class="gys-tabs" data-tabs role="tablist" aria-label="Tracker sections">
+                <button type="button" role="tab" class="active" data-tab="qa-score"
+                        hx-get="/partials/qa-matrix" hx-target="#view-container"
+                        aria-selected="true">QA Score</button>
+                <button type="button" role="tab" data-tab="bad-feedback" disabled
                         aria-disabled="true">Bad Feedback</button>
-                <button type="button" data-tracker-tab="refund-check" disabled
+                <button type="button" role="tab" data-tab="refund-check" disabled
                         aria-disabled="true">Refund Check</button>
-                <span class="gys-tracker-line" aria-hidden="true"></span>
+                <span class="gys-tabs-line" aria-hidden="true"></span>
             </div>
             {% endif %}
 
@@ -333,62 +334,9 @@
         }
     });
 
-    // Tracker tabs call htmx.ajax with an explicit path (no element to
-    // intercept in configRequest), so the path itself is rewritten at
-    // click time — this capture-phase listener runs BEFORE the tab's
-    // own handler reads the attribute.
-    document.addEventListener('click', function (event) {
-        if (!state.period) return;
-        var tab = event.target.closest
-            ? event.target.closest('button[data-tracker-tab][data-partial]') : null;
-        if (tab && !tab.disabled) {
-            tab.setAttribute('data-partial', withPeriod(tab.getAttribute('data-partial'), state.period));
-        }
-    }, true);
-})();
-
-/* Tracker tabs: the underline glides to the clicked section; only
-   sections with a live view are clickable (future ones stay muted).
-   Reduced-motion users get instant repositioning via CSS. */
-(function () {
-    var track = document.querySelector('.gys-tracker-tabs');
-    if (!track) return;
-    var line = track.querySelector('.gys-tracker-line');
-    var buttons = Array.prototype.slice.call(track.querySelectorAll('button[data-tracker-tab]'));
-    if (!line || !buttons.length) return;
-    var armed = false;
-
-    function place() {
-        var active = track.querySelector('button.active');
-        if (!active) return;
-        line.style.left = active.offsetLeft + 'px';
-        line.style.width = active.offsetWidth + 'px';
-        if (!armed) {
-            // Arm transitions one frame AFTER first placement so page
-            // load never slides the line in from x=0.
-            requestAnimationFrame(function () {
-                track.classList.add('gys-ready');
-                armed = true;
-            });
-        }
-    }
-    buttons.forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            if (btn.disabled) return;
-            buttons.forEach(function (b) {
-                b.classList.toggle('active', b === btn);
-                b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
-            });
-            place();
-            var partial = btn.getAttribute('data-partial');
-            if (partial && window.htmx) window.htmx.ajax('GET', partial, '#view-container');
-        });
-    });
-    place();
-    window.addEventListener('resize', function () { place(); });
-    if (document.fonts && document.fonts.ready) {
-        document.fonts.ready.then(function () { place(); });
-    }
+    // Tracker tabs are declarative now (hx-get + hx-target on each
+    // button, visuals in js/tabs.js); their hx-target makes the
+    // configRequest listener above carry the selected period.
 })();
 </script>
 {% endblock %}

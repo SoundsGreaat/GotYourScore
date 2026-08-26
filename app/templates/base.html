@@ -107,6 +107,11 @@
          shared .js-notes-modal from any [data-case-notes] trigger. -->
     <script defer src="/static/js/notes_modal.js"></script>
 
+    <!-- Sliding-underline tab strips ([data-tabs]): dashboard tracker,
+         admin panel. Deferred so a hash-restored tab can retarget the
+         eager load before htmx initializes. -->
+    <script defer src="/static/js/tabs.js"></script>
+
     <!-- Quill 2: the full build registers the snow theme (there is no separate
          themed JS bundle). Loaded once so HTMX-swapped partials can initialize
          the editor without dynamic script injection. -->

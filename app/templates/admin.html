@@ -1,8 +1,8 @@
 {# Admin panel shell. Context: current_user=User. Tabs swap HTMX
-   partials into #admin-view; the Prompts tab loads eagerly.
-   Tab clicks use a delegated listener (NOT Alpine): Alpine is a
-   deferred CDN script, so @click handlers can bind AFTER the first
-   HTMX load-swap — clicks in that window were silently lost. #}
+   partials into #admin-view; the Prompts tab loads eagerly. The tab
+   strip is the shared sliding-underline component (js/tabs.js):
+   data-hash mirrors the active tab into the location hash and
+   restores it before htmx's eager load. #}
 {% extends "base.html" %}
 
 {% block title %}Administration · GotYourScore{% endblock %}
@@ -31,49 +31,20 @@
         </a>
     </div>
 
-    <div role="tablist" class="tabs tabs-box" id="admin-tabs">
-        <button type="button" role="tab" class="tab tab-active" data-admin-tab="prompts"
-                hx-get="/admin/partials/prompts" hx-target="#admin-view" hx-swap="innerHTML">Prompts</button>
-        <button type="button" role="tab" class="tab" data-admin-tab="scorecards"
+    <div class="gys-tabs" data-tabs data-hash role="tablist" aria-label="Admin sections">
+        <button type="button" role="tab" class="active" data-tab="prompts"
+                hx-get="/admin/partials/prompts" hx-target="#admin-view" hx-swap="innerHTML" aria-selected="true">Prompts</button>
+        <button type="button" role="tab" data-tab="scorecards"
                 hx-get="/admin/partials/scorecards" hx-target="#admin-view" hx-swap="innerHTML">Scorecards</button>
-        <button type="button" role="tab" class="tab" data-admin-tab="users"
+        <button type="button" role="tab" data-tab="users"
                 hx-get="/admin/partials/users" hx-target="#admin-view" hx-swap="innerHTML">Users</button>
-        <button type="button" role="tab" class="tab" data-admin-tab="deleted-users"
+        <button type="button" role="tab" data-tab="deleted-users"
                 hx-get="/admin/partials/deleted-users" hx-target="#admin-view" hx-swap="innerHTML">Deleted Users</button>
-        <button type="button" role="tab" class="tab" data-admin-tab="deleted-reviews"
+        <button type="button" role="tab" data-tab="deleted-reviews"
                 hx-get="/admin/partials/deleted-reviews" hx-target="#admin-view" hx-swap="innerHTML">Deleted Reviews</button>
+        <span class="gys-tabs-line" aria-hidden="true"></span>
     </div>
 
     <div id="admin-view" class="mt-5" hx-get="/admin/partials/prompts" hx-trigger="load" hx-swap="innerHTML"></div>
-
-    <script>
-        // Tab highlight: native htmx GET attributes fire the request;
-        // this delegated listener only moves the .tab-active state, so
-        // it works no matter when Alpine finishes initializing.
-        var adminTabs = document.getElementById('admin-tabs');
-        function markActiveTab(tab) {
-            adminTabs.querySelectorAll('[data-admin-tab]').forEach(function (node) {
-                node.classList.toggle('tab-active', node === tab);
-                node.setAttribute('aria-selected', node === tab ? 'true' : 'false');
-            });
-        }
-        // Restore the hashed tab (e.g. /admin#scorecards) BEFORE htmx
-        // fires the eager load; unknown hashes keep the default Prompts.
-        var wantedTab = window.location.hash.replace('#', '');
-        if (wantedTab) {
-            var btn = document.querySelector('[data-admin-tab="' + wantedTab + '"]');
-            if (btn) {
-                document.getElementById('admin-view').setAttribute('hx-get', btn.getAttribute('hx-get'));
-                markActiveTab(btn);
-            }
-        }
-        adminTabs.addEventListener('click', function (event) {
-            var tab = event.target.closest('[data-admin-tab]');
-            if (!tab) return;
-            markActiveTab(tab);
-            // Mirror into the hash so reloads reopen the same tab.
-            history.replaceState(null, '', '#' + tab.getAttribute('data-admin-tab'));
-        });
-    </script>
 </main>
 {% endblock %}
