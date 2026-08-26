@@ -33,10 +33,15 @@
                   button (e.g. 'data-agent-id' — the review drawer looks
                   options up via [data-agent-id="..."]). The leading
                   "any" option gets it too, with an empty value.
-     js_fn        picker function invoked on click; defaults to the
-                  shared window.setDropdownValue in dropdowns.js.
-                  Wrappers with extra side effects pass their own name.
-#}
+      js_fn        picker function invoked on click; defaults to the
+                   shared window.setDropdownValue in dropdowns.js.
+                   Called as js_fn(id, display_ref, optionButtonEl);
+                   the picked value/label ride on the button's
+                   data-opt-value / data-opt-label (inline text inside
+                   an onclick attribute would be entity-decoded BEFORE
+                   JS parsing, so a label containing an apostrophe used
+                   to break the picker). Wrappers with extra side
+                   effects pass their own name. #}
 {% macro dropdown(id, items=[], value_attr='value', label_attr='label',
                   selected='', any_label='', placeholder='',
                   btn_cls='select select-sm w-full flex items-center',
@@ -60,6 +65,7 @@
     {% set span_cls = ((display_sel[1:] ~ ' ') if display_sel else '') ~ 'pointer-events-none truncate' ~ ('' if match else ' text-base-content/70') %}
     {% set shown = match[0].label if match else (any_label if any_label else placeholder) %}
     <button type="button" id="{{ id }}-button" popovertarget="{{ id }}-menu"
+            aria-haspopup="menu"
             style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}
             class="{{ btn_cls }}">
         {% if display_sel %}
@@ -72,10 +78,9 @@
         class="dropdown menu menu-sm {{ menu_w }} flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
         {%- if any_label %}
             <li>
-                <button type="button"
-                        {{ (opt_data ~ '=""') if opt_data else '' }}
+                <button type="button" data-opt-value="" data-opt-label="{{ any_label }}"
                         class="{{ 'active menu-active' if not selected else '' }}"
-                        onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '', '{{ any_label }}', this)">
+                        onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', this)">
                     {{ any_label }}
                 </button>
             </li>
@@ -83,9 +88,10 @@
         {%- for opt in opts %}
             <li>
                 <button type="button"
+                        data-opt-value="{{ opt.value }}" data-opt-label="{{ opt.label }}"
                         {{ (opt_data ~ '="' ~ opt.value ~ '"') if opt_data else '' }}
                         class="{{ 'active menu-active' if opt.value|string == selected|string else '' }}"
-                        onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', '{{ opt.value }}', '{{ opt.label }}', this)">
+                        onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', this)">
                     {{ opt.label }}
                 </button>
             </li>

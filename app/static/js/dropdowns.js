@@ -164,6 +164,14 @@
  * effects (see review_drawer / qa_matrix).
  */
 window.setDropdownValue = function (hiddenId, displayRef, value, text, btnEl) {
+    // New-style macro calls pass only (hiddenId, displayRef, btnEl):
+    // the picked value/label live in the option button's dataset (see
+    // the macro's js_fn doc). Programmatic callers may still pass all
+    // five args explicitly.
+    if (btnEl && value === undefined) {
+        value = btnEl.dataset.optValue || '';
+        text = btnEl.dataset.optLabel || '';
+    }
     var hidden = document.getElementById(hiddenId);
     if (hidden) {
         hidden.value = value;
@@ -199,5 +207,13 @@ window.setDropdownValue = function (hiddenId, displayRef, value, text, btnEl) {
     // Popover-API menus stay open after an inner click — close on pick.
     var pop = btnEl && btnEl.closest('[popover]');
     if (pop && pop.matches(':popover-open')) pop.hidePopover();
-    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    // Keyboard focus returns to the TRIGGER (native <select> behavior)
+    // instead of being dropped on <body> — blur() left keyboard users
+    // stranded after an Enter pick.
+    var trigger = pop ? document.querySelector('[popovertarget="' + pop.id + '"]') : null;
+    if (trigger) {
+        trigger.focus();
+    } else if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+    }
 };

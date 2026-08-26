@@ -175,9 +175,11 @@
 <script>
 // Thin wrapper over the shared picker (app/static/js/dropdowns.js):
 // value/display/highlight/popover-close live there; this adds the
-// drawer's own side-effect events.
+// drawer's own side-effect events. Arguments pass through untouched —
+// both the macro's new 3-arg (…, btnEl) shape and legacy programmatic
+// 5-arg calls resolve inside setDropdownValue.
 window.updateCustomDropdown = function(inputId, displayId, value, text, buttonElement) {
-    window.setDropdownValue(inputId, displayId, value, text, buttonElement);
+    window.setDropdownValue.apply(null, arguments);
     document.dispatchEvent(new CustomEvent('review-agent-change'));
     if (inputId === 'case-type') document.dispatchEvent(new CustomEvent('case-type-change'));
 };
@@ -235,8 +237,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     var showToast = window.gysToast;
 
+    // Security-first fallback: if the vendored DOMPurify failed to load,
+    // DROP the html entirely rather than persist unsanitized markup.
     function sanitizeHtml(html) {
-        return window.DOMPurify ? window.DOMPurify.sanitize(html) : html;
+        return window.DOMPurify ? window.DOMPurify.sanitize(html) : '';
     }
 
     var extractErrorDetail = window.extractDetail;
@@ -1076,7 +1080,13 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // for its epoch, then apply a programmatic entry that arrived during
     // init (the wrapper queues instead of touching half-bound state).
     entryReady = true;
-    window.__reviewDrawerReadyEpoch = myEpoch;
+    // Out-of-order htmx swaps can resolve an OLDER mount's script last;
+    // publishing its epoch would regress the ready marker and strand the
+    // newer opener's waitForHook until it timed out with a spurious
+    // "Unable to open" toast.
+    if ((window.__reviewDrawerReadyEpoch || 0) < myEpoch) {
+        window.__reviewDrawerReadyEpoch = myEpoch;
+    }
     if (queuedEntry) {
         var pendingEntry = queuedEntry;
         queuedEntry = null;

@@ -326,7 +326,7 @@
         // Thin wrapper over the shared picker (app/static/js/dropdowns.js)
         // adding the batch-pane preview refresh after every pick.
         window.qaMatrixSetDropdown = function (hiddenId, displayId, value, text, btnEl) {
-            window.setDropdownValue(hiddenId, displayId, value, text, btnEl);
+            window.setDropdownValue.apply(null, arguments);
             if (window.qaMatrixScheduleBatchPreview) window.qaMatrixScheduleBatchPreview();
         };
         window.qaMatrixClearDropdown = function (hiddenId, displayId, placeholder) {
@@ -365,6 +365,10 @@
                 event.preventDefault();
             }
         });
+        // A fresh mount always starts closed: if the user navigated away
+        // with the dialog open, its close event never fired and the stale
+        // global would silently drop EVERY future reviews-changed refresh.
+        window.__qaMatrixDelegateModalOpen = false;
 
         var showToast = window.gysToast;
         var extractDetail = window.extractDetail;
@@ -670,6 +674,13 @@
         // out over every row's column.
         window.qaMatrixOverrideChanged = function (field) {
             return function (hiddenId, displayId, value, text, btnEl) {
+                // New-style macro calls pass only (…, btnEl): resolve the
+                // picked value/label from the option's dataset first so
+                // the override state below sees real values.
+                if (btnEl && value === undefined) {
+                    value = btnEl.dataset.optValue || '';
+                    text = btnEl.dataset.optLabel || '';
+                }
                 window.setDropdownValue(hiddenId, displayId, value, text, btnEl);
                 overrideTexts[field] = value ? (text || '') : '';
                 var rows = batchRows ? Array.prototype.slice.call(batchRows.querySelectorAll('.delegate-batch-row')) : [];
