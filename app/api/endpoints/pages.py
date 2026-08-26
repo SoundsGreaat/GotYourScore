@@ -17,6 +17,7 @@ review-drawer is left accessible for all authenticated users.
 """
 
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
@@ -156,6 +157,12 @@ async def _period_options(db: AsyncSession) -> list[dict[str, str]]:
 _TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "templates"
 
 templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+
+# Static-asset cache busting: local CSS/JS carry no fingerprint, and
+# browsers cache them aggressively — after a deploy users kept running
+# the previous JS against the new markup. The version changes on every
+# app start, so each container restart invalidates every cache at once.
+templates.env.globals["asset_v"] = str(int(time.time()))
 
 
 async def _session_user(request: Request, db: AsyncSession) -> User | None:

@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>{% block title %}GotYourScore{% endblock %}</title>
 
-    <link rel="icon" href="/static/favicon.ico" sizes="32x32"/>
-    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml"/>
+    <link rel="icon" href="/static/favicon.ico?v={{ asset_v }}" sizes="32x32"/>
+    <link rel="icon" href="/static/favicon.svg?v={{ asset_v }}" type="image/svg+xml"/>
 
     <!-- Set the theme before first paint to avoid a flash of the wrong theme. -->
     <script>
@@ -26,7 +26,7 @@
     <!-- Tailwind v4 + daisyUI v5 + Quill snow CSS + Inter Variable font,
          all compiled into one bundle by `npm run build`
          (source: app/static/css/src/input.css). No CDN dependencies. -->
-    <link href="/static/css/app.css" rel="stylesheet"/>
+    <link href="/static/css/app.css?v={{ asset_v }}" rel="stylesheet"/>
 
     <!-- Theme toggle wiring for every [data-theme-toggle] checkbox;
          delegated, so it works on HTMX-swapped markup without re-binding. -->
@@ -94,39 +94,39 @@
     </script>
 
     <!-- All runtime JS below is vendored from npm (scripts/vendor.mjs). -->
-    <script src="/static/js/vendor/htmx.min.js"></script>
+    <script src="/static/js/vendor/htmx.min.js?v={{ asset_v }}"></script>
 
     <!-- Native-select-style keyboard support (typeahead, arrows, Enter)
          for every [popover].dropdown.menu, incl. HTMX-swapped content. -->
-    <script defer src="/static/js/dropdowns.js"></script>
+    <script defer src="/static/js/dropdowns.js?v={{ asset_v }}"></script>
 
     <!-- Shared partial helpers (toast, drawer handoff, escaping). -->
-    <script defer src="/static/js/common.js"></script>
+    <script defer src="/static/js/common.js?v={{ asset_v }}"></script>
 
     <!-- "View notes" modal: one document-level click delegation opens the
          shared .js-notes-modal from any [data-case-notes] trigger. -->
-    <script defer src="/static/js/notes_modal.js"></script>
+    <script defer src="/static/js/notes_modal.js?v={{ asset_v }}"></script>
 
     <!-- Sliding-underline tab strips ([data-tabs]): dashboard tracker,
          admin panel. Deferred so a hash-restored tab can retarget the
          eager load before htmx initializes. -->
-    <script defer src="/static/js/tabs.js"></script>
+    <script defer src="/static/js/tabs.js?v={{ asset_v }}"></script>
 
     <!-- Dashboard sidebar view engine: hash-synced view + reporting-period
          state for #view-container swaps. Deferred so it runs after parsing
          but before htmx's initial load-trigger fetch. -->
-    <script defer src="/static/js/dashboard.js"></script>
+    <script defer src="/static/js/dashboard.js?v={{ asset_v }}"></script>
 
     <!-- Quill 2: the full build registers the snow theme (there is no separate
          themed JS bundle). Loaded once so HTMX-swapped partials can initialize
          the editor without dynamic script injection. -->
-    <script src="/static/js/vendor/quill.js"></script>
-    <script src="/static/js/vendor/purify.min.js"></script>
+    <script src="/static/js/vendor/quill.js?v={{ asset_v }}"></script>
+    <script src="/static/js/vendor/purify.min.js?v={{ asset_v }}"></script>
 
     <!-- SortableJS: drag-and-drop reordering for the scorecard rule editor.
          Loaded once so HTMX-swapped partials can initialize lists without
          dynamic script injection. -->
-    <script src="/static/js/vendor/Sortable.min.js"></script>
+    <script src="/static/js/vendor/Sortable.min.js?v={{ asset_v }}"></script>
 </head>
 
 <body class="min-h-screen bg-base-200 text-base-content">
