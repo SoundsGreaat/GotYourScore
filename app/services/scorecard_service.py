@@ -1,10 +1,10 @@
-"""Scorecard rule snapshot + template administration service.
+﻿"""Scorecard rule snapshot + template administration service.
 
 Historical immutability rule: every saved review embeds a snapshot of
 the rules that were ACTIVE at save time inside
 ``reviews.scorecard_data`` (``rules_snapshot``). Later edits,
 deactivations or template swaps must never alter past reviews' scores
-or breakdowns — scoring always reads the stored snapshot-era values,
+or breakdowns â€” scoring always reads the stored snapshot-era values,
 never the live rules. This service is the single source of the
 snapshot; both review-creation endpoints share it.
 
@@ -46,7 +46,7 @@ async def get_active_rules(
     Returns:
         ``{"case_type": "<value>", "template_ids": [...],
         "items": [{"error_name", "display_name", "penalty_points",
-        "category"}, ...]}`` — stored verbatim as ``rules_snapshot``.
+        "category"}, ...]}`` â€” stored verbatim as ``rules_snapshot``.
         ``category`` is additive; snapshots written before it existed
         simply lack the key and remain valid.
     """
@@ -78,7 +78,7 @@ async def get_active_rules(
         if item.template_id not in template_ids:
             template_ids.append(item.template_id)
 
-        # Dedup by error_name ALONE (first template id wins — rows are
+        # Dedup by error_name ALONE (first template id wins â€” rows are
         # ordered by template id): the per-template unique constraint
         # already guarantees uniqueness inside one template, so keying
         # on (template_id, error_name) would keep cross-template
@@ -148,7 +148,7 @@ def _validate_penalty(raw: object, *, row_label: str) -> int:
     return penalty
 
 
-def _coerce_case_type(value: object) -> CaseTypeEnum:
+def coerce_case_type(value: object) -> CaseTypeEnum:
     """Convert a raw value to CaseTypeEnum or raise ValueError.
 
     Accepts enum members as-is and their string VALUES ("Initial Fix");
@@ -169,7 +169,7 @@ async def list_templates(
 ) -> list[tuple[ScorecardTemplate, int]]:
     """All templates with their item counts, ordered by id.
 
-    One grouped query — no N+1.
+    One grouped query â€” no N+1.
     """
     stmt = (
         select(ScorecardTemplate, func.count(ScorecardItem.id))
@@ -239,7 +239,7 @@ async def _demote_sibling_actives(
     Enforces "one active scorecard per case type" together with the
     partial unique index ``uq_scorecard_templates_case_type_active``.
     Callers must demote siblings BEFORE flipping their own row active /
-    moving a row into ``case_type`` — same-statement UPDATE order is
+    moving a row into ``case_type`` â€” same-statement UPDATE order is
     not guaranteed, so the lane has to be free first.
     """
     await db_session.execute(
@@ -270,7 +270,7 @@ async def create_template(
             f"Template name is too long (max {_MAX_NAME_LENGTH} characters)."
         )
 
-    coerced_case = _coerce_case_type(case_type)
+    coerced_case = coerce_case_type(case_type)
     # Free the lane BEFORE the INSERT: the partial unique index
     # uq_scorecard_templates_case_type_active rejects a second active
     # template of the same case type at flush time. keep_id=-1 matches
@@ -319,7 +319,7 @@ async def bulk_save(
     """Apply a whole editor form to one template (flushed, not committed).
 
     - ``updates``: dicts ``{id, display_name, category, penalty_points,
-      is_active[, position]}``. ONLY those columns change —
+      is_active[, position]}``. ONLY those columns change â€”
       ``error_name`` is IMMUTABLE for existing items because saved
       reviews count occurrences by that key; renaming a display name
       must never move the multiplier. An optional ``position``
@@ -334,13 +334,13 @@ async def bulk_save(
     - ``name`` / ``case_type``: template-level fields, updated when
       provided (not None).
 
-    Positions are stored exactly as submitted — no renormalization
+    Positions are stored exactly as submitted â€” no renormalization
     pass runs afterwards, because the editor form numbers its rows
     contiguously in DOM order.
 
     Raises:
         ValueError: on validation problems (empty names, bad penalties,
-            unknown case types, foreign ids) — callers map this to 400.
+            unknown case types, foreign ids) â€” callers map this to 400.
     """
     template = await db_session.get(ScorecardTemplate, template_id)
     if template is None:
@@ -356,7 +356,7 @@ async def bulk_save(
             )
         template.name = clean_name
     if case_type is not None:
-        new_case = _coerce_case_type(case_type)
+        new_case = coerce_case_type(case_type)
         if new_case != template.case_type and template.is_active:
             # One ACTIVE template per case type: free the target lane
             # BEFORE moving this (still active) row into it.
