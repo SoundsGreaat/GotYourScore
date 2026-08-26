@@ -76,7 +76,7 @@
                     {{ dd.dropdown('case-type',
                         items=case_types,
                         value_attr='value', label_attr='value',
-                        selected='Service Request',
+                        selected='Initial Fix',
                         display_sel='.js-case-type-display',
                         js_fn='updateCustomDropdown') }}
                 </fieldset>
@@ -295,7 +295,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 var pristine = !quill.getText().trim()
                     && !document.getElementById('review-agent').value
                     && !document.getElementById('case-number').value
-                    && document.getElementById('case-type').value === 'Service Request'
+                    && document.getElementById('case-type').value === 'Initial Fix'
                     && document.getElementById('review-period').value === initialPeriod
                     && Object.keys(collectDeductions()).length === 0;
                 if (pristine) {
@@ -621,11 +621,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
         var caseType = typeof review.case_type === 'string'
             ? review.case_type
-            : (review.case_type && review.case_type.value) || 'Service Request';
+            : (review.case_type && review.case_type.value) || 'Initial Fix';
         document.getElementById('case-type').value = caseType;
         document.querySelector('.js-case-type-display').textContent = caseType;
         // Sync both highlight classes: the macro pre-highlights its
-        // 'Service Request' default, and menu-active is what an open
+        // 'Initial Fix' default, and menu-active is what an open
         // menu actually shows.
         document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
             var match = btn.textContent.trim() === caseType;
