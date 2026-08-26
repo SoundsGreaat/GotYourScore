@@ -178,7 +178,7 @@
         :where(.input:focus, .input:focus-within,
                .textarea:focus, .select:focus,
                .checkbox:focus-visible, .radio:focus-visible,
-               .toggle:focus-visible, .btn:focus-visible,
+               .toggle:focus-visible,
                .focus-halo:focus-visible,
                .ql-editor:focus, .glow-shell:focus-within) {
             outline: none;
@@ -202,8 +202,20 @@
                 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
                 0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
         }
+        /* Buttons need FULL specificity here: daisyUI v5 declares
+           .btn:focus-visible {outline-width:2px; outline-style:solid}
+           (.btn:has(:focus-visible) included) plus a resting
+           box-shadow on .btn itself — both beat any :where() reset,
+           so after a mouse release you saw the raw 2px offset ring
+           instead of the halo. Re-asserted as real selectors; the
+           halo REPLACES the outline, never removed without one. */
+        .btn:focus-visible,
+        .btn:has(:focus-visible) {
+            outline-style: none;
+            box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
+        }
         :where(.checkbox:focus-visible, .radio:focus-visible,
-               .toggle:focus-visible, .btn:focus-visible,
+               .toggle:focus-visible,
                .focus-halo:focus-visible) {
             box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
         }
