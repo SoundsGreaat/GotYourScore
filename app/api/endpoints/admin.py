@@ -1,4 +1,4 @@
-"""Admin panel pages (Jinja2/HTMX) — Admin-only.
+﻿"""Admin panel pages (Jinja2/HTMX) â€” Admin-only.
 
 Server-rendered fragments swapped into ``templates/admin.html`` by
 HTMX; every response is an HTML PARTIAL, never JSON. Auth follows the
@@ -135,7 +135,7 @@ async def _prompts_context(
     Fixed slots (``system_prompt_service.PROMPT_SLOTS``) enriched with
     each key's version history: ``versions`` newest first and
     ``active_id`` = the active version's id (None when the key has no
-    active row — resolvers then fall back to the hardcoded constants).
+    active row â€” resolvers then fall back to the hardcoded constants).
     """
     grouped = {
         group["key"]: group
@@ -185,7 +185,7 @@ async def create_prompt(
 ) -> Response:
     """Create a new ACTIVE prompt version (demotes the previous one).
 
-    Reads the urlencoded form directly (HTMX default) — no
+    Reads the urlencoded form directly (HTMX default) â€” no
     ``python-multipart`` dependency needed. The key must be one of the
     fixed slots; anything else is a 400 alert fragment.
     """
@@ -659,7 +659,7 @@ async def _users_context(
     db: AsyncSession,
     *,
     current_user: User,
-    status: str | None = None,
+    status_message: str | None = None,
 ) -> dict[str, object]:
     """Context for the merged users partial: ACTIVE users only.
 
@@ -678,7 +678,7 @@ async def _users_context(
         "current_user_id": current_user.id,
         "role_choices": _ROLE_VALUES,
         "default_role": RoleEnum.SUPPORT.value,
-        "status": status,
+        "status": status_message,
     }
 
 
@@ -751,7 +751,7 @@ async def update_user_roles(
     return _render_users(
         request,
         await _users_context(
-            db, current_user=auth, status=f"Roles updated for {target.nickname}."
+            db, current_user=auth, status_message=f"Roles updated for {target.nickname}."
         ),
     )
 
@@ -767,7 +767,7 @@ async def create_user(
     Validation failures return 400 whose body is ONLY the alert
     fragment for the frontend's ``#users-alert`` swap slot. With no
     roles checked the account defaults to Support. ``users.name`` stays
-    NULL — the person's first Google login fills it in.
+    NULL â€” the person's first Google login fills it in.
     """
     redirect = _guard(auth, request)
     if redirect is not None:
@@ -801,7 +801,7 @@ async def create_user(
     return _render_users(
         request,
         await _users_context(
-            db, current_user=auth, status=f"User {nickname} created."
+            db, current_user=auth, status_message=f"User {nickname} created."
         ),
     )
 
@@ -818,7 +818,7 @@ async def delete_user(
     Historical reviews stay intact and keep resolving the user's name;
     the account disappears from new-work surfaces and Google login.
     Guards: you cannot delete yourself, and the last active Admin is
-    irreplaceable — both surface as alert fragments.
+    irreplaceable â€” both surface as alert fragments.
     """
     redirect = _guard(auth, request)
     if redirect is not None:
@@ -897,7 +897,7 @@ async def restore_user(
     db: DbSession,
 ) -> Response:
     """Clear ``deleted_at`` (undo the soft delete) and re-render the
-    deleted-users partial — same fragment-refresh pattern as the
+    deleted-users partial â€” same fragment-refresh pattern as the
     review restore flow."""
     redirect = _guard(auth, request)
     if redirect is not None:
@@ -1004,7 +1004,7 @@ async def restore_review(
     db: DbSession,
 ) -> Response:
     """Clear ``deleted_at`` (undo the soft delete) and re-render the
-    deleted-reviews partial — same fragment-refresh pattern as the
+    deleted-reviews partial â€” same fragment-refresh pattern as the
     prompt delete flow."""
     redirect = _guard(auth, request)
     if redirect is not None:
