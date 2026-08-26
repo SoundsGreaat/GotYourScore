@@ -271,6 +271,11 @@ async def create_template(
         )
 
     coerced_case = _coerce_case_type(case_type)
+    # Free the lane BEFORE the INSERT: the partial unique index
+    # uq_scorecard_templates_case_type_active rejects a second active
+    # template of the same case type at flush time. keep_id=-1 matches
+    # nothing (the new row has no id yet) so every active sibling goes.
+    await _demote_sibling_actives(coerced_case, -1, db_session)
     template = ScorecardTemplate(
         name=clean_name,
         case_type=coerced_case,
@@ -278,7 +283,6 @@ async def create_template(
     )
     db_session.add(template)
     await db_session.flush()
-    await _demote_sibling_actives(coerced_case, template.id, db_session)
     return template
 
 
