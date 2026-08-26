@@ -78,9 +78,7 @@ NOTES_FROM_SCORE_PROMPT_KEY = "notes_from_score"
 # - allow_fallbacks = if the preferred provider fails/unavailable,
 #   OpenRouter may try another provider.
 OPENROUTER_PROVIDER = {
-    "order": ["relace"],
-    "ignore": ["open-inference"],
-    "quantizations": ["fp4"],
+    "sort": "throughput",
     "allow_fallbacks": True,
 }
 
@@ -92,10 +90,10 @@ OPENROUTER_PROVIDER = {
 # Fail fast instead of pinning a worker on a hanging LLM call.
 # Hard ceiling for the WHOLE AI exchange: MAX_RETRIES is 0 because the
 # SDK applies the timeout PER ATTEMPT — a retry would double the wait.
-REQUEST_TIMEOUT_SECONDS = 30.0
+REQUEST_TIMEOUT_SECONDS = 60.0
 
 # OpenAI SDK retries transient failures automatically; disabled here so
-# the 30s timeout above is the true total, not per-attempt.
+# the 60s timeout above is the true total, not per-attempt.
 MAX_RETRIES = 0
 
 
@@ -114,6 +112,13 @@ MAX_KEY_LENGTH = 64
 _CODE_FENCE_RE = re.compile(
     r"^```[ \t]*[A-Za-z0-9_-]*[ \t]*\r?\n?(.*?)\r?\n?[ \t]*```$",
     re.DOTALL,
+)
+
+# The refactor/notes contracts demand a bare HTML fragment, yet some
+# models still emit chain-of-thought around it despite the prompt.
+_HTML_FRAGMENT_RE = re.compile(
+    r"<(ul|ol|p|div)\b.*</\1\s*>",
+    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -147,6 +152,9 @@ to integer deduction points, e.g. {"late_response": 5, "poor_tone": 3}:
   to deduct for that error; the total scorecard starts at 100 points.
 - Use 0 for a criterion you considered but found not to be violated.
 - If the agent performed well, output an empty object: {}.
+- When configured rules are listed below, a finding that matches none of
+  them must be OMITTED entirely: never force a weak match onto an
+  unrelated rule.
 - Markdown code fences, prose, explanations, and nested structures are all
   forbidden: output a single flat JSON object and nothing else.
 """
@@ -170,6 +178,9 @@ Strict rules:
   numbers, or scores.
 - Output ONLY the improved HTML — no markdown code fences, no
   commentary, no explanations.
+- NEVER include reasoning or meta-commentary: never describe what you
+  changed, never explain, never narrate; the output must contain ONLY
+  the rewritten notes themselves, nothing else.
 """
 
 
@@ -340,6 +351,24 @@ def _strip_code_fences(text: str) -> str:
         return match.group(1).strip()
 
     return cleaned
+
+
+def _extract_html_fragment(text: str) -> str:
+    """Return the bare HTML fragment embedded in a model response.
+
+    Carves out everything from the first block-level tag to the matching
+    closing tag, dropping any leaked reasoning before/after it; falls
+    back to the fence-stripped text when no fragment-shaped markup is
+    present.
+    """
+    cleaned = _strip_code_fences(text)
+
+    match = _HTML_FRAGMENT_RE.search(cleaned)
+
+    if match is None:
+        return cleaned
+
+    return match.group(0)
 
 
 def _extract_json(text: str) -> dict:
@@ -653,7 +682,7 @@ async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
             "OpenRouter returned an empty response."
         )
 
-    return _strip_code_fences(content)
+    return _extract_html_fragment(content)
 
 
 # ---------------------------------------------------------------------------

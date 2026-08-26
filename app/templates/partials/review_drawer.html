@@ -818,10 +818,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         hideMenu();
     }, { capture: true, signal: controller.signal });
 
-    // AI endpoints cap at 30s server-side; the extra second lets the
+    // AI endpoints cap at 60s server-side; the extra second lets the
     // server's own error land first. If nothing arrives at all (hung
     // connection/proxy), the abort fires so the UI always gets feedback.
-    var AI_TIMEOUT_MS = 31000;
+    var AI_TIMEOUT_MS = 61000;
     function aiFetch(url, payload) {
         var ctrl = new AbortController();
         var timer = window.setTimeout(function () { ctrl.abort(); }, AI_TIMEOUT_MS);
