@@ -1,0 +1,14 @@
+.git
+.idea
+.venv
+venv
+node_modules
+__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example
+scripts/*.csv
+Dockerfile
+docker-compose.yml
+README.md
