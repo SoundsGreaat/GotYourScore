@@ -1,9 +1,9 @@
-﻿"""Import a scorecard CSV into one template + its items.
+"""Import a scorecard CSV into one template + its items.
 
 Input format (see ``scripts/scorecard_example.csv``):
 
 - A CATEGORY HEADER line has a trailing comma and an empty second
-  field, e.g. ``Regular Optimization Steps,`` â€” every rule below it
+  field, e.g. ``Regular Optimization Steps,`` — every rule below it
   inherits that category until the next header.
 - An ITEM line is ``Human readable name,penalty`` (penalty 1-5 in the
   example file; anything 0-100 is accepted).
@@ -22,7 +22,7 @@ Usage::
 
 ``--dry-run`` parses and prints what would be inserted WITHOUT
 touching the database. Without it the script WRITES to whatever DB
-``DATABASE_URL`` points at â€” double-check before running for real.
+``DATABASE_URL`` points at — double-check before running for real.
 """
 
 import argparse
