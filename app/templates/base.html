@@ -112,6 +112,11 @@
          eager load before htmx initializes. -->
     <script defer src="/static/js/tabs.js"></script>
 
+    <!-- Dashboard sidebar view engine: hash-synced view + reporting-period
+         state for #view-container swaps. Deferred so it runs after parsing
+         but before htmx's initial load-trigger fetch. -->
+    <script defer src="/static/js/dashboard.js"></script>
+
     <!-- Quill 2: the full build registers the snow theme (there is no separate
          themed JS bundle). Loaded once so HTMX-swapped partials can initialize
          the editor without dynamic script injection. -->
