@@ -30,7 +30,16 @@
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
             <div class="max-w-full overflow-x-auto">
-                <table class="table table-sm">
+                <!-- table-fixed + colgroup: filling/removing case chips
+                     must not reflow the other columns (Avg score used
+                     to slide sideways); min-w keeps mobile scrolling
+                     instead of squishing. -->
+                <table class="table table-sm table-fixed w-full min-w-[480px]">
+                    <colgroup>
+                        <col class="w-[22%]" /><!-- Agent -->
+                        <col class="w-[58%]" /><!-- Quota -->
+                        <col class="w-[20%]" /><!-- Avg score -->
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Agent</th>
@@ -41,8 +50,8 @@
                     <tbody>
                         {% for agent in agents %}
                         <tr>
-                            <th class="font-medium">{{ agent.name }}</th>
-                            <td class="min-w-44">
+                            <th class="truncate font-medium" title="{{ agent.name }}">{{ agent.name }}</th>
+                            <td>
                                 <div class="flex items-center gap-3">
                                     <progress class="progress progress-primary w-28" value="{{ agent.completed }}" max="{{ agent.target }}"></progress>
                                     <span class="text-sm text-base-content/70">{{ agent.completed }}/{{ agent.target }}</span>
@@ -53,13 +62,13 @@
                                     {% set mc = agent.cases[loop.index0] if loop.index0 < agent.cases|length else none %}
                                     {% if mc and mc.status == 'pending' %}
                                     <button type="button"
-                                            class="badge badge-soft badge-warning badge-sm max-w-24 cursor-pointer font-semibold"
+                                            class="badge badge-soft badge-warning badge-sm max-w-24 cursor-pointer truncate font-semibold"
                                             data-review-complete="{{ mc.id }}"
                                             aria-label="Complete delegated case {{ mc.case_number or mc.id }}"
                                             title="Delegated to {{ mc.assigned_qa_name or 'QA' }} · awaiting review">Pending</button>
                                     {% elif mc %}
                                     <button type="button"
-                                            class="badge badge-soft badge-sm max-w-24 cursor-pointer font-semibold"
+                                            class="badge badge-soft badge-sm max-w-24 cursor-pointer truncate font-semibold"
                                             data-case-notes="{{ mc.id }}"
                                             data-case-label="{{ mc.case_number or 'N/C' }}"
                                             data-case-type="{{ mc.case_type.value }}"
@@ -102,7 +111,20 @@
             </h3>
             {% if cases %}
             <div class="max-w-full overflow-x-auto">
-                <table class="table table-sm">
+                <!-- table-fixed + colgroup: scores appearing/vanishing
+                     must not reflow the other columns; min-w keeps
+                     mobile on the horizontal scroll instead of
+                     squishing. -->
+                <table class="table table-sm table-fixed w-full min-w-[640px]">
+                    <colgroup>
+                        <col class="w-[12%]" /><!-- Date -->
+                        <col class="w-[16%]" /><!-- Agent -->
+                        <col class="w-[16%]" /><!-- Reviewed by -->
+                        <col class="w-[14%]" /><!-- Case type -->
+                        <col class="w-[16%]" /><!-- Case # -->
+                        <col class="w-[12%]" /><!-- Score -->
+                        <col class="w-[14%]" /><!-- Actions -->
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Date</th>
@@ -117,11 +139,11 @@
                     <tbody>
                         {% for case in cases %}
                         <tr>
-                            <td class="whitespace-nowrap">{{ case.created_at.strftime('%b %d, %Y') }}</td>
-                            <th class="font-medium">{{ case.agent_name }}</th>
-                            <td>{{ case.reviewer_name }}</td>
-                            <td>{{ case.case_type.value }}</td>
-                            <td>{% if case.case_number %}{{ case.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td class="truncate" title="{{ case.created_at.strftime('%b %d, %Y') }}">{{ case.created_at.strftime('%b %d, %Y') }}</td>
+                            <th class="truncate font-medium" title="{{ case.agent_name }}">{{ case.agent_name }}</th>
+                            <td class="truncate" title="{{ case.reviewer_name or '' }}">{{ case.reviewer_name }}</td>
+                            <td class="truncate" title="{{ case.case_type.value }}">{{ case.case_type.value }}</td>
+                            <td class="truncate" title="{{ case.case_number or '' }}">{% if case.case_number %}{{ case.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
                             <td>
                                 {% if case.status == 'pending' %}
                                 <button type="button"
