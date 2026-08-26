@@ -167,9 +167,9 @@ def _backfill_period(
 
 
 async def _get_support_agent_or_error(agent_id: int, db: AsyncSession) -> User:
-    """Resolve the review target; 404 unknown, 400 non-Support."""
+    """Resolve the review target; 404 unknown or soft-deleted."""
     agent = await db.get(User, agent_id)
-    if agent is None:
+    if agent is None or agent.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Support agent {agent_id} not found.",
@@ -184,6 +184,30 @@ async def _get_support_agent_or_error(agent_id: int, db: AsyncSession) -> User:
             ),
         )
     return agent
+
+
+async def _get_assigned_qa_or_error(qa_id: int, db: AsyncSession) -> User:
+    """Resolve a delegation assignee; 400 unknown/deleted or non-QA.
+
+    Shared by the single-POST and PATCH delegation paths so the role
+    contract (and its detail messages) cannot drift apart.
+    """
+    assigned_qa = await db.get(User, qa_id)
+    if assigned_qa is None or assigned_qa.deleted_at is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Assigned QA {qa_id} not found.",
+        )
+    if not assigned_qa.has_role(RoleEnum.QA):
+        roles = ", ".join(role.value for role in assigned_qa.roles) or "none"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"User {qa_id} has roles '{roles}' but pending "
+                "reviews must be delegated to a user with role 'QA'."
+            ),
+        )
+    return assigned_qa
 
 
 async def _reject_quota_reached(
@@ -502,22 +526,7 @@ async def create_pending_review(
     # Assignee validation only binds when one was named — null routes
     # the handoff to the shared queue.
     if payload.assigned_qa_id is not None:
-        assigned_qa = await db.get(User, payload.assigned_qa_id)
-        if assigned_qa is None or not assigned_qa.has_role(RoleEnum.QA):
-            roles = (
-                ", ".join(role.value for role in assigned_qa.roles)
-                if assigned_qa is not None
-                else None
-            )
-            detail = (
-                f"User {payload.assigned_qa_id} has roles '{roles}' but pending "
-                "reviews must be delegated to a user with role 'QA'."
-                if assigned_qa is not None
-                else f"Assigned QA {payload.assigned_qa_id} not found."
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=detail
-            )
+        await _get_assigned_qa_or_error(payload.assigned_qa_id, db)
 
     # Duplicate protection parity with the bulk endpoint: one OPEN
     # handoff per (support agent, case number); rows without a number
@@ -634,7 +643,14 @@ async def create_pending_reviews_bulk(
     }
     users_by_id: dict[int, User] = {}
     if user_ids:
-        result = await db.execute(select(User).where(User.id.in_(user_ids)))
+        # Soft-deleted users stay out of the dict: both skip branches
+        # below then treat them as unknown ("unknown or inactive
+        # agent" / "assignee is not a QA"), matching active_filter().
+        result = await db.execute(
+            select(User).where(
+                User.id.in_(user_ids), User.deleted_at.is_(None)
+            )
+        )
         users_by_id = {user.id: user for user in result.scalars().all()}
 
     # Pass 2 — per-row business validation; failures collect instead of
@@ -977,22 +993,9 @@ async def update_review(
         and "assigned_qa_id" in provided
         and payload.assigned_qa_id is not None
     ):
-        new_assigned_qa = await db.get(User, payload.assigned_qa_id)
-        if new_assigned_qa is None or not new_assigned_qa.has_role(RoleEnum.QA):
-            roles = (
-                ", ".join(role.value for role in new_assigned_qa.roles)
-                if new_assigned_qa is not None
-                else None
-            )
-            detail = (
-                f"User {payload.assigned_qa_id} has roles '{roles}' but pending "
-                "reviews must be delegated to a user with role 'QA'."
-                if new_assigned_qa is not None
-                else f"Assigned QA {payload.assigned_qa_id} not found."
-            )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail=detail
-            )
+        new_assigned_qa = await _get_assigned_qa_or_error(
+            payload.assigned_qa_id, db
+        )
 
     if is_pending:
         # ALL pending edits reject 'No Cases' — a delegated handoff
