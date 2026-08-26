@@ -77,7 +77,10 @@
     
 
 /* ---- Brand themes (light/dark) + motion/glow system ---- */
-        :where(:root),
+        /* [data-theme] is always set pre-paint by base.html's inline
+           script, so the light palette hangs off the attribute — a
+           bare :where(:root) fallback would lose to daisyUI's own
+           :root palette anyway (zero specificity). */
         [data-theme="light"] {
             color-scheme: light;
             --color-base-100: oklch(100% 0 0);
@@ -514,11 +517,10 @@
             transition-timing-function: var(--gys-ease);
         }
 
-        /* Dropdown menu options and tabs: their active/hover background
-           used to snap instantly (no transition at all), which read as
-           "faster" next to the smoothed fields. */
-        .dropdown.menu button,
-        .tab {
+        /* Dropdown menu options: their active/hover background used to
+            snap instantly (no transition at all), which read as
+            "faster" next to the smoothed fields. */
+        .dropdown.menu button {
             transition:
                 background-color var(--gys-speed) var(--gys-ease),
                 color var(--gys-speed) var(--gys-ease),

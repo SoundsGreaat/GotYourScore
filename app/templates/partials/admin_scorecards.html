@@ -44,7 +44,7 @@ toggling one ON demotes its same-type siblings server-side. #}
                      data-template-card data-template-id="{{ t.id }}">
                     <div class="card-body flex-col gap-2 p-3 sm:flex-row sm:items-center">
                         <!-- The whole name zone is one button: the card itself is clickable.
-                             .focus-halo = project-wide keyboard-focus glow (base.html). -->
+                             .focus-halo = project-wide keyboard-focus glow (input.css). -->
                         <button type="button" class="focus-halo min-w-0 flex-1 rounded-box text-left"
                                 hx-get="/admin/partials/scorecard-editor/{{ t.id }}"
                                 hx-target="#scorecard-editor" hx-swap="innerHTML">
