@@ -167,7 +167,14 @@ window.setDropdownValue = function (hiddenId, displayRef, value, text, btnEl) {
     // New-style macro calls pass only (hiddenId, displayRef, btnEl):
     // the picked value/label live in the option button's dataset (see
     // the macro's js_fn doc). Programmatic callers may still pass all
-    // five args explicitly.
+    // five args explicitly. Vararg-forwarding WRAPPERS declare the old
+    // 5-param signature, so a shifted call lands the ELEMENT in the
+    // value slot — detect it there before trusting `value`.
+    if (value instanceof Element) {
+        btnEl = value;
+        value = undefined;
+    }
+    if (text instanceof Element) text = undefined;
     if (btnEl && value === undefined) {
         value = btnEl.dataset.optValue || '';
         text = btnEl.dataset.optLabel || '';
