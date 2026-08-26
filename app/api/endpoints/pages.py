@@ -639,8 +639,9 @@ async def partial_team_quotas(
 
     Context: every QA analyst with their quota-compliance totals
     (``{"id", "name", "completed", "required", "deficit"}``) for the
-    selected REPORTING period (26th→25th, named after the closing
-    month; ``?period=YYYY-MM`` picks a past one, default current).
+    CURRENT reporting period (26th→25th, named after the closing
+    month). Any ``?period=`` query param is deliberately ignored — the
+    view has no period selector (unlike qa-matrix / the reviews tables).
     Global aggregate data: reviewer roles only — Support-only users
     get a bare 403 (no redirect). The per-QA compliance lookups are
     N+1 queries — acceptable for a small team.
@@ -656,8 +657,9 @@ async def partial_team_quotas(
     if not is_reviewer(auth):
         return _forbidden()
 
-    period_start, period_end, closing_year, closing_month, period_value = (
-        _resolve_period(request.query_params)
+    # Always the current period; ?period= is never read here.
+    period_start, period_end, closing_year, closing_month = (
+        reporting_period.reporting_period_for(datetime.now(timezone.utc))
     )
     assignments_by_qa = await _assignments_by_qa(db)
     rows = []
@@ -679,8 +681,9 @@ async def partial_team_quotas(
     context: dict[str, object] = {
         "rows": rows,
         "period_range": _period_range_label(period_start, period_end),
-        "period_value": period_value,
-        "period_options": await _period_options(db),
+        # data-period on the section keeps the dashboard hash-sync
+        # mirroring the (always current) period into the location hash.
+        "period_value": f"{closing_year:04d}-{closing_month:02d}",
         "can_manage": can_manage,
         # Read-only agent chips render for every reviewer; the
         # drag-and-drop palette only appears for managers.
