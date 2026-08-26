@@ -168,23 +168,25 @@
         }
 
         /* Focus glow, project-wide: a soft primary halo instead of the
-           default browser ring. Declared AFTER the daisyUI CDN sheet so
-           it wins the cascade at equal specificity. Covers text fields
-           (.input incl. label wrappers via :focus-within), dropdown
-           triggers (the shared macro renders them as .select) and the
-           Quill editor; checkboxes/toggles/buttons get the same halo
-           on keyboard focus (:focus-visible). The halo REPLACES the
-           outline — never removed without a visible replacement. */
-        :where(.input:focus, .input:focus-within,
-               .textarea:focus, .select:focus,
-               .checkbox:focus-visible, .radio:focus-visible,
-               .toggle:focus-visible,
-               .focus-halo:focus-visible,
-               .ql-editor:focus, .glow-shell:focus-within) {
+           default browser ring. Declared AFTER the daisyUI sheet.
+           PLAIN selectors, not :where(): daisyUI v5 declares its own
+           focus styles (.input:focus {outline:2px solid}, inset
+           box-shadow, same for .checkbox/.radio/.toggle) at full
+           specificity, and a :where() reset (specificity 0) silently
+           loses to them — leaving a raw double ring instead of the
+           halo. The halo REPLACES the outline — never removed without
+           a visible replacement. */
+        .input:focus, .input:focus-within,
+        .textarea:focus, .select:focus,
+        .checkbox:focus-visible, .radio:focus-visible,
+        .toggle:focus-visible,
+        .toggle:has(:focus-visible),
+        .focus-halo:focus-visible,
+        .ql-editor:focus, .glow-shell:focus-within {
             outline: none;
         }
-        :where(.input:focus, .input:focus-within,
-               .textarea:focus, .select:focus) {
+        .input:focus, .input:focus-within,
+        .textarea:focus, .select:focus {
             border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
             box-shadow:
                 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
@@ -214,9 +216,11 @@
             outline-style: none;
             box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
         }
-        :where(.checkbox:focus-visible, .radio:focus-visible,
-               .toggle:focus-visible,
-               .focus-halo:focus-visible) {
+        /* Same specificity rule as above: daisyUI's own checkbox/
+           radio/toggle focus ring would beat a :where() halo. */
+        .checkbox:focus-visible, .radio:focus-visible,
+        .toggle:focus-visible,
+        .focus-halo:focus-visible {
             box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
         }
 
@@ -332,9 +336,16 @@
         }
         /* daisyUI paints the nested-menu guide line ("Reviews" separator)
            with the LIGHT theme's base-content color — invisible on our
-           always-dark drawer. White-alpha matches the hover language. */
+           always-dark drawer; opaque white matches the hover language. */
         .menu.gys-nav-menu li ul::before {
             background-color: rgb(255 255 255 / 1);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            /* Decorative fade on the AI context menu (animate-menu-pop)
+               is not gated at its usage site — kill it here. */
+            .animate-menu-pop {
+                animation: none;
+            }
         }
         @media (prefers-reduced-motion: no-preference) {
             .menu.gys-nav-menu a {
@@ -486,8 +497,8 @@
                 opacity: 0;
                 transform: translateY(8px);
                 transition:
-                    opacity 0.2s ease,
-                    transform 0.2s ease;
+                    opacity var(--gys-speed) var(--gys-ease),
+                    transform var(--gys-speed) var(--gys-ease);
             }
             @keyframes gys-float-in {
                 from { opacity: 0; transform: translateY(10px); }
@@ -521,9 +532,9 @@
            still animated, which made fields feel inconsistent vs the
            Quill shell). This transparent pair is invisible and gives
            the transition a matching start value. */
-        :where(.input:not(:focus):not(:focus-within),
-               .textarea:not(:focus),
-               .select:not(:focus)) {
+         .input:not(:focus):not(:focus-within),
+         .textarea:not(:focus),
+         .select:not(:focus) {
             box-shadow:
                 0 0 0 3px #0000,
                 0 0 12px 0 #0000;
