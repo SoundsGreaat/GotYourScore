@@ -87,6 +87,9 @@ window.openReviewDrawer = function (reviewId, mode) {
                     window.openReviewDrawerForReview(payload.review, mode);
                     return;
                 }
+                // A newer open superseded this one — stop quietly instead
+                // of toasting a failure for a drawer that IS open.
+                if ((window.__reviewDrawerReadyEpoch || 0) > payload.expectedEpoch) return;
                 if (++attempts > 40) { window.gysToast('Unable to open the review.'); return; }
                 window.setTimeout(waitForHook, 50);
             })();
