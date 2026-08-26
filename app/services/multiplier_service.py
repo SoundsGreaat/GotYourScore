@@ -10,6 +10,10 @@ Business rules:
   counted.
 - Multiplier for the current submission = past_occurrences + 1, so the
   first occurrence is penalized 1x, the second 2x, and so on.
+- Only COMPLETED rows enter the past-occurrence scan: 'No Cases'
+  reviews have null ``scorecard_data``, and saved-for-later drafts
+  (status='pending') carry resumable selections that are not scored
+  history.
 
 Stored shape compatibility: reviews saved since the rules-snapshot
 feature nest the breakdown under a top-level ``"breakdown"`` key;
@@ -23,7 +27,7 @@ from typing import Any, Iterator
 from sqlalchemy import select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Review
+from app.models import Review, ReviewStatusEnum
 
 BASE_SCORE: int = 100
 MIN_FINAL_SCORE: int = 0
@@ -109,6 +113,11 @@ async def calculate_final_score(
                 .where(
                     Review.support_agent_id == agent_id,
                     Review.scorecard_data.is_not(None),
+                    # COMPLETED rows only: a saved-for-later draft is a
+                    # pending row whose JSONB holds resumable rule
+                    # selections — never part of anyone's official
+                    # scoring history until its completion PATCH.
+                    Review.status == ReviewStatusEnum.COMPLETED,
                     # Rescoring an existing review must not count the row's
                     # OWN stored deductions toward its new multipliers.
                     Review.id != exclude_review_id if exclude_review_id is not None

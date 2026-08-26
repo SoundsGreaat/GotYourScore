@@ -2,7 +2,10 @@
 
 - POST /api/reviews: create a review (rule snapshot embedded into
   scorecard_data, progressive multiplier scoring, reporting-period
-  quota enforcement, 'No Cases' edge case).
+  quota enforcement, 'No Cases' edge case). With ``save_for_later``
+  the same payload instead parks a quota-neutral status='pending'
+  draft routed to the creator, keeping the ticked rules resumable in
+  scorecard_data under {"draft": true}.
 - POST /api/reviews/pending: Supervisor/Admin delegates a review of a
   real case to a named QA — or leaves it unassigned in the shared
   queue (status='pending', no scores, quota-neutral until completed;
@@ -241,6 +244,123 @@ async def _reject_quota_reached(
         )
 
 
+async def _create_saved_for_later_review(
+    payload: ReviewCreate,
+    agent: User,
+    creator: User,
+    db: AsyncSession,
+) -> ReviewRead:
+    """Persist the drawer's work-in-progress as a status='pending' draft.
+
+    Shared semantics with POST /pending (the delegated-handoff row):
+    - Quota-neutral — the gate is deliberately skipped, because pending
+      rows do not count until completed (and completion itself skips
+      the gate by product decision).
+    - 'No Cases' is rejected (400): such a draft could never be
+      completed — every pending-row PATCH refuses that case type.
+    - Backfilling is rejected (400): the draft's created_at stays
+      "now" until someone completes it; pinning an unfinished handoff
+      to a past period's last second would misplace its eventual quota
+      count.
+    - The open-handoff duplicate guard applies: 409 when a non-deleted
+      status='pending' review already exists for the same support
+      agent + non-null case number (PATCH re-checks this after every
+      pending edit, so the row must respect it from birth).
+
+    Differences from a delegation: ``assigned_qa_id`` routes the draft
+    BACK TO ITS CREATOR (not a chosen QA — no role requirement there),
+    and the filled-in work survives inside ``scorecard_data`` under a
+    dedicated resumable shape::
+
+        {"draft": true,
+         "raw_scorecard": {error_key: deducted_points},
+         "multiplier_exemptions": [waived error keys]}
+
+    That shape carries NO computed breakdown/final_score — scoring
+    happens fresh at completion time via PATCH (progressive multipliers
+    must see the whole history as of completion, not of saving). The
+    multiplier scan only ever reads COMPLETED rows, so a pending draft
+    holding selections can never inflate anyone else's multipliers.
+    """
+    if payload.case_type is CaseTypeEnum.NO_CASES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "A saved-for-later draft targets a real case — "
+                "case_type 'No Cases' is not allowed (it would never "
+                "be completable)."
+            ),
+        )
+
+    # Backfill + save-for-later are mutually exclusive: the draft lands
+    # in the CURRENT period and is counted there whenever completed.
+    if _backfill_period(payload.period) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Save-for-later drafts cannot use a past reporting "
+                "period — save the review immediately instead."
+            ),
+        )
+
+    # Normalize like a pending row: blank/whitespace case numbers
+    # collapse to null (numberless rows never collide in the guard).
+    case_number = (payload.case_number or "").strip() or None
+
+    if case_number is not None:
+        result = await db.execute(
+            select(Review.support_agent_id, Review.case_number).where(
+                tuple_(Review.support_agent_id, Review.case_number).in_(
+                    [(agent.id, case_number)]
+                ),
+                Review.status == ReviewStatusEnum.PENDING,
+                Review.deleted_at.is_(None),
+            )
+        )
+        if result.first() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Support agent {agent.id} already has a pending review "
+                    f"for case_number '{case_number}'."
+                ),
+            )
+
+    # Keep the ticked rules + waives so the drawer can resume exactly
+    # where the author left off; nothing here is scored yet.
+    scorecard_data: dict[str, Any] | None = None
+    if payload.raw_scorecard or payload.no_multiplier_keys:
+        scorecard_data = {
+            "draft": True,
+            "raw_scorecard": dict(payload.raw_scorecard or {}),
+            "multiplier_exemptions": sorted(
+                set(payload.no_multiplier_keys)
+            ),
+        }
+
+    review = Review(
+        support_agent_id=agent.id,
+        # The completing editor overwrites qa_id (last editor becomes
+        # executor); until then the draft points at its author so the
+        # row always references a valid reviewer.
+        qa_id=creator.id,
+        created_by=creator.id,
+        status=ReviewStatusEnum.PENDING,
+        # Self-routed: the draft surfaces in ITS OWN To-review queue
+        # (assigned rows), never in everyone's shared queue.
+        assigned_qa_id=creator.id,
+        case_type=payload.case_type,
+        case_number=case_number,
+        scorecard_data=scorecard_data,
+        notes=payload.notes,
+        final_score=None,
+    )
+    db.add(review)
+    await db.commit()
+    await db.refresh(review)
+    return ReviewRead.model_validate(review)
+
+
 @router.post("", response_model=ReviewRead, status_code=status.HTTP_201_CREATED)
 async def create_review(
     payload: ReviewCreate,
@@ -261,14 +381,27 @@ async def create_review(
       "now"; a future period is a 400.
     - ``case_type='No Cases'`` skips the math entirely: null
       scorecard_data and null final_score (still counts towards quota).
+    - ``save_for_later=True`` parks the work-in-progress as a
+      status='pending' draft instead: quota-neutral (the 409 gate is
+      skipped), routed back to the creator's To-review queue, and the
+      ticked rules/waives survive inside a resumable
+      ``{"draft": true, ...}`` scorecard_data shape. 'No Cases', past
+      ``period`` backfills, and colliding open handoffs are rejected.
     - Otherwise the ACTIVE scorecard rules are snapshotted into
       ``scorecard_data.rules_snapshot`` alongside the computed
       breakdown — historical immutability: later rule edits never
       rewrite saved reviews.
     - ``qa_id`` is injected from the authenticated caller, who is also
-      recorded as ``created_by``; the row is created ``completed``.
+      recorded as ``created_by``; the row is created ``completed``
+      (pending, for save_for_later drafts).
     """
     agent = await _get_support_agent_or_error(payload.support_agent_id, db)
+
+    if payload.save_for_later:
+        return await _create_saved_for_later_review(
+            payload, agent, current_user, db
+        )
+
     backfill = _backfill_period(payload.period)
     await _reject_quota_reached(agent, db, backfill)
 

@@ -80,6 +80,12 @@ class ReviewCreate(RawScorecardValidation, BaseModel):
         default=None,
         pattern=r"^\d{4}-(1[0-2]|0[1-9])$",
     )
+    # Save the drawer's work-in-progress as a status='pending' draft
+    # instead of completing it: quota-neutral, lands in the creator's
+    # To-review queue (assigned_qa_id = the caller), and the stored
+    # ``scorecard_data`` is a resumable {"draft": true, ...} shape —
+    # NOT a computed breakdown. Completion re-scores via PATCH.
+    save_for_later: bool = False
 
     @model_validator(mode="after")
     def validate_no_cases_has_empty_scorecard(self) -> "ReviewCreate":
