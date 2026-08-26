@@ -572,7 +572,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var agentMenuButton = document.querySelector(
             '#review-agent-menu button[data-agent-id="' + CSS.escape(agentId) + '"]'
         );
-        var agentName = agentMenuButton ? agentMenuButton.textContent.trim() : 'Agent #' + agentId;
+        // Outside the picker (soft-deleted / role-changed agent): the
+        // server resolves the stored nickname into support_agent_name.
+        var agentName = agentMenuButton
+            ? agentMenuButton.textContent.trim()
+            : (review.support_agent_name || 'Agent #' + agentId);
         document.getElementById('review-agent').value = agentId;
         var agentDisplay = document.querySelector('.js-review-agent-display');
         agentDisplay.textContent = agentName;

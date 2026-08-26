@@ -394,6 +394,11 @@ class ReviewRead(BaseModel):
 
     id: int
     support_agent_id: int
+    # Display name resolved server-side for the edit drawer: a review's
+    # agent may be soft-deleted (or have lost the Support role) and is
+    # then absent from the agent picker's options. None unless the
+    # resolver populates it.
+    support_agent_name: str | None = None
     qa_id: int
     case_type: CaseTypeEnum
     case_number: str | None = None

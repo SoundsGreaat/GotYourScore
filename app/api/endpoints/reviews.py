@@ -891,7 +891,14 @@ async def get_review(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Support agents may only view their own reviews.",
         )
-    return ReviewRead.model_validate(review)
+    payload = ReviewRead.model_validate(review)
+    # The edit drawer names the reviewed agent from this field: the
+    # picker only lists ACTIVE Support users, so a soft-deleted (or
+    # role-changed) agent would otherwise degrade to "Agent #<id>".
+    agent = await db.get(User, review.support_agent_id)
+    if agent is not None:
+        payload.support_agent_name = agent.nickname
+    return payload
 
 
 @router.patch("/{review_id}", response_model=ReviewRead)
