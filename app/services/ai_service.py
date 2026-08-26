@@ -46,7 +46,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate, SystemPrompt
+from app.models import CaseTypeEnum, SystemPrompt
 from app.services import app_setting_service, multiplier_service
 from app.services.scorecard_service import get_active_rules
 
@@ -520,44 +520,22 @@ async def analyze_support_ticket(
     db_session: AsyncSession,
 ) -> dict[str, int]:
     """Analyze rich-text (HTML) QA notes into a raw scorecard."""
-    stmt = (
-        select(ScorecardItem)
-        .join(
-            ScorecardTemplate,
-            ScorecardItem.template_id == ScorecardTemplate.id,
+    # One rule-reading path: the same active-template/dedup/ordering
+    # logic that saving a review snapshots — an inactive template must
+    # never leak its rules into the prompt or the allowed-key whitelist.
+    snapshot = await get_active_rules(case_type, db_session)
+    rules = [
+        (
+            item["error_name"],
+            item["display_name"],
+            int(item["penalty_points"]),
+            # Defensive: snapshots written before the category column
+            # existed simply lack the key; blank labels group under
+            # "General".
+            str(item.get("category") or "").strip() or "General",
         )
-        .where(
-            ScorecardTemplate.case_type == case_type,
-            ScorecardItem.is_active.is_(True),
-        )
-        .order_by(
-            ScorecardTemplate.id,
-            ScorecardItem.error_name,
-        )
-    )
-
-    items = list(
-        (await db_session.execute(stmt))
-        .scalars()
-        .all()
-    )
-
-    rules_by_key: dict[str, tuple[str, str, int, str]] = {}
-
-    for item in items:
-        rules_by_key.setdefault(
-            item.error_name,
-            (
-                item.error_name,
-                item.display_name,
-                item.penalty_points,
-                # Defensive: rows predating the category column (or a
-                # blank label) are grouped under "General".
-                (item.category or "").strip() or "General",
-            ),
-        )
-
-    rules = list(rules_by_key.values())
+        for item in snapshot["items"]
+    ]
 
     # DB-stored prompt wins; the hardcoded constant is only a fallback
     # for an empty/inactive system_prompts table.
@@ -623,7 +601,7 @@ async def analyze_support_ticket(
     sanitized = _sanitize_scorecard(parsed)
 
     if rules:
-        allowed = set(rules_by_key)
+        allowed = {rule[0] for rule in rules}
 
         sanitized = {
             key: value
