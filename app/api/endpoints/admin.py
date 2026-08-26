@@ -13,17 +13,21 @@ Prompt versioning semantics are shared with the JSON CRUD API
 in ``app.services.scorecard_service``.
 
 Error convention for HTMX forms: validation failures return HTTP 400
-whose body is ONLY a small daisyUI alert fragment
-(``<div role="alert" class="alert alert-error"><span>MESSAGE</span></div>``)
-that the frontend swaps into an ``#editor-alert`` target.
+whose body is ONLY ``{"detail": MESSAGE}`` — the global
+``htmx:responseError`` net in ``common.js`` toasts the message
+bottom-center, like every other notification.
 """
 
 from datetime import datetime, timezone
 from typing import Annotated
 
-import markupsafe
 from fastapi import APIRouter, Depends, Query, Request, status
-from fastapi.responses import PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    Response,
+)
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -91,16 +95,16 @@ def _not_found() -> PlainTextResponse:
     return PlainTextResponse("Not Found", status_code=status.HTTP_404_NOT_FOUND)
 
 
-def _error_alert(message: str) -> Response:
-    """400 response whose body is ONLY a daisyUI error alert fragment."""
-    content = (
-        '<div role="alert" class="alert alert-error">'
-        f"<span>{markupsafe.escape(message)}</span></div>"
-    )
-    return Response(
-        content=content,
+def _error_json(message: str) -> Response:
+    """400 response whose body is ONLY ``{"detail": message}``.
+
+    The global htmx:responseError net in common.js extracts this detail
+    and toasts it bottom-center like every other notification — errors
+    never render as inline page elements.
+    """
+    return JSONResponse(
+        content={"detail": message},
         status_code=status.HTTP_400_BAD_REQUEST,
-        media_type="text/html",
     )
 
 
@@ -128,7 +132,7 @@ async def admin_page(request: Request, auth: AdminPageUser) -> Response:
 
 
 async def _prompts_context(
-    db: AsyncSession, *, error: str | None = None, saved: bool = False
+    db: AsyncSession, *, saved: bool = False
 ) -> dict[str, object]:
     """Context for the prompts partial (shared by GET and POST flows).
 
@@ -152,7 +156,6 @@ async def _prompts_context(
             }
             for slot in system_prompt_service.PROMPT_SLOTS
         ],
-        "error": error,
         "saved": saved,
     }
 
@@ -199,22 +202,17 @@ async def create_prompt(
 
     slot_keys = {slot["key"] for slot in system_prompt_service.PROMPT_SLOTS}
     if key not in slot_keys:
-        return _error_alert(f"Unknown prompt slot {key!r}.")
-
-    error: str | None = None
+        return _error_json(f"Unknown prompt slot {key!r}.")
     if not content.strip():
-        error = "Prompt content cannot be empty."
+        return _error_json("Prompt content cannot be empty.")
 
-    saved = False
-    if error is None:
-        await system_prompt_service.create_active_version(db, key, content)
-        await db.commit()
-        saved = True
+    await system_prompt_service.create_active_version(db, key, content)
+    await db.commit()
 
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_prompts.html",
-        context=await _prompts_context(db, error=error, saved=saved),
+        context=await _prompts_context(db, saved=True),
     )
 
 
@@ -278,7 +276,6 @@ async def _scorecards_context(
     db: AsyncSession,
     *,
     selected_id: int | None = None,
-    error: str | None = None,
 ) -> dict[str, object]:
     """Context for the scorecards list partial."""
     pairs = await scorecard_service.list_templates(db)
@@ -296,7 +293,6 @@ async def _scorecards_context(
         ],
         "case_types": list(CaseTypeEnum),
         "selected_id": selected_id,
-        "error": error,
     }
 
 
@@ -335,7 +331,6 @@ async def _editor_context(
     db: AsyncSession,
     template_id: int,
     *,
-    error: str | None = None,
     saved: bool = False,
 ) -> tuple[Response | None, dict[str, object]]:
     """Build editor context; the Response is a 404 when the id is unknown."""
@@ -346,7 +341,6 @@ async def _editor_context(
         "t": template,
         "groups": groups,
         "case_types": list(CaseTypeEnum),
-        "error": error,
         "saved": saved,
     }
 
@@ -396,10 +390,7 @@ async def create_scorecard(
         )
         await db.commit()
     except ValueError as exc:
-        return _render_scorecards(
-            request,
-            await _scorecards_context(db, selected_id=None, error=str(exc)),
-        )
+        return _error_json(str(exc))
 
     return _render_scorecards(
         request, await _scorecards_context(db, selected_id=template.id)
@@ -486,7 +477,7 @@ async def save_scorecard(
         )
         await db.commit()
     except ValueError as exc:
-        return _error_alert(str(exc))
+        return _error_json(str(exc))
 
     not_found, context = await _editor_context(db, template_id, saved=True)
     if not_found is not None:
@@ -522,10 +513,7 @@ async def toggle_scorecard(
         template = await scorecard_service.toggle_template(template_id, db)
         await db.commit()
     except ValueError as exc:
-        return _render_scorecards(
-            request,
-            await _scorecards_context(db, selected_id=template_id, error=str(exc)),
-        )
+        return _error_json(str(exc))
 
     return _render_scorecards(
         request, await _scorecards_context(db, selected_id=template.id)
@@ -582,8 +570,8 @@ async def save_ai_provider(
 ) -> Response:
     """Upsert the ``openrouter_provider`` AppSetting from a JSON textarea.
 
-    Validation failures return 400 whose body is ONLY the alert
-    fragment for the frontend's ``#editor-alert`` swap target.
+    Validation failures return 400 ``{"detail": ...}`` — the global
+    htmx error net (common.js) toasts the message.
     """
     redirect = _guard(auth, request)
     if redirect is not None:
@@ -595,7 +583,7 @@ async def save_ai_provider(
             str(form.get("provider", ""))
         )
     except ValueError as exc:
-        return _error_alert(str(exc))
+        return _error_json(str(exc))
 
     await app_setting_service.upsert(
         db, app_setting_service.OPENROUTER_PROVIDER_KEY, value
@@ -726,14 +714,14 @@ async def update_user_roles(
     values = list(dict.fromkeys(str(value) for value in form.getlist("roles")))
 
     if not values:
-        return _error_alert("Select at least one role.")
+        return _error_json("Select at least one role.")
     unknown = [value for value in values if value not in _ROLE_VALUES]
     if unknown:
-        return _error_alert(
+        return _error_json(
             f"Unknown role(s): {', '.join(unknown)}."
         )
     if target.id == auth.id and RoleEnum.ADMIN.value not in values:
-        return _error_alert("You cannot revoke your own Admin access.")
+        return _error_json("You cannot revoke your own Admin access.")
 
     # Atomic replace: delete + inserts commit together (or not at all).
     await db.execute(delete(UserRole).where(UserRole.user_id == target.id))
@@ -778,16 +766,16 @@ async def create_user(
 
     unknown = [value for value in values if value not in _ROLE_VALUES]
     if unknown:
-        return _error_alert(f"Unknown role(s): {', '.join(unknown)}.")
+        return _error_json(f"Unknown role(s): {', '.join(unknown)}.")
 
     try:
         nickname = user_service.normalize_nickname(str(form.get("nickname", "")))
     except ValueError as exc:
-        return _error_alert(str(exc))
+        return _error_json(str(exc))
 
     email = user_service.placeholder_email(nickname)
     if await user_service.is_email_taken(email, db):
-        return _error_alert(f"A user with email {email} already exists.")
+        return _error_json(f"A user with email {email} already exists.")
 
     db.add(
         User(
@@ -829,7 +817,7 @@ async def delete_user(
         return _not_found()
 
     if target.id == auth.id:
-        return _error_alert("You cannot delete your own account.")
+        return _error_json("You cannot delete your own account.")
 
     active_admins = await db.scalar(
         select(func.count())
@@ -838,7 +826,7 @@ async def delete_user(
         .where(User.active_filter(), UserRole.role == RoleEnum.ADMIN)
     )
     if target.has_role(RoleEnum.ADMIN) and (active_admins or 0) <= 1:
-        return _error_alert("You cannot delete the last active Admin.")
+        return _error_json("You cannot delete the last active Admin.")
 
     target.deleted_at = datetime.now(timezone.utc)
     await db.commit()

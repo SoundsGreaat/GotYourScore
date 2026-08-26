@@ -51,6 +51,36 @@ window.extractDetail = function (payload, statusCode) {
     return 'Request failed (' + statusCode + ').';
 };
 
+/* Message from a failed htmx XHR: server bodies may be JSON detail
+ * objects OR legacy HTML fragments — strip tags as a fallback so the
+ * user always sees the actual reason, not silence. */
+window.__gysXhrMessage = function (xhr) {
+    var body = xhr && xhr.responseText;
+    if (body) {
+        try {
+            var parsed = JSON.parse(body);
+            var detail = parsed && parsed.detail;
+            if (typeof detail === 'string') return detail;
+            if (detail && detail.message) return detail.message;
+        } catch (e) { /* not JSON */ }
+        var text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (text) return text;
+    }
+    return 'Request failed (' + ((xhr && xhr.status) || '?') + ').';
+};
+
+/* Global HTMX error net: htmx IGNORES non-2xx responses by default, so
+ * without this a failed request just does nothing visible. Every failed
+ * htmx-driven request toasts the server's message bottom-center like
+ * every other notification. fetch()-based flows handle their own errors
+ * locally and never reach these events. */
+document.addEventListener('htmx:responseError', function (evt) {
+    window.gysToast(window.__gysXhrMessage(evt.detail.xhr), 'alert-error');
+});
+document.addEventListener('htmx:sendError', function () {
+    window.gysToast('Network error — the request did not reach the server.', 'alert-error');
+});
+
 window.escapeHtml = function (text) {
     return String(text == null ? '' : text).replace(/[&<>"']/g, function (ch) {
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
