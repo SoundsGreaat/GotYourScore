@@ -882,7 +882,18 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             : 'AI request failed.';
     }
 
+    // Shared empty guard for the AI/copy menu actions: whitespace-only
+    // notes with no embedded image have nothing to act on.
+    function notesAreEmpty() {
+        return !quill.getText().trim() && !quill.root.querySelector('img');
+    }
+
     refactorButton.addEventListener('click', async function () {
+        if (notesAreEmpty()) {
+            showToast('Notes are empty.');
+            hideMenu(true);
+            return;
+        }
         setLoading(refactorButton, 'Refactoring…', true);
         try {
             var response = await aiFetch('/api/ai/refactor', { html: quill.root.innerHTML });
@@ -905,6 +916,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     });
 
     scoreButton.addEventListener('click', async function () {
+        if (notesAreEmpty()) {
+            showToast('Notes are empty.');
+            hideMenu(true);
+            return;
+        }
         setLoading(scoreButton, 'Scoring…', true);
         try {
             var response = await aiFetch('/api/ai/score', { html: quill.root.innerHTML, case_type: document.getElementById('case-type').value });
@@ -1004,7 +1020,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
     document.getElementById('copy-html-action').addEventListener('click', function () {
         var html = buildExportHtml();
-        if (!html || (!quill.getText().trim() && html.indexOf('<img') === -1)) {
+        if (!html || notesAreEmpty()) {
             showToast('Notes are empty.');
             hideMenu(true);
             return;
