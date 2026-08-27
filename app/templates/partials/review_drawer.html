@@ -166,6 +166,14 @@
         </button>
     </li>
     <li>
+        <button id="copy-html-action" type="button">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.25 6.75 22.5 12l-5.25 5.25M6.75 17.25 1.5 12l5.25-5.25m7.5-3-4.5 16.5" />
+            </svg>
+            Copy HTML
+        </button>
+    </li>
+    <li>
         <button id="paste-notes-action" type="button">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184M8.25 12h7.5m-7.5 3.75h4.5" />
@@ -948,6 +956,77 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         showToast(copied ? 'Copied to clipboard.' : 'Unable to copy.',
                   copied ? 'alert-success' : undefined);
     }
+        hideMenu(true);
+    });
+
+    // CRM paste target is its Source Code editor, which receives the
+    // markup literally — so the export ships as PLAIN TEXT on the
+    // clipboard (a text/html flavor would hit the CRM's rich-paste
+    // sanitizer again and strip the base64 images).
+    var EXPORT_ALLOWED_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
+        'ul', 'ol', 'li', 'img', 'a', 'span', 'h1', 'h2', 'h3', 'h4', 'h5',
+        'h6', 'blockquote', 'pre', 'code'];
+    function buildExportHtml() {
+        var clone = quill.root.cloneNode(true);
+        // Editor-only chrome: decorative list markers, editable flags and
+        // Quill utility classes (ql-indent/ql-align/…) mean nothing to the CRM.
+        clone.querySelectorAll('.ql-ui').forEach(function (el) { el.remove(); });
+        clone.querySelectorAll('[contenteditable]').forEach(function (el) { el.removeAttribute('contenteditable'); });
+        clone.querySelectorAll('[class]').forEach(function (el) { el.removeAttribute('class'); });
+        // Quill renders EVERY list as <ol> and marks bullets via
+        // data-list="bullet" — swap the wrapper to <ul> when the whole
+        // list is bullets so the CRM does not number them.
+        Array.prototype.forEach.call(clone.querySelectorAll('ol'), function (list) {
+            var items = Array.prototype.filter.call(list.children, function (el) { return el.tagName === 'LI'; });
+            var bulletOnly = items.length > 0 && items.every(function (li) {
+                return li.getAttribute('data-list') === 'bullet';
+            });
+            if (bulletOnly) {
+                var ul = document.createElement('ul');
+                while (list.firstChild) ul.appendChild(list.firstChild);
+                list.replaceWith(ul);
+            }
+        });
+        clone.querySelectorAll('li[data-list]').forEach(function (li) { li.removeAttribute('data-list'); });
+        // DOMPurify keeps data: URIs on <img> by default — embedded
+        // screenshots survive the export. If it never loaded, exporting
+        // nothing beats exporting unsanitized markup.
+        return window.DOMPurify
+            ? DOMPurify.sanitize(clone.innerHTML, { ALLOWED_TAGS: EXPORT_ALLOWED_TAGS, KEEP_CONTENT: true }).trim()
+            : '';
+    }
+    function copyPlainText(text, done) {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
+            return;
+        }
+        done(false);
+    }
+    document.getElementById('copy-html-action').addEventListener('click', function () {
+        var html = buildExportHtml();
+        if (!html || (!quill.getText().trim() && html.indexOf('<img') === -1)) {
+            showToast('Notes are empty.');
+            hideMenu(true);
+            return;
+        }
+        copyPlainText(html, function (copied) {
+            if (!copied) {
+                // Non-secure-context fallback: hidden textarea + execCommand.
+                var scratch = document.createElement('textarea');
+                scratch.value = html;
+                scratch.setAttribute('readonly', '');
+                scratch.style.position = 'fixed';
+                scratch.style.opacity = '0';
+                document.body.appendChild(scratch);
+                scratch.select();
+                try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+                scratch.remove();
+            }
+            showToast(copied
+                ? 'HTML copied — paste it via the CRM Source Code option.'
+                : 'Unable to copy.',
+                copied ? 'alert-success' : undefined);
+        });
         hideMenu(true);
     });
 
