@@ -19,7 +19,14 @@
     var links = Array.prototype.slice.call(
         document.querySelectorAll('aside a[hx-target="#view-container"]')
     );
-    if (!links.length) return;
+    // Tracker tabs are view sources too: they swap the same container
+    // and their data-tab id doubles as the hash name (e.g. #bad-feedback
+    // restores the tab highlight after a reload — the tab strip itself
+    // holds no data-hash, the dashboard hash-sync owns the URL).
+    var tabButtons = Array.prototype.slice.call(
+        document.querySelectorAll('.gys-tabs button[data-tab][hx-get]')
+    );
+    if (!links.length && !tabButtons.length) return;
 
     var state = { period: null };
 
@@ -46,10 +53,22 @@
         links.forEach(function (link) {
             link.classList.toggle('menu-active', partialOf(link) === partial);
         });
+        tabButtons.forEach(function (btn) {
+            var isTarget = btn.getAttribute('data-tab') === partial
+                || partialOf(btn) === partial;
+            btn.classList.toggle('active', isTarget);
+            btn.setAttribute('aria-selected', isTarget ? 'true' : 'false');
+        });
     }
-    function linkFor(partial) {
-        for (var i = 0; i < links.length; i++) {
-            if (partialOf(links[i]) === partial) return links[i];
+    function viewSourceFor(partial) {
+        for (var i = 0; i < tabButtons.length; i++) {
+            if (tabButtons[i].getAttribute('data-tab') === partial
+                || partialOf(tabButtons[i]) === partial) {
+                return tabButtons[i];
+            }
+        }
+        for (var j = 0; j < links.length; j++) {
+            if (partialOf(links[j]) === partial) return links[j];
         }
         return null;
     }
@@ -57,13 +76,15 @@
     // Restore BEFORE htmx initializes so the load-trigger fetches the
     // hashed view (and period) instead of the server-side default.
     var wanted = parseHash();
-    var target = wanted.view ? linkFor(wanted.view) : null;
+    var target = wanted.view ? viewSourceFor(wanted.view) : null;
     if (target) {
         state.period = wanted.period;
         container.setAttribute(
             'hx-get', withPeriod(target.getAttribute('hx-get'), wanted.period));
     }
-    var current = target ? wanted.view : partialOf(container);
+    var current = target
+        ? (target.getAttribute('data-tab') || wanted.view)
+        : partialOf(container);
     setActive(current);
 
     // Mirror every successful swap into the hash + sidebar highlight.

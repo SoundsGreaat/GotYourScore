@@ -596,6 +596,31 @@ async def partial_to_review(
         ).scalars().all()
     )
 
+    # Bad Feedback pending rows join the same queue semantics: assigned
+    # to the caller, or sitting unassigned for any QA to grab.
+    bf_open_filters = (
+        BadFeedback.status == ReviewStatusEnum.PENDING,
+        BadFeedback.deleted_at.is_(None),
+    )
+    bf_assigned = list(
+        (
+            await db.execute(
+                select(BadFeedback)
+                .where(BadFeedback.assigned_qa_id == auth.id, *bf_open_filters)
+                .order_by(BadFeedback.created_at.desc())
+            )
+        ).scalars().unique().all()
+    )
+    bf_shared = list(
+        (
+            await db.execute(
+                select(BadFeedback)
+                .where(BadFeedback.assigned_qa_id.is_(None), *bf_open_filters)
+                .order_by(BadFeedback.created_at.desc())
+            )
+        ).scalars().unique().all()
+    )
+
     reviews = assigned_reviews + shared_reviews
     nicknames = await _nickname_map(
         db,
@@ -633,10 +658,36 @@ async def partial_to_review(
         _row(review, True) for review in shared_reviews
     ]
 
+    # Bad Feedback rows carry their own agent cards; labels resolve via
+    # the eager-joined user relationship (name, falling back to the
+    # email-localpart nickname).
+    def _bf_label(user: User | None) -> str:
+        if user is None:
+            return "Unknown"
+        return user.name or user.nickname
+
+    def _bf_row(fb: BadFeedback, unassigned: bool) -> dict[str, object]:
+        return {
+            "id": fb.id,
+            "fb": fb,
+            "created_at": fb.created_at,
+            "agents": [
+                {"label": _bf_label(a.user), "kind": a.kind.value}
+                for a in fb.agents
+            ],
+            "source": fb.source,
+            "related_case": fb.related_case,
+            "unassigned": unassigned,
+        }
+
+    bf_rows = [_bf_row(fb, False) for fb in bf_assigned] + [
+        _bf_row(fb, True) for fb in bf_shared
+    ]
+
     return templates.TemplateResponse(
         request=request,
         name="partials/to_review.html",
-        context={"rows": rows},
+        context={"rows": rows, "bf_rows": bf_rows},
     )
 
 
@@ -1013,6 +1064,48 @@ async def partial_review_drawer(
             "case_types": [case_type.value for case_type in CaseTypeEnum],
             "period_value": f"{closing_year:04d}-{closing_month:02d}",
             "period_options": await _period_options(db),
+        },
+    )
+
+
+@router.get(
+    "/partials/bad-feedback-editor",
+    name="partial_bad_feedback_editor",
+    summary="Bad Feedback editor partial",
+    include_in_schema=False,
+)
+async def partial_bad_feedback_editor(
+    request: Request,
+    auth: PageUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    id: int = Query(...),
+) -> Response:
+    """Render the Bad Feedback EDIT modal (HTMX partial, on demand).
+
+    Mounted into #bf-editor-container by JS when any Pending chip /
+    edit pencil is clicked — the same drawer pattern as the review
+    drawer, so the editor opens from ANY view (the list tab, To-review).
+    Reviewer-only. The record itself is fetched client-side by the
+    partial's script (data-bf-open).
+    """
+    redirect = _htmx_redirect_if_needed(auth, request)
+    if redirect is not None:
+        return redirect
+    if not is_reviewer(auth):
+        return _forbidden()
+
+    agents = await _frontline_agents(db)
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/bad_feedback_editor.html",
+        context={
+            "bf_id": id,
+            "agent_options": [
+                {"id": user.id, "name": user.nickname} for user in agents
+            ],
+            "fault_values": [
+                {"value": f.value, "label": f.value} for f in FaultEnum
+            ],
         },
     )
 

@@ -84,6 +84,9 @@
             <div id="view-container" class="mt-5" hx-get="{{ '/partials/qa-matrix' if can_review else '/partials/my-reviews' }}" hx-trigger="load" hx-swap="innerHTML"></div>
             <!-- Drawer mount survives sidebar navigation. -->
             <div id="drawer-container"></div>
+            <!-- Bad Feedback editor mount (on-demand partial, opened from
+                 any view via window.openBadFeedbackEditor). -->
+            <div id="bf-editor-container"></div>
         </main>
     </div>
 
@@ -136,16 +139,6 @@
                                 {% endif %}
                             </ul>
                     </li>
-                    {% if is_reviewer %}
-                    <li>
-                        <a href="#" hx-get="/partials/bad-feedback" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                            </svg>
-                            <span>Bad Feedback</span>
-                        </a>
-                    </li>
-                    {% endif %}
                     {% if is_reviewer %}
                     <li>
                         <a href="#" hx-get="/partials/to-review" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">

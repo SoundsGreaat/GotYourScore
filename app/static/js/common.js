@@ -130,3 +130,28 @@ window.openReviewDrawer = function (reviewId, mode) {
             window.gysToast('Unable to open the review.');
         });
 };
+
+/* Mounts the Bad Feedback editor partial for one record and opens it.
+ * Works from any view (the partial mounts into #bf-editor-container,
+ * which lives next to the drawer container on the dashboard). Closing
+ * the dialog unmounts the partial entirely. */
+window.openBadFeedbackEditor = function (recordId) {
+    var target = document.getElementById('bf-editor-container');
+    if (!target || !window.htmx) {
+        window.gysToast('Unable to open the editor.');
+        return;
+    }
+    window.__bfEditorEpoch = (window.__bfEditorEpoch || 0) + 1;
+    var epoch = window.__bfEditorEpoch;
+    htmx.ajax('GET', '/partials/bad-feedback-editor?id=' + encodeURIComponent(recordId), {
+        target: '#bf-editor-container',
+        swap: 'innerHTML',
+    }).then(function () {
+        // A newer open superseded this one — let its mount win.
+        if (epoch !== window.__bfEditorEpoch) return;
+        var modal = target.querySelector('.js-bf-edit-modal');
+        if (modal && !modal.open) modal.showModal();
+    }).catch(function () {
+        window.gysToast('Unable to open the editor.');
+    });
+};

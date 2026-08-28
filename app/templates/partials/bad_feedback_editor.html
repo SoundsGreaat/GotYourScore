@@ -1,0 +1,284 @@
+{#- Bad Feedback EDIT modal, mounted on demand into #bf-editor-container.
+
+    Lives OUTSIDE the bad-feedback list partial so the editor opens from
+    ANY view (the list tab, To-review) — the same on-demand drawer
+    pattern as the review drawer. Server passes the picker context
+    (agent_options, fault_values); the record itself is fetched by the
+    inline script for the ?id= handed in via data-bf-open.
+
+    Single instance: the script tears down any previous mount before
+    initializing; closing the dialog removes the whole partial root. -#}
+<div class="js-bf-editor-root" data-bf-open="{{ bf_id or '' }}">
+    <dialog class="modal js-bf-edit-modal">
+        <div class="modal-box max-w-2xl">
+            <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">&times;</button></form>
+            <h3 class="mb-4 text-lg font-bold">Edit Bad Feedback</h3>
+            <div class="js-bf-edit-body"><!-- filled by JS --></div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+</div>
+
+<script>
+(function () {
+    var root = document.querySelector('.js-bf-editor-root');
+    if (!root) return;
+
+    // Single instance: kill the previous mount's listeners first.
+    if (typeof window._bfEditorDispose === 'function') {
+        try { window._bfEditorDispose(); } catch (error) { /* best effort */ }
+    }
+    window._bfEditorDispose = null;
+
+    var editModal = root.querySelector('.js-bf-edit-modal');
+    var section = root;
+    var showToast = window.gysToast;
+
+    var agentOptions = {{ agent_options | tojson }};
+    var faultValues = {{ fault_values | tojson }};
+
+    function esc(s) {
+        return window.escapeHtml ? window.escapeHtml(s) : String(s == null ? '' : s);
+    }
+
+    /* Popover-API dropdown markup, byte-compatible with the Jinja
+       macro (macros/dropdowns.html): trigger + popover menu + hidden
+       input. Built here because agent cards are JS-only. The global
+       keyboard typeahead from js/dropdowns.js attaches automatically —
+       it matches [popover].dropdown.menu by delegation. */
+    var DD_SEQ = 0;
+
+    function buildDropdown(host, opts, picked, opts2) {
+        opts2 = opts2 || {};
+        DD_SEQ += 1;
+        var id = 'jsdd-' + DD_SEQ + '-' + Date.now();
+        var match = opts.filter(function (o) { return o.value === picked; })[0];
+        var shown = match ? match.label : (opts2.any_label || opts2.placeholder || '');
+
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = id + '-button';
+        btn.setAttribute('popovertarget', id + '-menu');
+        btn.setAttribute('aria-haspopup', 'menu');
+        btn.className = opts2.btn_cls || 'select select-sm w-full flex items-center';
+        btn.style.anchorName = '--' + id + '-anchor';
+        var span = document.createElement('span');
+        span.id = id + '-display';
+        span.className = 'pointer-events-none truncate' + (match ? '' : ' text-base-content/70');
+        span.textContent = shown;
+        btn.appendChild(span);
+
+        var menu = document.createElement('ul');
+        menu.id = id + '-menu';
+        menu.setAttribute('popover', '');
+        menu.style.positionAnchor = '--' + id + '-anchor';
+        menu.className = 'dropdown menu menu-sm flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48';
+        opts.forEach(function (opt) {
+            var li = document.createElement('li');
+            var ob = document.createElement('button');
+            ob.type = 'button';
+            ob.setAttribute('data-opt-value', opt.value);
+            ob.setAttribute('data-opt-label', opt.label);
+            ob.className = (opt.value === picked) ? 'active menu-active' : '';
+            ob.textContent = opt.label;
+            ob.addEventListener('click', function () {
+                window.setDropdownValue(id, '#' + id + '-display', ob);
+            });
+            li.appendChild(ob);
+            menu.appendChild(li);
+        });
+
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.id = id;
+        hidden.value = picked == null ? '' : picked;
+        hidden.setAttribute('data-dd-host', '');
+        host.appendChild(btn);
+        host.appendChild(menu);
+        host.appendChild(hidden);
+        return hidden;
+    }
+
+    function agentCard(agent) {
+        var host = document.createElement('div');
+        host.className = 'js-bf-agent card mb-2 bg-base-200 p-2';
+        var row = document.createElement('div');
+        row.className = 'flex items-center gap-2';
+        host.appendChild(row);
+
+        var pickHost = document.createElement('div');
+        pickHost.className = 'w-44 shrink-0';
+        row.appendChild(pickHost);
+        var pickHidden = buildDropdown(pickHost,
+            [{value: '', label: 'Choose agent…'}].concat(agentOptions.map(function (o) {
+                return {value: String(o.id), label: o.name};
+            })),
+            agent ? String(agent.user_id) : '',
+            {placeholder: 'Choose agent…'}
+        );
+        pickHidden.setAttribute('data-bf-role', 'pick');
+
+        var kindHost = document.createElement('div');
+        kindHost.className = 'w-28 shrink-0';
+        row.appendChild(kindHost);
+        var kindHidden = buildDropdown(kindHost,
+            [{value: 'Support', label: 'Support'}, {value: 'Sales', label: 'Sales'}],
+            agent ? agent.kind : 'Support'
+        );
+        kindHidden.setAttribute('data-bf-role', 'kind');
+
+        var faultHost = document.createElement('div');
+        faultHost.className = 'w-36 shrink-0';
+        row.appendChild(faultHost);
+        var faultHidden = buildDropdown(faultHost,
+            [{value: '', label: 'Fault…'}].concat(faultValues.map(function (f) {
+                return {value: f.value, label: f.label};
+            })),
+            agent && agent.fault ? agent.fault : ''
+        );
+        faultHidden.setAttribute('data-bf-role', 'fault');
+
+        var remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'btn btn-ghost btn-xs btn-circle text-error shrink-0';
+        remove.innerHTML = '&times;';
+        remove.setAttribute('aria-label', 'Remove agent');
+        row.appendChild(remove);
+
+        var comment = document.createElement('input');
+        comment.type = 'text';
+        comment.className = 'input input-sm input-bordered mt-2 w-full';
+        comment.placeholder = 'QA comment for this agent';
+        comment.setAttribute('data-bf-role', 'comment');
+        comment.value = (agent && agent.qa_comment) || '';
+        host.appendChild(comment);
+        return host;
+    }
+
+    function collectAgents() {
+        var out = [];
+        var seen = {};
+        var ok = true;
+        section.querySelectorAll('.js-bf-agent').forEach(function (card) {
+            var pick = card.querySelector('[data-bf-role="pick"]');
+            var userId = pick ? pick.value : '';
+            if (!userId) { ok = false; return; }
+            var kind = card.querySelector('[data-bf-role="kind"]').value;
+            var pair = userId + ':' + kind;
+            if (seen[pair]) { ok = false; return; }
+            seen[pair] = true;
+            out.push({
+                user_id: parseInt(userId, 10),
+                kind: kind,
+                fault: card.querySelector('[data-bf-role="fault"]').value || null,
+                qa_comment: card.querySelector('[data-bf-role="comment"]').value || null
+            });
+        });
+        if (!ok) showToast('Every agent card needs an agent and a unique role.');
+        return ok ? out : null;
+    }
+
+    function renderEdit(fb) {
+        var body = section.querySelector('.js-bf-edit-body');
+        body.innerHTML =
+            '<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">' +
+            '<label class="flex flex-col gap-1 text-sm"><span>Date</span><input type="date" id="bf-edit-date" class="input input-sm" value="' + esc(fb.fb_date) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm"><span>Source</span><input type="text" id="bf-edit-source" class="input input-sm" value="' + esc(fb.source) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer info</span><input type="text" id="bf-edit-customer" class="input input-sm" value="' + esc(fb.customer_info) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer feedback</span><textarea id="bf-edit-feedback" class="textarea textarea-sm">' + esc(fb.customer_feedback) + '</textarea></label>' +
+            '<label class="flex flex-col gap-1 text-sm"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm" value="' + esc(fb.related_case) + '"/></label>' +
+            '</div>' +
+            '<p class="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-base-content/60">Agents — Fault & comment per agent</p>' +
+            '<div class="js-bf-agents"></div>' +
+            '<button type="button" class="btn btn-ghost btn-sm js-bf-agent-add">+ Add agent</button>' +
+            '<div class="mt-4 flex items-center justify-between">' +
+            '<div>' +
+            (fb.status === 'pending'
+                ? '<button type="button" class="btn btn-success btn-sm js-bf-complete">Mark completed</button>'
+                : '<span class="badge badge-soft badge-success badge-sm">Completed</span>') +
+            '</div>' +
+            '<div class="flex gap-2">' +
+            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
+            '<button type="button" class="btn btn-primary btn-sm js-bf-save">Save</button>' +
+            '</div></div>';
+
+        // agentCard() returns a DOM node — append, don't stringify.
+        var agentsHost = body.querySelector('.js-bf-agents');
+        fb.agents.forEach(function (agent) {
+            agentsHost.appendChild(agentCard(agent));
+        });
+
+        body.querySelector('.js-bf-agent-add').addEventListener('click', function () {
+            agentsHost.appendChild(agentCard(null));
+        });
+        body.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
+        body.querySelector('.js-bf-save').addEventListener('click', function () { saveEdit(fb.id); });
+        var completeBtn = body.querySelector('.js-bf-complete');
+        if (completeBtn) completeBtn.addEventListener('click', function () { completeEdit(fb.id); });
+    }
+
+    function saveEdit(id) {
+        var agents = collectAgents();
+        if (agents === null) return;
+        var payload = {
+            fb_date: document.getElementById('bf-edit-date').value || null,
+            source: document.getElementById('bf-edit-source').value || null,
+            customer_info: document.getElementById('bf-edit-customer').value || null,
+            customer_feedback: document.getElementById('bf-edit-feedback').value || null,
+            related_case: document.getElementById('bf-edit-case').value || null,
+            agents: agents
+        };
+        fetch('/api/bad-feedback/' + id, {
+            method: 'PATCH', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+            .then(function (response) {
+                if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
+                showToast('Saved.', 'alert-success');
+                editModal.close();
+                document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+            })
+            .catch(function (error) { showToast(error.message || 'Unable to save.'); });
+    }
+
+    function completeEdit(id) {
+        fetch('/api/bad-feedback/' + id + '/complete', {method: 'POST', credentials: 'same-origin'})
+            .then(function (response) {
+                if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Complete failed'); });
+                showToast('Marked completed.', 'alert-success');
+                editModal.close();
+                document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+            })
+            .catch(function (error) { showToast(error.message || 'Unable to complete.'); });
+    }
+
+    function openFor(id) {
+        fetch('/api/bad-feedback/' + id, {credentials: 'same-origin'})
+            .then(function (response) {
+                if (!response.ok) throw new Error('Load failed');
+                return response.json();
+            })
+            .then(function (fb) { renderEdit(fb); editModal.showModal(); })
+            .catch(function () { showToast('Unable to load the record.'); });
+    }
+
+    // Closing (any means) unmounts the whole partial — clean slate for
+    // the next open, no stale listeners or dropdown ids.
+    function onClose() {
+        window._bfEditorDispose = null;
+        root.remove();
+    }
+    editModal.addEventListener('close', onClose);
+
+    window._bfEditorDispose = function () {
+        editModal.removeEventListener('close', onClose);
+        if (editModal.open) editModal.close();
+        root.remove();
+    };
+
+    // Entry: the ?id= the server baked into data-bf-open.
+    var openId = root.getAttribute('data-bf-open');
+    if (openId) openFor(openId);
+})();
+</script>

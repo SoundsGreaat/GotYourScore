@@ -1,7 +1,9 @@
 {% import "macros/to_review_table.html" as to_review_table %}
-<section hx-get="/partials/to-review" hx-trigger="reviews-changed from:body" hx-swap="outerHTML">
+<section hx-get="/partials/to-review" hx-trigger="reviews-changed from:body, bad-feedback-changed from:body" hx-swap="outerHTML">
     {% set assigned_rows = rows | rejectattr('unassigned') | list %}
     {% set shared_rows = rows | selectattr('unassigned') | list %}
+    {% set bf_assigned = bf_rows | rejectattr('unassigned') | list %}
+    {% set bf_shared = bf_rows | selectattr('unassigned') | list %}
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">To review</h2>
         <span class="hidden text-sm text-base-content/70 sm:inline">Cases delegated to you or waiting in the shared queue</span>
@@ -23,17 +25,103 @@
     </div>
     {% endif %}
 
+    {% if bf_rows %}
+    <h3 class="mb-2 mt-6 flex items-center gap-2 text-base font-semibold">
+        Bad Feedback
+        <span class="badge badge-soft badge-sm">{{ bf_rows | length }}</span>
+    </h3>
+    {% for row in bf_assigned %}
+    <div class="card mb-3 rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="badge badge-soft badge-sm">Assigned to you</span>
+                {% if row.fb.fb_date %}<span class="text-sm">{{ row.fb.fb_date.strftime('%b %d, %Y') }}</span>{% endif %}
+                {% if row.fb.source %}<span class="badge badge-ghost badge-sm">{{ row.fb.source }}</span>{% endif %}
+                {% if row.fb.related_case %}<span class="text-sm text-base-content/70">{{ row.fb.related_case }}</span>{% endif %}
+                <span class="ml-auto flex items-center gap-1">
+                    {% for a in row.agents %}
+                    <span class="badge badge-soft badge-sm" title="{{ a.kind }}">{{ a.label }}</span>
+                    {% endfor %}
+                </span>
+                <button type="button" class="btn btn-primary btn-xs"
+                        data-bf-edit="{{ row.id }}"
+                        aria-label="Open bad feedback {{ row.id }}"
+                        title="Open the Bad Feedback editor">Open</button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+    {% if bf_shared %}
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h3 class="flex items-center gap-2 text-sm font-semibold">
+                Unassigned — grab any
+                <span class="badge badge-soft badge-sm">{{ bf_shared | length }}</span>
+            </h3>
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm table-fixed w-full min-w-[640px]">
+                    <colgroup>
+                        <col class="w-[13%]" /><!-- Date -->
+                        <col class="w-[15%]" /><!-- Source -->
+                        <col class="w-[15%]" /><!-- Case -->
+                        <col class="w-[35%]" /><!-- Agents -->
+                        <col class="w-[22%]" /><!-- Actions -->
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Source</th>
+                            <th>Case</th>
+                            <th>Agents</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in bf_shared %}
+                        <tr>
+                            <td class="truncate">{% if row.fb.fb_date %}{{ row.fb.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td class="truncate" title="{{ row.fb.source or '' }}">{{ row.fb.source or '—' }}</td>
+                            <td class="truncate" title="{{ row.fb.related_case or '' }}">{% if row.fb.related_case %}{{ row.fb.related_case }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td class="truncate">
+                                <span class="flex flex-wrap gap-1">
+                                    {% for a in row.agents %}
+                                    <span class="badge badge-soft badge-sm" title="{{ a.kind }}">{{ a.label }}</span>
+                                    {% endfor %}
+                                </span>
+                            </td>
+                            <td class="whitespace-nowrap">
+                                <button type="button" class="btn btn-primary btn-xs"
+                                        data-bf-edit="{{ row.id }}"
+                                        aria-label="Grab bad feedback {{ row.id }}"
+                                        title="Grab and work this record">Open</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
     <script>
     (function () {
         var section = document.querySelector('section[hx-get="/partials/to-review"]');
         if (!section) return;
 
         var openReviewDrawer = window.openReviewDrawer;
+        var openBfEditor = window.openBadFeedbackEditor;
 
         section.addEventListener('click', function (event) {
             var completeButton = event.target.closest ? event.target.closest('[data-review-complete]') : null;
             if (completeButton && section.contains(completeButton)) {
                 openReviewDrawer(completeButton.getAttribute('data-review-complete'), 'complete');
+                return;
+            }
+            var bfButton = event.target.closest('[data-bf-edit]');
+            if (bfButton && section.contains(bfButton)) {
+                openBfEditor(bfButton.getAttribute('data-bf-edit'));
             }
         });
     })();
