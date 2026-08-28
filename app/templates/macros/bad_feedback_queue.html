@@ -58,7 +58,7 @@
                             <span class="flex flex-wrap gap-1">
                                 {% for a in row.agents %}
                                 <button type="button"
-                                        class="badge badge-soft badge-sm cursor-pointer hover:bg-base-200"
+                                        class="badge badge-soft badge-sm badge-clickable"
                                         data-case-notes="{{ row.id }}-{{ a.user_id }}"
                                         data-case-prefix="Bad Feedback"
                                         data-case-label="{{ row.fb.related_case or row.id }}"

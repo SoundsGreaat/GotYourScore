@@ -62,13 +62,13 @@
                                     {% set mc = agent.cases[loop.index0] if loop.index0 < agent.cases|length else none %}
                                     {% if mc and mc.status == 'pending' %}
                                     <button type="button"
-                                            class="badge badge-soft badge-warning badge-sm max-w-24 cursor-pointer truncate font-semibold"
+                                            class="badge badge-soft badge-warning badge-sm badge-clickable max-w-24 truncate font-semibold"
                                             data-review-complete="{{ mc.id }}"
                                             aria-label="Complete delegated case {{ mc.case_number or mc.id }}"
                                             title="Delegated to {{ mc.assigned_qa_name or 'QA' }} · awaiting review">Pending</button>
                                     {% elif mc %}
                                     <button type="button"
-                                            class="badge badge-soft badge-sm max-w-24 cursor-pointer truncate font-semibold"
+                                            class="badge badge-soft badge-sm badge-clickable max-w-24 truncate font-semibold"
                                             data-case-notes="{{ mc.id }}"
                                             data-case-label="{{ mc.case_number or 'N/C' }}"
                                             data-case-type="{{ mc.case_type.value }}"
@@ -148,13 +148,13 @@
                             <td>
                                 {% if case.status == 'pending' %}
                                 <button type="button"
-                                        class="badge badge-soft badge-warning badge-sm cursor-pointer font-semibold"
+                                        class="badge badge-soft badge-warning badge-sm badge-clickable font-semibold"
                                         data-review-complete="{{ case.id }}"
                                         aria-label="Complete delegated case {{ case.case_number or case.id }}"
                                         title="Delegated to {{ case.assigned_qa_name or 'QA' }} · awaiting review">Pending</button>
                                 {% elif case.final_score is none and case.case_type.value == 'No Cases' %}
                                 <button type="button"
-                                        class="badge badge-soft badge-sm cursor-pointer font-semibold"
+                                        class="badge badge-soft badge-sm badge-clickable font-semibold"
                                         data-case-notes="{{ case.id }}"
                                         data-case-label="{{ case.case_number or 'N/C' }}"
                                         data-case-type="{{ case.case_type.value }}"

@@ -121,7 +121,7 @@
                             {% if row.status == 'pending' %}
                             {% if row.can_complete %}
                             <button type="button"
-                                    class="badge badge-soft badge-warning badge-sm cursor-pointer font-semibold"
+                                    class="badge badge-soft badge-warning badge-sm badge-clickable font-semibold"
                                     data-review-complete="{{ row.id }}"
                                     aria-label="Complete delegated case {{ row.case_number or row.id }}"
                                     title="Delegated to you · awaiting review">Pending
@@ -132,7 +132,7 @@
                             {% endif %}
                             {% elif row.final_score is none and row.case_type.value == 'No Cases' %}
                             <button type="button"
-                                    class="badge badge-soft badge-sm cursor-pointer font-semibold"
+                                    class="badge badge-soft badge-sm badge-clickable font-semibold"
                                     data-case-notes="{{ row.id }}"
                                     data-case-label="{{ row.case_number or 'N/C' }}"
                                     data-case-type="{{ row.case_type.value }}"

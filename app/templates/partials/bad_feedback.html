@@ -87,7 +87,7 @@
                                      delegation; Edit re-opens the BF editor
                                      via data-notes-kind="bf"). -->
                                 <button type="button"
-                                        class="badge badge-soft badge-sm cursor-pointer hover:bg-base-200 {{ 'badge-warning' if agent.fault and agent.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if agent.fault and agent.fault.value == 'Warning' }}"
+                                        class="badge badge-soft badge-sm badge-clickable {{ 'badge-warning' if agent.fault and agent.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if agent.fault and agent.fault.value == 'Warning' }}"
                                         data-case-notes="{{ fb.id }}-{{ agent.user_id }}"
                                         data-case-prefix="Bad Feedback"
                                         data-case-label="{{ fb.related_case or fb.id }}"
@@ -106,7 +106,7 @@
                         <td>{{ row.assigned_qa_name or '—' }}</td>
                         <td>
                             {% if fb.status == 'pending' %}
-                            <button type="button" class="badge badge-soft badge-warning badge-sm cursor-pointer font-semibold"
+                            <button type="button" class="badge badge-soft badge-warning badge-sm badge-clickable font-semibold"
                                     data-bf-edit="{{ fb.id }}"
                                     aria-label="Open bad feedback {{ fb.id }}"
                                     title="Pending — open the editor">Pending</button>

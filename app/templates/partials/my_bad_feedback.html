@@ -52,7 +52,7 @@
             <div class="flex flex-wrap items-center gap-1">
                 {% for entry in row.entries %}
                 <button type="button"
-                        class="badge badge-soft badge-sm cursor-pointer hover:bg-base-200 {{ 'badge-warning' if entry.fault and entry.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if entry.fault and entry.fault.value == 'Warning' }}"
+                        class="badge badge-soft badge-sm badge-clickable {{ 'badge-warning' if entry.fault and entry.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if entry.fault and entry.fault.value == 'Warning' }}"
                         data-case-notes="{{ fb.id }}-{{ entry.user_id }}"
                         data-case-prefix="Bad Feedback"
                         data-case-label="{{ fb.related_case or fb.id }}"
