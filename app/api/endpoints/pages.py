@@ -1362,15 +1362,17 @@ async def partial_bad_feedback_editor(
     request: Request,
     auth: PageUser,
     db: Annotated[AsyncSession, Depends(get_db)],
-    id: int = Query(...),
+    id: int | None = Query(None),
 ) -> Response:
-    """Render the Bad Feedback EDIT modal (HTMX partial, on demand).
+    """Render the Bad Feedback editor modal (HTMX partial, on demand).
 
     Mounted into #bf-editor-container by JS when any Pending chip /
     edit pencil is clicked — the same drawer pattern as the review
     drawer, so the editor opens from ANY view (the list tab, To-review).
-    Reviewer-only. The record itself is fetched client-side by the
-    partial's script (data-bf-open).
+    Reviewer-only. Without ``id`` it mounts in CREATE mode (the navbar
+    New Review button on the Bad Feedback category): same fields, the
+    record itself is fetched client-side by the partial's script
+    (data-bf-open) only in edit mode.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:

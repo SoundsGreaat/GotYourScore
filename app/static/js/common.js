@@ -131,11 +131,11 @@ window.openReviewDrawer = function (reviewId, mode) {
         });
 };
 
-/* Mounts the Bad Feedback editor partial for one record and opens it.
- * Works from any view (the partial mounts into #bf-editor-container,
- * which lives next to the drawer container on the dashboard). Closing
- * the dialog unmounts the partial entirely. */
-window.openBadFeedbackEditor = function (recordId) {
+/* Mounts the Bad Feedback editor partial and opens it. Works from any
+ * view (the partial mounts into #bf-editor-container, which lives next
+ * to the drawer container on the dashboard). Closing the dialog
+ * unmounts the partial entirely. */
+function mountBadFeedbackEditor(query) {
     var target = document.getElementById('bf-editor-container');
     if (!target || !window.htmx) {
         window.gysToast('Unable to open the editor.');
@@ -143,7 +143,7 @@ window.openBadFeedbackEditor = function (recordId) {
     }
     window.__bfEditorEpoch = (window.__bfEditorEpoch || 0) + 1;
     var epoch = window.__bfEditorEpoch;
-    htmx.ajax('GET', '/partials/bad-feedback-editor?id=' + encodeURIComponent(recordId), {
+    htmx.ajax('GET', '/partials/bad-feedback-editor' + query, {
         target: '#bf-editor-container',
         swap: 'innerHTML',
     }).then(function () {
@@ -154,4 +154,15 @@ window.openBadFeedbackEditor = function (recordId) {
     }).catch(function () {
         window.gysToast('Unable to open the editor.');
     });
+}
+
+window.openBadFeedbackEditor = function (recordId) {
+    mountBadFeedbackEditor('?id=' + encodeURIComponent(recordId));
+};
+
+/* CREATE mode: same modal, no id — the partial renders the empty form
+ * with a "Save For Later" (Pending) action. Used by the navbar New
+ * Review button while the Bad Feedback category is active. */
+window.openBadFeedbackCreator = function () {
+    mountBadFeedbackEditor('');
 };

@@ -29,6 +29,8 @@
     var container = document.getElementById('view-container');
     if (!container) return;
 
+    var newReviewBtn = document.getElementById('new-review-btn');
+
     var CATEGORIES = ['qa-score', 'bad-feedback'];
     var links = Array.prototype.slice.call(
         document.querySelectorAll('aside a[data-view][hx-target="#view-container"]')
@@ -164,6 +166,23 @@
         'hx-get',
         withPeriod(endpointFor(state.view, state.category), state.period));
     setActive(state.view, state.category);
+
+    // The navbar "New Review" button is CATEGORY-AWARE: QA Score mounts
+    // the review drawer (which self-opens on swap), Bad Feedback opens
+    // the Bad Feedback creator modal (window.openBadFeedbackCreator in
+    // common.js) — so the htmx wiring moved here from the markup.
+    if (newReviewBtn) {
+        newReviewBtn.addEventListener('click', function () {
+            if (state.category === 'bad-feedback') {
+                window.openBadFeedbackCreator();
+                return;
+            }
+            htmx.ajax('GET', '/partials/review-drawer', {
+                target: '#drawer-container',
+                swap: 'innerHTML',
+            });
+        });
+    }
 
     tabs.forEach(function (btn) {
         if (btn.disabled) return;

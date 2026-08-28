@@ -1,10 +1,14 @@
-{#- Bad Feedback EDIT modal, mounted on demand into #bf-editor-container.
+{#- Bad Feedback editor modal (edit AND create), mounted on demand
+    into #bf-editor-container.
 
     Lives OUTSIDE the bad-feedback list partial so the editor opens from
     ANY view (the list tab, To-review) — the same on-demand drawer
     pattern as the review drawer. Server passes the picker context
-    (agent_options, fault_values); the record itself is fetched by the
-    inline script for the ?id= handed in via data-bf-open.
+    (agent_options, fault_values); in EDIT mode the record itself is
+    fetched by the inline script for the ?id= handed in via data-bf-open,
+    in CREATE mode (no id — the navbar New Review button on the Bad
+    Feedback category) the same form starts empty and gains a
+    "Save For Later" action that stores the record as Pending.
 
     Single instance: the script tears down any previous mount before
     initializing; closing the dialog removes the whole partial root. -#}
@@ -12,7 +16,7 @@
     <dialog class="modal js-bf-edit-modal">
         <div class="modal-box max-w-2xl">
             <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">&times;</button></form>
-            <h3 class="mb-4 text-lg font-bold">Edit Bad Feedback</h3>
+            <h3 class="js-bf-edit-title mb-4 text-lg font-bold">Edit Bad Feedback</h3>
             <div class="js-bf-edit-body"><!-- filled by JS --></div>
         </div>
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
@@ -197,56 +201,89 @@
         return ok ? out : null;
     }
 
-    function renderEdit(fb) {
+    /* Shared form shell: field grid + agents host. Mode-specific
+       footers (status action / Save For Later) are appended by the
+       callers. Returns the body node. */
+    function buildBody(values) {
         var body = section.querySelector('.js-bf-edit-body');
         body.innerHTML =
             '<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">' +
-            '<label class="flex flex-col gap-1 text-sm"><span>Date</span><input type="date" id="bf-edit-date" class="input input-sm w-full" value="' + esc(fb.fb_date) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm"><span>Source</span><input type="text" id="bf-edit-source" class="input input-sm w-full" value="' + esc(fb.source) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer info</span><input type="text" id="bf-edit-customer" class="input input-sm w-full" value="' + esc(fb.customer_info) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer feedback</span><textarea id="bf-edit-feedback" class="textarea textarea-sm w-full">' + esc(fb.customer_feedback) + '</textarea></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm w-full" value="' + esc(fb.related_case) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm"><span>Date</span><input type="date" id="bf-edit-date" class="input input-sm w-full" value="' + esc(values.fb_date) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm"><span>Source</span><input type="text" id="bf-edit-source" class="input input-sm w-full" value="' + esc(values.source) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer info</span><input type="text" id="bf-edit-customer" class="input input-sm w-full" value="' + esc(values.customer_info) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer feedback</span><textarea id="bf-edit-feedback" class="textarea textarea-sm w-full">' + esc(values.customer_feedback) + '</textarea></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm w-full" value="' + esc(values.related_case) + '"/></label>' +
             '</div>' +
             '<p class="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-base-content/60">Agents — Fault & comment per agent</p>' +
             '<div class="js-bf-agents"></div>' +
-            '<button type="button" class="btn btn-ghost btn-sm js-bf-agent-add">+ Add agent</button>' +
-            '<div class="mt-4 flex items-center justify-between">' +
-            '<div>' +
-            (fb.status === 'pending'
-                ? '<button type="button" class="btn btn-success btn-sm js-bf-complete">Mark completed</button>'
-                : '<span class="badge badge-soft badge-success badge-sm">Completed</span>') +
-            '</div>' +
-            '<div class="flex gap-2">' +
-            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
-            '<button type="button" class="btn btn-primary btn-sm js-bf-save">Save</button>' +
-            '</div></div>';
+            '<button type="button" class="btn btn-ghost btn-sm js-bf-agent-add">+ Add agent</button>';
 
         // agentCard() returns a DOM node — append, don't stringify.
         var agentsHost = body.querySelector('.js-bf-agents');
-        fb.agents.forEach(function (agent) {
+        (values.agents || []).forEach(function (agent) {
             agentsHost.appendChild(agentCard(agent));
         });
 
         body.querySelector('.js-bf-agent-add').addEventListener('click', function () {
             agentsHost.appendChild(agentCard(null));
         });
-        body.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
-        body.querySelector('.js-bf-save').addEventListener('click', function () { saveEdit(fb.id); });
-        var completeBtn = body.querySelector('.js-bf-complete');
+        return body;
+    }
+
+    function renderFooter(body, leftHtml, rightHtml) {
+        var footer = document.createElement('div');
+        footer.className = 'mt-4 flex items-center justify-between';
+        footer.innerHTML =
+            '<div>' + leftHtml + '</div>' +
+            '<div class="flex gap-2">' + rightHtml + '</div>';
+        body.appendChild(footer);
+        return footer;
+    }
+
+    function renderEdit(fb) {
+        section.querySelector('.js-bf-edit-title').textContent = 'Edit Bad Feedback';
+        var body = buildBody(fb);
+        var footer = renderFooter(body,
+            fb.status === 'pending'
+                ? '<button type="button" class="btn btn-success btn-sm js-bf-complete">Mark completed</button>'
+                : '<span class="badge badge-soft badge-success badge-sm">Completed</span>',
+            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
+            '<button type="button" class="btn btn-primary btn-sm js-bf-save">Save</button>');
+        footer.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
+        footer.querySelector('.js-bf-save').addEventListener('click', function () { saveEdit(fb.id); });
+        var completeBtn = footer.querySelector('.js-bf-complete');
         if (completeBtn) completeBtn.addEventListener('click', function () { completeEdit(fb.id); });
+    }
+
+    /* CREATE mode: same fields, no status row. "Save For Later" stores
+       the record as Pending (joins the to-review queue), "Save" creates
+       it completed in one request (POST ?complete flag). */
+    function renderCreator() {
+        section.querySelector('.js-bf-edit-title').textContent = 'New Bad Feedback';
+        var body = buildBody({ agents: [] });
+        var footer = renderFooter(body, '',
+            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
+            '<button type="button" class="btn btn-outline btn-sm js-bf-save-later">Save For Later</button>' +
+            '<button type="button" class="btn btn-primary btn-sm js-bf-save">Save</button>');
+        footer.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
+        footer.querySelector('.js-bf-save-later').addEventListener('click', function () { createFeedback(false); });
+        footer.querySelector('.js-bf-save').addEventListener('click', function () { createFeedback(true); });
+    }
+
+    function readForm() {
+        return {
+            fb_date: document.getElementById('bf-edit-date').value || null,
+            source: document.getElementById('bf-edit-source').value || null,
+            customer_info: document.getElementById('bf-edit-customer').value || null,
+            customer_feedback: document.getElementById('bf-edit-feedback').value || null,
+            related_case: document.getElementById('bf-edit-case').value || null
+        };
     }
 
     function saveEdit(id) {
         var agents = collectAgents();
         if (agents === null) return;
-        var payload = {
-            fb_date: document.getElementById('bf-edit-date').value || null,
-            source: document.getElementById('bf-edit-source').value || null,
-            customer_info: document.getElementById('bf-edit-customer').value || null,
-            customer_feedback: document.getElementById('bf-edit-feedback').value || null,
-            related_case: document.getElementById('bf-edit-case').value || null,
-            agents: agents
-        };
+        var payload = Object.assign(readForm(), { agents: agents });
         fetch('/api/bad-feedback/' + id, {
             method: 'PATCH', credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
@@ -255,6 +292,24 @@
             .then(function (response) {
                 if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
                 showToast('Saved.', 'alert-success');
+                editModal.close();
+                document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+            })
+            .catch(function (error) { showToast(error.message || 'Unable to save.'); });
+    }
+
+    function createFeedback(complete) {
+        var agents = collectAgents();
+        if (agents === null) return;
+        var payload = Object.assign(readForm(), { agents: agents, complete: complete });
+        fetch('/api/bad-feedback', {
+            method: 'POST', credentials: 'same-origin',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+            .then(function (response) {
+                if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
+                showToast(complete ? 'Saved.' : 'Saved for later.', 'alert-success');
                 editModal.close();
                 document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
             })
@@ -321,8 +376,9 @@
         root.remove();
     };
 
-    // Entry: the ?id= the server baked into data-bf-open.
+    // Entry: the ?id= the server baked into data-bf-open — empty means
+    // CREATE mode (navbar New Review on the Bad Feedback category).
     var openId = root.getAttribute('data-bf-open');
-    if (openId) openFor(openId);
+    if (openId) openFor(openId); else renderCreator();
 })();
 </script>

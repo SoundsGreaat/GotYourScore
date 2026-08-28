@@ -45,8 +45,13 @@ class BadFeedbackCreate(BaseModel):
     """Payload for creating one Bad Feedback record
     (POST /api/bad-feedback). Import passes plain field values too.
 
-    ``status``/``qa_id`` are server-managed (created as pending;
-    ``created_by`` injected from the authenticated caller).
+    ``status``/``qa_id`` are server-managed: created as pending;
+    ``created_by`` injected from the authenticated caller. ``complete``
+    short-circuits the pending stage (the New Bad Feedback modal's
+    "Save"): the creator finishes the record in the same request, so
+    ``qa_id`` = caller and ``completed_at`` are stamped atomically —
+    the finisher-becomes-qa_id rule stays auditable. Omitting it (the
+    "Save For Later" path) leaves the record pending in the queue.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -58,6 +63,7 @@ class BadFeedbackCreate(BaseModel):
     related_case: str | None = Field(default=None, max_length=255)
     assigned_qa_id: int | None = None
     agents: list[BadFeedbackAgentIn] = Field(default_factory=list, max_length=50)
+    complete: bool = False
 
     @field_validator("source", "customer_info", "related_case")
     @classmethod

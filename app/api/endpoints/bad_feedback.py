@@ -113,8 +113,10 @@ def _read(feedback: BadFeedback) -> BadFeedbackRead:
         status=feedback.status,
         assigned_qa_id=feedback.assigned_qa_id,
         qa_id=feedback.qa_id,
+        completed_at=feedback.completed_at,
         created_by=feedback.created_by,
         created_at=feedback.created_at,
+        deleted_at=feedback.deleted_at,
         agents=[_agent_read(a) for a in feedback.agents],
     )
 
@@ -225,7 +227,12 @@ async def create_feedback(
     auth: FeedbackUser,
     db: DbSession,
 ) -> BadFeedbackRead:
-    """Manually create one pending record (QA/Supervisor/Admin)."""
+    """Manually create one record (QA/Supervisor/Admin).
+
+    Pending unless ``complete`` is set (New Bad Feedback modal's
+    "Save"): then the creator finishes the record in the same request —
+    status completed, ``qa_id`` = caller, ``completed_at`` stamped.
+    """
     resolved = await _validate_agents_payload(payload.agents, db)
     await _validate_assigned_qa(payload.assigned_qa_id, db)
     feedback = BadFeedback(
@@ -234,10 +241,17 @@ async def create_feedback(
         customer_info=payload.customer_info,
         customer_feedback=payload.customer_feedback,
         related_case=payload.related_case,
-        status=ReviewStatusEnum.PENDING,
+        status=(
+            ReviewStatusEnum.COMPLETED
+            if payload.complete
+            else ReviewStatusEnum.PENDING
+        ),
         assigned_qa_id=payload.assigned_qa_id,
         created_by=auth.id,
     )
+    if payload.complete:
+        feedback.qa_id = auth.id
+        feedback.completed_at = datetime.now(timezone.utc)
     if resolved:
         await _apply_agents(feedback, resolved, db)
     db.add(feedback)
