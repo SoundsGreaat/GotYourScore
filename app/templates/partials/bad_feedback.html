@@ -1,17 +1,32 @@
 {% import "macros/dropdowns.html" as dd %}
 {% import "macros/icons.html" as icons %}
+{% import "macros/modals.html" as modals %}
 <!-- Bad Feedback tracker tab. Root section is self-refreshing:
      bad-feedback-changed refetches this partial via outerHTML swap
-     (same lifecycle as reviews-changed for the reviews views). -->
+     (same lifecycle as reviews-changed for the reviews views). The
+     ?status/?month filters are BAKED into the self-refetch URL so
+     event-driven refreshes keep the active view (configRequest
+     injection only covers view switches). -->
 <section id="bad-feedback-view"
-         hx-get="/partials/bad-feedback"
+         hx-get="/partials/bad-feedback?status={{ status_filter or '' }}&month={{ month_value }}"
          hx-trigger="bad-feedback-changed from:body"
          hx-sync="this:replace"
          hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Bad Feedback</h2>
         <div class="flex flex-wrap items-center gap-2">
-            <form hx-get="/partials/bad-feedback"
+            <!-- Month selector: plain calendar month of completed_at
+                 (pending records are month-less and always visible). -->
+            <form hx-get="/partials/bad-feedback?status={{ status_filter or '' }}"
+                  hx-target="closest section" hx-swap="outerHTML"
+                  hx-trigger="change" class="flex items-center">
+                {{ dd.dropdown('bf-month-filter',
+                items=month_options,
+                selected=month_value,
+                aria_label='Completion month',
+                hidden_attrs='name="month"') }}
+            </form>
+            <form hx-get="/partials/bad-feedback?month={{ month_value }}"
                   hx-target="closest section" hx-swap="outerHTML"
                   hx-trigger="change" class="flex items-center">
                 {{ dd.dropdown('bf-status-filter',
@@ -67,10 +82,23 @@
                             <div class="flex max-w-72 flex-wrap items-center gap-1">
                                 {% for agent in fb.agents %}
                                 {% set agent_name = (agent.user.name or agent.user.nickname) if agent.user else ('#' ~ agent.user_id) %}
-                                <span class="badge badge-soft badge-sm {{ 'badge-warning' if agent.fault and agent.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if agent.fault and agent.fault.value == 'Warning' }}"
-                                      title="{{ agent.kind.value }}{% if agent.fault %} · {{ agent.fault.value }}{% endif %}{% if agent.qa_comment %} — {{ agent.qa_comment }}{% endif %}">
+                                <!-- Click = the shared notes modal for THIS
+                                     record + agent (notes_modal.js
+                                     delegation; Edit re-opens the BF editor
+                                     via data-notes-kind="bf"). -->
+                                <button type="button"
+                                        class="badge badge-soft badge-sm cursor-pointer hover:bg-base-200 {{ 'badge-warning' if agent.fault and agent.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if agent.fault and agent.fault.value == 'Warning' }}"
+                                        data-case-notes="{{ fb.id }}-{{ agent.user_id }}"
+                                        data-case-prefix="Bad Feedback"
+                                        data-case-label="{{ fb.related_case or fb.id }}"
+                                        data-case-type="{{ agent_name }}"
+                                        data-edit-id="{{ fb.id }}"
+                                        data-notes-open="edit"
+                                        data-notes-kind="bf"
+                                        title="{{ agent.kind.value }}{% if agent.fault %} · {{ agent.fault.value }}{% endif %} — view the QA note">
                                     {{ agent_name }}{{ ' · ' ~ agent.fault.value if agent.fault }}
-                                </span>
+                                </button>
+                                <template data-notes-for="{{ fb.id }}-{{ agent.user_id }}">{{ agent.qa_comment or '' }}</template>
                                 {% endfor %}
                             </div>
                         </td>
@@ -92,6 +120,13 @@
                                     aria-label="Edit bad feedback {{ fb.id }}" title="Edit">
                                 {{ icons.edit() }}
                             </button>
+                            <button type="button" class="btn btn-ghost btn-xs btn-circle text-error"
+                                    data-bf-delete="{{ fb.id }}"
+                                    aria-label="Delete bad feedback {{ fb.id }}" title="Delete">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -102,9 +137,11 @@
     </div>
     {% else %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-        No bad feedback yet — import an Excel file to get started.
+        No bad feedback for this filter yet — import an Excel file or pick another month.
     </div>
     {% endif %}
+
+    {{ modals.notes_modal() }}
 
     <!-- ===== Import modal: upload → mapping → report ===== -->
     <dialog class="modal js-bf-import-modal">
@@ -333,7 +370,22 @@
             /* ---------- edit flow (on-demand editor partial) ---------- */
             section.addEventListener('click', function (event) {
                 var editBtn = event.target.closest('[data-bf-edit]');
-                if (editBtn) window.openBadFeedbackEditor(editBtn.getAttribute('data-bf-edit'));
+                if (editBtn) {
+                    window.openBadFeedbackEditor(editBtn.getAttribute('data-bf-edit'));
+                    return;
+                }
+                var deleteBtn = event.target.closest('[data-bf-delete]');
+                if (deleteBtn) {
+                    var deleteId = deleteBtn.getAttribute('data-bf-delete');
+                    if (!window.confirm('Delete this Bad Feedback record?')) return;
+                    fetch('/api/bad-feedback/' + deleteId, {method: 'DELETE', credentials: 'same-origin'})
+                        .then(function (response) {
+                            if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
+                            showToast('Record deleted.', 'alert-success');
+                            document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                        })
+                        .catch(function (error) { showToast(error.message || 'Unable to delete record.'); });
+                }
             });
 })();
     </script>

@@ -102,12 +102,15 @@
     function agentCard(agent) {
         var host = document.createElement('div');
         host.className = 'js-bf-agent card mb-2 bg-base-200 p-2';
+        // One grid for the pickers: agent gets ALL leftover width, the
+        // kind/fault pickers stay compact, remove is icon-sized — no
+        // more mismatched fixed widths (~80% coverage) next to a
+        // full-width comment line.
         var row = document.createElement('div');
-        row.className = 'flex items-center gap-2';
+        row.className = 'grid grid-cols-[minmax(0,1fr)_7rem_8.5rem_auto] items-center gap-2';
         host.appendChild(row);
 
         var pickHost = document.createElement('div');
-        pickHost.className = 'w-44 shrink-0';
         row.appendChild(pickHost);
         var pickHidden = buildDropdown(pickHost,
             [{value: '', label: 'Choose agent…'}].concat(agentOptions.map(function (o) {
@@ -119,7 +122,6 @@
         pickHidden.setAttribute('data-bf-role', 'pick');
 
         var kindHost = document.createElement('div');
-        kindHost.className = 'w-28 shrink-0';
         row.appendChild(kindHost);
         var kindHidden = buildDropdown(kindHost,
             [{value: 'Support', label: 'Support'}, {value: 'Sales', label: 'Sales'}],
@@ -128,7 +130,6 @@
         kindHidden.setAttribute('data-bf-role', 'kind');
 
         var faultHost = document.createElement('div');
-        faultHost.className = 'w-36 shrink-0';
         row.appendChild(faultHost);
         var faultHidden = buildDropdown(faultHost,
             [{value: '', label: 'Fault…'}].concat(faultValues.map(function (f) {
@@ -145,13 +146,20 @@
         remove.setAttribute('aria-label', 'Remove agent');
         row.appendChild(remove);
 
-        var comment = document.createElement('input');
-        comment.type = 'text';
-        comment.className = 'input input-sm input-bordered mt-2 w-full';
-        comment.placeholder = 'QA comment for this agent';
-        comment.setAttribute('data-bf-role', 'comment');
-        comment.value = (agent && agent.qa_comment) || '';
-        host.appendChild(comment);
+        // Per-agent QA comment: the SAME rich editor as the QA Score
+        // drawer (Quill + AI Refactor + Copy All + Copy HTML) from the
+        // shared js/comment_editor.js module. Content is stored as
+        // sanitized HTML.
+        var commentHost = document.createElement('div');
+        commentHost.className = 'js-bf-comment mt-2';
+        host.appendChild(commentHost);
+        host._bfComment = window.gysCommentEditor({
+            mount: commentHost,
+            html: (agent && agent.qa_comment) || '',
+            placeholder: 'QA comment for this agent',
+            refactorUrl: '/api/ai/refactor-comment',
+            emptyMessage: 'Comment is empty.'
+        });
         return host;
     }
 
@@ -167,11 +175,12 @@
             var pair = userId + ':' + kind;
             if (seen[pair]) { ok = false; return; }
             seen[pair] = true;
+            var commentApi = card._bfComment;
             out.push({
                 user_id: parseInt(userId, 10),
                 kind: kind,
                 fault: card.querySelector('[data-bf-role="fault"]').value || null,
-                qa_comment: card.querySelector('[data-bf-role="comment"]').value || null
+                qa_comment: (commentApi && !commentApi.isEmpty()) ? commentApi.getHtml() : null
             });
         });
         if (!ok) showToast('Every agent card needs an agent and a unique role.');
@@ -182,11 +191,11 @@
         var body = section.querySelector('.js-bf-edit-body');
         body.innerHTML =
             '<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">' +
-            '<label class="flex flex-col gap-1 text-sm"><span>Date</span><input type="date" id="bf-edit-date" class="input input-sm" value="' + esc(fb.fb_date) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm"><span>Source</span><input type="text" id="bf-edit-source" class="input input-sm" value="' + esc(fb.source) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer info</span><input type="text" id="bf-edit-customer" class="input input-sm" value="' + esc(fb.customer_info) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer feedback</span><textarea id="bf-edit-feedback" class="textarea textarea-sm">' + esc(fb.customer_feedback) + '</textarea></label>' +
-            '<label class="flex flex-col gap-1 text-sm"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm" value="' + esc(fb.related_case) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm"><span>Date</span><input type="date" id="bf-edit-date" class="input input-sm w-full" value="' + esc(fb.fb_date) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm"><span>Source</span><input type="text" id="bf-edit-source" class="input input-sm w-full" value="' + esc(fb.source) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer info</span><input type="text" id="bf-edit-customer" class="input input-sm w-full" value="' + esc(fb.customer_info) + '"/></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer feedback</span><textarea id="bf-edit-feedback" class="textarea textarea-sm w-full">' + esc(fb.customer_feedback) + '</textarea></label>' +
+            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm w-full" value="' + esc(fb.related_case) + '"/></label>' +
             '</div>' +
             '<p class="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-base-content/60">Agents — Fault & comment per agent</p>' +
             '<div class="js-bf-agents"></div>' +

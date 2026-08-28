@@ -1,13 +1,34 @@
+{% import "macros/dropdowns.html" as dd %}
+{% import "macros/modals.html" as modals %}
 {# My Reviews' Bad Feedback flavor: records where the CURRENT USER is
-   listed as an agent. Deliberately READ-ONLY — faults and QA comments
-   are authored in the tracker list by QA+; this view is what the
-   reviewed agent (Support/Sales) gets to see. Self-refetches on
-   bad-feedback-changed with the category BAKED into the URL (the
-   dashboard's configRequest injection only covers view switches). #}
-<section hx-get="/partials/my-reviews?cat=bad-feedback" hx-trigger="bad-feedback-changed from:body" hx-swap="outerHTML">
+   listed as an agent OR which they completed as the QA — same
+   two-sided scope as the QA-score My Reviews. Deliberately READ-ONLY:
+   faults and QA comments are authored in the tracker list by QA+; the
+   agent badges open the shared notes modal (per-record note, no Edit
+   for non-reviewers — notes_modal.js hides it without
+   data-notes-open). Self-refetches on bad-feedback-changed with the
+   month BAKED into the URL (configRequest injection only covers view
+   switches). The month selector groups by completion date; pending
+   records are month-less and always visible. #}
+<section id="my-bad-feedback-view"
+         hx-get="/partials/my-reviews?cat=bad-feedback&month={{ month_value }}"
+         hx-trigger="bad-feedback-changed from:body"
+         hx-sync="this:replace"
+         hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-lg font-semibold">Bad Feedback about you</h2>
-        <span class="hidden text-sm text-base-content/70 sm:inline">Records where you are listed as an agent</span>
+        <h2 class="text-lg font-semibold">My Reviews</h2>
+        <div class="flex flex-wrap items-center gap-2">
+            <form hx-get="/partials/my-reviews?cat=bad-feedback"
+                  hx-target="closest section" hx-swap="outerHTML"
+                  hx-trigger="change" class="flex items-center">
+                {{ dd.dropdown('bf-my-month-filter',
+                items=month_options,
+                selected=month_value,
+                aria_label='Completion month',
+                hidden_attrs='name="month"') }}
+            </form>
+            <span class="hidden text-sm text-base-content/70 sm:inline">Feedback on records where you are an agent or the completing QA</span>
+        </div>
     </div>
     {% if rows %}
     {% for row in rows %}
@@ -27,27 +48,30 @@
             {% if fb.customer_feedback %}
             <p class="whitespace-pre-line text-sm text-base-content/80">{{ fb.customer_feedback }}</p>
             {% endif %}
-            {% for entry in row.entries %}
-            <div class="rounded-box bg-base-200 p-2 text-sm">
-                <div class="flex flex-wrap items-center gap-2">
-                    <span class="badge badge-soft badge-sm" title="Your role on this record">{{ entry.kind.value }}</span>
-                    {% if entry.fault %}
-                    <span class="badge badge-error badge-soft badge-sm">{{ entry.fault.value }}</span>
-                    {% else %}
-                    <span class="badge badge-ghost badge-sm">No fault assessment yet</span>
-                    {% endif %}
-                </div>
-                {% if entry.qa_comment %}
-                <p class="mt-1 text-base-content/80">{{ entry.qa_comment }}</p>
-                {% endif %}
+            {% if row.entries %}
+            <div class="flex flex-wrap items-center gap-1">
+                {% for entry in row.entries %}
+                <button type="button"
+                        class="badge badge-soft badge-sm cursor-pointer hover:bg-base-200 {{ 'badge-warning' if entry.fault and entry.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if entry.fault and entry.fault.value == 'Warning' }}"
+                        data-case-notes="{{ fb.id }}-{{ entry.user_id }}"
+                        data-case-prefix="Bad Feedback"
+                        data-case-label="{{ fb.related_case or fb.id }}"
+                        {% if entry.fault %}title="Your fault: {{ entry.fault.value }} — view the QA note"{% else %}title="View the QA note"{% endif %}>
+                    {{ entry.kind.value }}{{ ' · ' ~ entry.fault.value if entry.fault }}
+                </button>
+                <template data-notes-for="{{ fb.id }}-{{ entry.user_id }}">{{ entry.qa_comment or '' }}</template>
+                {% endfor %}
+                <span class="text-xs text-base-content/60">— click to read the QA note</span>
             </div>
-            {% endfor %}
+            {% endif %}
         </div>
     </div>
     {% endfor %}
     {% else %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-        No Bad Feedback records list you as an agent
+        No Bad Feedback records for this month
     </div>
     {% endif %}
+
+    {{ modals.notes_modal() }}
 </section>

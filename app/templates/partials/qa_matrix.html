@@ -7,7 +7,7 @@
      (this partial has no filter form to carry a hidden input). -->
 <section data-period="{{ period_value }}" hx-get="/partials/qa-matrix?period={{ period_value }}" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-lg font-semibold">QA Matrix</h2>
+        <h2 class="text-lg font-semibold">QA Score</h2>
         <div class="flex flex-wrap items-center gap-2">
             <!-- Period switcher: its own mini-form so the hidden input's
                  change event refetches the whole view with ?period=... -->

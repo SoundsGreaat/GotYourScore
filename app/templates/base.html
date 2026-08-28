@@ -102,7 +102,10 @@
 
     <!-- Shared partial helpers (toast, drawer handoff, escaping). -->
     <script defer src="/static/js/common.js?v={{ asset_v }}"></script>
-
+    <!-- Rich-comment editor module (Quill + AI Refactor + Copy All/HTML):
+         shared by the Bad Feedback record editor, reusable for future
+         record kinds (Refund Check). -->
+    <script defer src="/static/js/comment_editor.js?v={{ asset_v }}"></script>
     <!-- "View notes" modal: one document-level click delegation opens the
          shared .js-notes-modal from any [data-case-notes] trigger. -->
     <script defer src="/static/js/notes_modal.js?v={{ asset_v }}"></script>

@@ -37,7 +37,10 @@
         var raw = template ? template.content.textContent : '';
         var label = button.getAttribute('data-case-label') || id;
         var caseType = button.getAttribute('data-case-type');
-        titleElement.textContent = 'Case ' + label + (caseType ? ' \u00B7 ' + caseType : '');
+        // Title prefix: review tables say "Case N", Bad Feedback
+        // triggers opt into "Bad Feedback N" via data-case-prefix.
+        var prefix = button.getAttribute('data-case-prefix') || 'Case';
+        titleElement.textContent = prefix + ' ' + label + (caseType ? ' \u00B7 ' + caseType : '');
         if (!raw.trim()) {
             bodyElement.innerHTML = '<p class="text-base-content/60 italic">No notes for this case.</p>';
         } else if (window.DOMPurify) {
@@ -55,8 +58,22 @@
             // that are perfectly editable elsewhere.
             var mode = button.getAttribute('data-notes-open') || '';
             if (mode === 'edit' || mode === 'complete') {
-                editButton.dataset.reviewId = id;
+                // data-edit-id lets non-review triggers hand the editor
+                // a different record id than the notes-template key
+                // (Bad Feedback keys are "recordId-agentId").
+                editButton.dataset.reviewId =
+                    button.getAttribute('data-edit-id') || id;
                 editButton.dataset.reviewMode = mode;
+                // data-notes-kind="bf" routes the Edit button to the
+                // Bad Feedback editor instead of the review drawer.
+                editButton.dataset.notesKind =
+                    button.getAttribute('data-notes-kind') || '';
+                var editLabel = modal.querySelector('.js-notes-edit-label');
+                if (editLabel) {
+                    editLabel.textContent =
+                        editButton.dataset.notesKind === 'bf'
+                            ? 'Edit record' : 'Edit review';
+                }
                 editButton.classList.remove('hidden');
             } else {
                 editButton.classList.add('hidden');
@@ -70,6 +87,12 @@
         if (!button || !button.dataset.reviewId) return;
         var openModal = button.closest('.js-notes-modal[open]');
         if (openModal) openModal.close();
+        if (button.dataset.notesKind === 'bf') {
+            if (typeof window.openBadFeedbackEditor === 'function') {
+                window.openBadFeedbackEditor(button.dataset.reviewId);
+            }
+            return;
+        }
         if (typeof window.openReviewDrawer === 'function') {
             window.openReviewDrawer(button.dataset.reviewId, button.dataset.reviewMode || 'edit');
         }

@@ -1,0 +1,87 @@
+{#- Shared Bad Feedback queue table for the To-review partial.
+
+    BOTH queues ("Assigned to you" and "Unassigned — grab any") MUST
+    render through this one macro — same reason as
+    to_review_table.html: hand-copied tables drift apart. Table
+    geometry (table-fixed + colgroup) mirrors the QA queue macro so
+    the two categories look like one UI.
+
+    Params:
+      rows        — BF row dicts (id, fb, agents[{label, kind,
+                    user_id, qa_comment}], source, related_case).
+      unassigned  — true for the shared queue: swaps the heading and
+                    the grab tooltip.
+      any (kwargs) — extra heading badges.
+
+    Agent badges are notes-modal triggers (notes_modal.js delegation):
+    click shows THIS record's QA note for that agent; the modal's Edit
+    button re-opens the Bad Feedback editor (data-notes-kind="bf"). -#}
+{% macro queue(rows, unassigned=false) %}
+<div class="card rounded-box bg-base-100 shadow-sm">
+    <div class="card-body min-w-0 p-3 sm:p-4">
+        {% if unassigned %}
+        <h3 class="flex items-center gap-2 text-base font-semibold">
+            Unassigned &mdash; grab any
+            <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
+        </h3>
+        {% else %}
+        <h3 class="flex items-center gap-2 text-base font-semibold">
+            Assigned to you
+            <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
+        </h3>
+        {% endif %}
+        <div class="max-w-full overflow-x-auto">
+            <table class="table table-sm table-fixed w-full min-w-[640px]">
+                <colgroup>
+                    <col class="w-[13%]" /><!-- Date -->
+                    <col class="w-[15%]" /><!-- Source -->
+                    <col class="w-[15%]" /><!-- Case -->
+                    <col class="w-[35%]" /><!-- Agents -->
+                    <col class="w-[22%]" /><!-- Actions -->
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Source</th>
+                        <th>Case</th>
+                        <th>Agents</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                    <tr>
+                        <td class="truncate">{% if row.fb.fb_date %}{{ row.fb.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                        <td class="truncate" title="{{ row.fb.source or '' }}">{{ row.fb.source or '—' }}</td>
+                        <td class="truncate" title="{{ row.fb.related_case or '' }}">{% if row.fb.related_case %}{{ row.fb.related_case }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                        <td class="truncate">
+                            <span class="flex flex-wrap gap-1">
+                                {% for a in row.agents %}
+                                <button type="button"
+                                        class="badge badge-soft badge-sm cursor-pointer hover:bg-base-200"
+                                        data-case-notes="{{ row.id }}-{{ a.user_id }}"
+                                        data-case-prefix="Bad Feedback"
+                                        data-case-label="{{ row.fb.related_case or row.id }}"
+                                        data-case-type="{{ a.label }}"
+                                        data-edit-id="{{ row.id }}"
+                                        data-notes-open="edit"
+                                        data-notes-kind="bf"
+                                        title="{{ a.kind }} — view the QA note">{{ a.label }}</button>
+                                <template data-notes-for="{{ row.id }}-{{ a.user_id }}">{{ a.qa_comment or '' }}</template>
+                                {% endfor %}
+                            </span>
+                        </td>
+                        <td class="whitespace-nowrap">
+                            <button type="button" class="btn btn-primary btn-xs"
+                                    data-bf-edit="{{ row.id }}"
+                                    aria-label="{{ 'Grab' if unassigned else 'Open' }} bad feedback {{ row.id }}"
+                                    title="{{ 'Grab and work this record' if unassigned else 'Open the Bad Feedback editor' }}">Open</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endmacro %}

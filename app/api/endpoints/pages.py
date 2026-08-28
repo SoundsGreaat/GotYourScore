@@ -29,7 +29,7 @@ from fastapi.responses import (
     Response,
 )
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, extract, func, or_, select
 
 from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
@@ -81,6 +81,77 @@ def _resolve_category(params) -> str:
     """Validated ?cat= query param (default "qa-score")."""
     cat = params.get("cat") or "qa-score"
     return cat if cat in CATEGORIES else "qa-score"
+
+
+# Bad Feedback views group by plain CALENDAR month of completed_at (the
+# QA Score views use reporting periods; BF completion dates don't need
+# the 26th→25th split). Pending records are month-less — they stay
+# visible in EVERY month (they are the to-do pile).
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _bf_month_value(params) -> str:
+    """The selected ?month=YYYY-MM (default: the current month)."""
+    value = params.get("month") or ""
+    match = re.fullmatch(r"(\d{4})-(\d{2})", value or "")
+    if not match or not 1 <= int(match.group(2)) <= 12:
+        now = datetime.now(timezone.utc)
+        return f"{now.year:04d}-{now.month:02d}"
+    return value
+
+
+async def _bf_month_options(db: AsyncSession) -> list[dict[str, str]]:
+    """Month selector options: every month with completed records (newest
+    first) plus the current month, labeled "September 2026"."""
+    rows = (
+        await db.execute(
+            select(
+                extract("year", BadFeedback.completed_at),
+                extract("month", BadFeedback.completed_at),
+            )
+            .where(
+                BadFeedback.completed_at.is_not(None),
+                BadFeedback.deleted_at.is_(None),
+            )
+            .distinct()
+        )
+    ).all()
+    months = {
+        (int(year), int(month))
+        for year, month in rows
+        if year and month
+    }
+    now = datetime.now(timezone.utc)
+    months.add((now.year, now.month))
+    current = f"{now.year:04d}-{now.month:02d}"
+    return [
+        {
+            "value": f"{year:04d}-{month:02d}",
+            "label": (
+                f"{_MONTH_NAMES[month - 1]} {year}"
+                + (" (current)" if f"{year:04d}-{month:02d}" == current else "")
+            ),
+        }
+        for year, month in sorted(months, reverse=True)
+    ]
+
+
+def _bf_completed_in_month(month_value: str):
+    """SQL condition matching COMPLETED records finished in the month, or
+    None when the value is malformed (no filter at all then)."""
+    match = re.fullmatch(r"(\d{4})-(\d{2})", month_value or "")
+    if not match:
+        return None
+    year, month = int(match.group(1)), int(match.group(2))
+    if not 1 <= month <= 12:
+        return None
+    return and_(
+        extract("year", BadFeedback.completed_at) == year,
+        extract("month", BadFeedback.completed_at) == month,
+    )
 
 
 # Reporting-period switcher wire format: the CLOSING month as
@@ -581,14 +652,37 @@ async def _render_bad_feedback(
     (callers guard before invoking).
     """
     status_filter = request.query_params.get("status")
+    month_value = _bf_month_value(request.query_params)
+    completed_in_month = _bf_completed_in_month(month_value)
     stmt = (
         select(BadFeedback)
         .where(BadFeedback.deleted_at.is_(None))
         .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
         .limit(200)
     )
-    if status_filter in (ReviewStatusEnum.PENDING.value, ReviewStatusEnum.COMPLETED.value):
-        stmt = stmt.where(BadFeedback.status == status_filter)
+    if status_filter == ReviewStatusEnum.PENDING.value:
+        stmt = stmt.where(BadFeedback.status == ReviewStatusEnum.PENDING)
+    elif status_filter == ReviewStatusEnum.COMPLETED.value:
+        # Completed records respect the month selector (completion date).
+        if completed_in_month is not None:
+            stmt = stmt.where(
+                BadFeedback.status == ReviewStatusEnum.COMPLETED,
+                completed_in_month,
+            )
+        else:
+            stmt = stmt.where(BadFeedback.status == ReviewStatusEnum.COMPLETED)
+    elif completed_in_month is not None:
+        # No status filter: every pending record (month-less to-do work)
+        # plus the completed ones finished in the selected month.
+        stmt = stmt.where(
+            or_(
+                BadFeedback.status == ReviewStatusEnum.PENDING,
+                and_(
+                    BadFeedback.status == ReviewStatusEnum.COMPLETED,
+                    completed_in_month,
+                ),
+            )
+        )
     feedbacks = list((await db.execute(stmt)).scalars().unique().all())
     qas = await _qas(db)
     agents = await _frontline_agents(db)
@@ -616,6 +710,8 @@ async def _render_bad_feedback(
         context={
             "rows": rows,
             "status_filter": status_filter,
+            "month_value": month_value,
+            "month_options": await _bf_month_options(db),
             "qa_options": qa_options,
             "agent_options": agent_options,
             "field_labels": bad_feedback_import.FIELD_LABELS,
@@ -633,39 +729,58 @@ async def _render_my_bad_feedback(
 ) -> Response:
     """Render the personal Bad Feedback view (My Reviews' BF flavor).
 
-    Records where the CALLER is listed as an agent — for Support/Sales
-    users this is the feedback ABOUT them (their fault + the QA
-    comment), and multi-role users may appear on records they were
-    reviewed in too. Deliberately READ-ONLY: editing stays a QA+ action
-    in the tracker list. No reviewer gate — Support-only users reach
-    this through My Reviews.
+    Shows BOTH directions like the QA-score flavor does: records where
+    the CALLER is listed as an agent (feedback ABOUT them — the
+    support-facing view) and records the caller COMPLETED as the QA
+    (feedback authored BY them). Deliberately READ-ONLY: editing stays
+    a QA+ action in the tracker list. The month selector groups by
+    completion date (pending records always stay visible); Support-only
+    users reach this through My Reviews, no reviewer gate.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
         return redirect
 
-    records = list(
-        (
-            await db.execute(
-                select(BadFeedback)
-                .join(
-                    BadFeedbackAgent,
-                    BadFeedbackAgent.feedback_id == BadFeedback.id,
-                )
-                .where(
-                    BadFeedbackAgent.user_id == auth.id,
-                    BadFeedback.deleted_at.is_(None),
-                )
-                .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
-                .limit(200)
-            )
-        ).scalars().unique().all()
+    month_value = _bf_month_value(request.query_params)
+    completed_in_month = _bf_completed_in_month(month_value)
+    stmt = (
+        select(BadFeedback)
+        .outerjoin(
+            BadFeedbackAgent,
+            BadFeedbackAgent.feedback_id == BadFeedback.id,
+        )
+        .where(
+            or_(
+                BadFeedback.qa_id == auth.id,
+                BadFeedbackAgent.user_id == auth.id,
+            ),
+            BadFeedback.deleted_at.is_(None),
+        )
+        .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
+        .limit(200)
     )
+    if completed_in_month is not None:
+        stmt = stmt.where(
+            or_(
+                BadFeedback.status == ReviewStatusEnum.PENDING,
+                and_(
+                    BadFeedback.status == ReviewStatusEnum.COMPLETED,
+                    completed_in_month,
+                ),
+            )
+        )
+    records = list((await db.execute(stmt)).scalars().unique().all())
+
     rows = [
         {
             "record": fb,
             "entries": [
-                {"kind": a.kind, "fault": a.fault, "qa_comment": a.qa_comment}
+                {
+                    "kind": a.kind,
+                    "fault": a.fault,
+                    "user_id": a.user_id,
+                    "qa_comment": a.qa_comment,
+                }
                 for a in fb.agents
                 if a.user_id == auth.id
             ],
@@ -676,7 +791,11 @@ async def _render_my_bad_feedback(
     return templates.TemplateResponse(
         request=request,
         name="partials/my_bad_feedback.html",
-        context={"rows": rows},
+        context={
+            "rows": rows,
+            "month_value": month_value,
+            "month_options": await _bf_month_options(db),
+        },
     )
 
 
@@ -822,7 +941,12 @@ async def partial_to_review(
             "fb": fb,
             "created_at": fb.created_at,
             "agents": [
-                {"label": _bf_label(a.user), "kind": a.kind.value}
+                {
+                    "label": _bf_label(a.user),
+                    "kind": a.kind.value,
+                    "user_id": a.user_id,
+                    "qa_comment": a.qa_comment,
+                }
                 for a in fb.agents
             ],
             "source": fb.source,
