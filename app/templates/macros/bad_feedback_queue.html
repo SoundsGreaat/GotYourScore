@@ -8,9 +8,10 @@
 
     Params:
       rows        — BF row dicts (id, fb, agents[{label, kind,
-                    user_id, qa_comment}], source, related_case).
-      unassigned  — true for the shared queue: swaps the heading and
-                    the grab tooltip.
+                    user_id, qa_comment}], source, related_case,
+                    assigned_qa_name).
+      unassigned  — true for the shared queue: swaps the heading,
+                    the warning "Unassigned" badge and the grab tooltip.
       any (kwargs) — extra heading badges.
 
     Agent badges are notes-modal triggers (notes_modal.js delegation):
@@ -33,11 +34,12 @@
         <div class="max-w-full overflow-x-auto">
             <table class="table table-sm table-fixed w-full min-w-[640px]">
                 <colgroup>
-                    <col class="w-[13%]" /><!-- Date -->
-                    <col class="w-[15%]" /><!-- Source -->
-                    <col class="w-[15%]" /><!-- Case -->
-                    <col class="w-[35%]" /><!-- Agents -->
-                    <col class="w-[22%]" /><!-- Actions -->
+                    <col class="w-[12%]" /><!-- Date -->
+                    <col class="w-[13%]" /><!-- Source -->
+                    <col class="w-[13%]" /><!-- Case -->
+                    <col class="w-[32%]" /><!-- Agents -->
+                    <col class="w-[16%]" /><!-- Assigned QA -->
+                    <col class="w-[14%]" /><!-- Actions -->
                 </colgroup>
                 <thead>
                     <tr>
@@ -45,6 +47,7 @@
                         <th>Source</th>
                         <th>Case</th>
                         <th>Agents</th>
+                        <th>Assigned QA</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -71,11 +74,18 @@
                                 {% endfor %}
                             </span>
                         </td>
+                        <td class="truncate">
+                            {% if unassigned %}
+                            <span class="badge badge-warning badge-sm">Unassigned</span>
+                            {% else %}
+                            <span class="badge badge-soft badge-sm">{{ row.assigned_qa_name or 'You' }}</span>
+                            {% endif %}
+                        </td>
                         <td class="whitespace-nowrap">
                             <button type="button" class="btn btn-primary btn-xs"
                                     data-bf-edit="{{ row.id }}"
-                                    aria-label="{{ 'Grab' if unassigned else 'Open' }} bad feedback {{ row.id }}"
-                                    title="{{ 'Grab and work this record' if unassigned else 'Open the Bad Feedback editor' }}">Open</button>
+                                    aria-label="{{ 'Grab' if unassigned else 'Complete' }} bad feedback {{ row.id }}"
+                                    title="{{ 'Grab and work this record' if unassigned else 'Open the Bad Feedback editor' }}">Complete</button>
                         </td>
                     </tr>
                     {% endfor %}

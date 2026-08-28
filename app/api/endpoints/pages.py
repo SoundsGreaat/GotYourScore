@@ -902,7 +902,10 @@ async def partial_to_review(
                 review.support_agent_id,
                 review.assigned_qa_id,
             )
-        },
+        }
+        # Bad Feedback assignees ride the same map: the to-review BF
+        # queue shows an Assigned QA badge like the QA Score one.
+        | {fb.assigned_qa_id for fb in bf_assigned + bf_shared},
     )
 
     def _row(review: Review, unassigned: bool) -> dict[str, object]:
@@ -951,6 +954,7 @@ async def partial_to_review(
             ],
             "source": fb.source,
             "related_case": fb.related_case,
+            "assigned_qa_name": nicknames.get(fb.assigned_qa_id),
             "unassigned": unassigned,
         }
 
