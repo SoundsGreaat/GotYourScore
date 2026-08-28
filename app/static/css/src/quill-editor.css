@@ -1,0 +1,238 @@
+/* Rich-text editor skin (Quill snow), shared by every editor instance:
+   the review drawer's notes field AND the per-agent comment editors in
+   the Bad Feedback record editor (js/comment_editor.js). Extracted from
+   input.css so both editors style from ONE source.
+
+   Import order (input.css, top block): vendored snow CSS FIRST, then
+   this file — the reskin overrides the stock theme. */
+
+/* ---- Quill snow re-skin on daisyUI tokens ---- */
+.ql-toolbar.ql-snow {
+    border: none;
+    border-bottom: 1px solid var(--color-base-300);
+    background-color: var(--color-base-200);
+}
+
+.ql-container.ql-snow {
+    border: none;
+    background-color: var(--color-base-100);
+    color: var(--color-base-content);
+    font-family: inherit;
+}
+
+.ql-snow .ql-clipboard,
+.ql-snow .ql-clipboard input {
+    position: absolute;
+    top: 0;
+    left: -100000px;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.ql-editor.ql-blank::before {
+    color: color-mix(in oklab, var(--color-base-content) 50%, transparent);
+    font-style: italic;
+}
+
+.ql-snow .ql-stroke,
+.ql-snow .ql-stroke-miter {
+    stroke: var(--color-base-content);
+}
+
+.ql-snow .ql-fill,
+.ql-snow .ql-stroke.ql-fill {
+    fill: var(--color-base-content);
+}
+
+.ql-snow .ql-stroke.ql-active {
+    stroke: var(--color-primary);
+}
+
+.ql-snow .ql-fill.ql-active,
+.ql-snow .ql-stroke.ql-fill.ql-active {
+    fill: var(--color-primary);
+}
+
+.ql-snow .ql-picker,
+.ql-snow .ql-picker-label,
+.ql-snow .ql-picker-item {
+    color: var(--color-base-content);
+}
+
+.ql-snow .ql-picker-options {
+    background-color: var(--color-base-100);
+    border-color: var(--color-base-300);
+    color: var(--color-base-content);
+}
+
+.ql-snow .ql-picker.ql-expanded .ql-picker-label {
+    color: var(--color-primary);
+}
+
+.ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-fill {
+    fill: var(--color-primary);
+}
+
+.ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke,
+.ql-snow .ql-picker.ql-expanded .ql-picker-label .ql-stroke-miter {
+    stroke: var(--color-primary);
+}
+
+.ql-snow .ql-toolbar button,
+.ql-snow.ql-toolbar button {
+    border-radius: var(--radius-selector);
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color var(--gys-speed) var(--gys-ease);
+}
+
+.ql-snow.ql-toolbar button:hover,
+.ql-snow .ql-toolbar button:hover,
+.ql-snow.ql-toolbar button:focus,
+.ql-snow .ql-toolbar button:focus {
+    background-color: color-mix(in oklab, var(--color-base-content) 8%, transparent);
+}
+
+.ql-snow.ql-toolbar button.ql-active,
+.ql-snow .ql-toolbar button.ql-active {
+    background-color: color-mix(in oklab, var(--color-primary) 15%, transparent);
+}
+
+.ql-snow.ql-toolbar button:hover,
+.ql-snow .ql-toolbar button:hover,
+.ql-snow.ql-toolbar button:focus,
+.ql-snow .ql-toolbar button:focus,
+.ql-snow.ql-toolbar button.ql-active,
+.ql-snow .ql-toolbar button.ql-active,
+.ql-snow.ql-toolbar .ql-picker-label:hover,
+.ql-snow .ql-toolbar .ql-picker-label:hover,
+.ql-snow.ql-toolbar .ql-picker-label.ql-active,
+.ql-snow .ql-toolbar .ql-picker-label.ql-active,
+.ql-snow.ql-toolbar .ql-picker-item:hover,
+.ql-snow .ql-toolbar .ql-picker-item:hover,
+.ql-snow.ql-toolbar .ql-picker-item.ql-selected,
+.ql-snow .ql-toolbar .ql-picker-item.ql-selected {
+    color: var(--color-primary);
+}
+
+.ql-snow.ql-toolbar button:hover .ql-fill,
+.ql-snow .ql-toolbar button:hover .ql-fill,
+.ql-snow.ql-toolbar button:focus .ql-fill,
+.ql-snow .ql-toolbar button:focus .ql-fill,
+.ql-snow.ql-toolbar button.ql-active .ql-fill,
+.ql-snow .ql-toolbar button.ql-active .ql-fill,
+.ql-snow.ql-toolbar .ql-picker-label:hover .ql-fill,
+.ql-snow .ql-toolbar .ql-picker-label:hover .ql-fill,
+.ql-snow.ql-toolbar .ql-picker-label.ql-active .ql-fill,
+.ql-snow .ql-toolbar .ql-picker-label.ql-active .ql-fill,
+.ql-snow.ql-toolbar .ql-picker-item:hover .ql-fill,
+.ql-snow .ql-toolbar .ql-picker-item:hover .ql-fill,
+.ql-snow.ql-toolbar .ql-picker-item.ql-selected .ql-fill,
+.ql-snow .ql-toolbar .ql-picker-item.ql-selected .ql-fill,
+.ql-snow.ql-toolbar button:hover .ql-stroke.ql-fill,
+.ql-snow .ql-toolbar button:hover .ql-stroke.ql-fill,
+.ql-snow.ql-toolbar button:focus .ql-stroke.ql-fill,
+.ql-snow .ql-toolbar button:focus .ql-stroke.ql-fill,
+.ql-snow.ql-toolbar button.ql-active .ql-stroke.ql-fill,
+.ql-snow .ql-toolbar button.ql-active .ql-stroke.ql-fill {
+    fill: var(--color-primary);
+}
+
+.ql-snow.ql-toolbar button:hover .ql-stroke,
+.ql-snow .ql-toolbar button:hover .ql-stroke,
+.ql-snow.ql-toolbar button:focus .ql-stroke,
+.ql-snow .ql-toolbar button:focus .ql-stroke,
+.ql-snow.ql-toolbar button.ql-active .ql-stroke,
+.ql-snow .ql-toolbar button.ql-active .ql-stroke,
+.ql-snow.ql-toolbar .ql-picker-label:hover .ql-stroke,
+.ql-snow .ql-toolbar .ql-picker-label:hover .ql-stroke,
+.ql-snow.ql-toolbar .ql-picker-label.ql-active .ql-stroke,
+.ql-snow .ql-toolbar .ql-picker-label.ql-active .ql-stroke,
+.ql-snow.ql-toolbar .ql-picker-item:hover .ql-stroke,
+.ql-snow .ql-toolbar .ql-picker-item:hover .ql-stroke,
+.ql-snow.ql-toolbar .ql-picker-item.ql-selected .ql-stroke,
+.ql-snow .ql-toolbar .ql-picker-item.ql-selected .ql-stroke {
+    stroke: var(--color-primary);
+}
+
+.ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-label,
+.ql-toolbar.ql-snow .ql-picker.ql-expanded .ql-picker-options {
+    border-color: var(--color-base-300);
+}
+
+.ql-toolbar.ql-snow .ql-color-picker .ql-picker-item.ql-selected,
+.ql-toolbar.ql-snow .ql-color-picker .ql-picker-item:hover {
+    border-color: var(--color-primary);
+}
+
+.ql-snow .ql-editor table td {
+    border-color: var(--color-base-300);
+}
+
+.ql-snow .ql-editor li[data-list="checked"] > .ql-ui,
+.ql-snow .ql-editor li[data-list="unchecked"] > .ql-ui {
+    color: color-mix(in oklab, var(--color-base-content) 70%, transparent);
+}
+
+.ql-snow .ql-editor blockquote {
+    border-left-color: var(--color-base-300);
+}
+
+.ql-snow .ql-editor code,
+.ql-snow .ql-editor .ql-code-block-container {
+    background-color: var(--color-base-200);
+    color: var(--color-base-content);
+}
+
+.ql-snow .ql-tooltip {
+    background-color: var(--color-base-100);
+    border-color: var(--color-base-300);
+    box-shadow: 0 0 5px color-mix(in oklab, var(--color-base-content) 20%, transparent);
+    color: var(--color-base-content);
+}
+
+.ql-snow .ql-tooltip input[type="text"] {
+    background-color: var(--color-base-100);
+    border-color: var(--color-base-300);
+    color: var(--color-base-content);
+}
+
+.ql-snow .ql-tooltip a {
+    color: var(--color-primary);
+}
+
+.ql-snow .ql-tooltip a.ql-action::after {
+    border-right-color: var(--color-base-300);
+}
+
+@media (pointer: coarse) {
+    .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-fill,
+    .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-fill,
+    .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-stroke.ql-fill,
+    .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-stroke.ql-fill {
+        fill: var(--color-base-content);
+    }
+
+    .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-stroke,
+    .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-stroke,
+    .ql-snow.ql-toolbar button:hover:not(.ql-active) .ql-stroke-miter,
+    .ql-snow .ql-toolbar button:hover:not(.ql-active) .ql-stroke-miter {
+        stroke: var(--color-base-content);
+    }
+}
+
+/* Click-anywhere-to-focus: the editable area must FILL its shell's
+   min-height so clicks in the empty space below the text land in
+   .ql-editor and place the caret (stock height:100% does not resolve
+   against a min-height parent). .js-gys-quill is the container class
+   shipped by js/comment_editor.js; the review drawer's #quill-editor
+   keeps its own min-h-48 utility which already covers this. */
+.js-gys-quill .ql-editor {
+    min-height: inherit;
+}

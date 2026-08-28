@@ -112,10 +112,12 @@
 
         var pickHost = document.createElement('div');
         row.appendChild(pickHost);
+        // Placeholder ("Choose agent…") is DISPLAY-ONLY — not a menu
+        // option, so it can never be (re)picked. The card's × removes it.
         var pickHidden = buildDropdown(pickHost,
-            [{value: '', label: 'Choose agent…'}].concat(agentOptions.map(function (o) {
+            agentOptions.map(function (o) {
                 return {value: String(o.id), label: o.name};
-            })),
+            }),
             agent ? String(agent.user_id) : '',
             {placeholder: 'Choose agent…'}
         );
@@ -131,11 +133,13 @@
 
         var faultHost = document.createElement('div');
         row.appendChild(faultHost);
+        // Same for "Fault…": display hint only, never an option.
         var faultHidden = buildDropdown(faultHost,
-            [{value: '', label: 'Fault…'}].concat(faultValues.map(function (f) {
+            faultValues.map(function (f) {
                 return {value: f.value, label: f.label};
-            })),
-            agent && agent.fault ? agent.fault : ''
+            }),
+            agent && agent.fault ? agent.fault : '',
+            {placeholder: 'Fault…'}
         );
         faultHidden.setAttribute('data-bf-role', 'fault');
 
@@ -144,6 +148,12 @@
         remove.className = 'btn btn-ghost btn-xs btn-circle text-error shrink-0';
         remove.innerHTML = '&times;';
         remove.setAttribute('aria-label', 'Remove agent');
+        remove.addEventListener('click', function () {
+            // The editor hooks document-level listeners + a context menu
+            // node — tear it down with the card, never just remove the DOM.
+            if (host._bfComment) host._bfComment.destroy();
+            host.remove();
+        });
         row.appendChild(remove);
 
         // Per-agent QA comment: the SAME rich editor as the QA Score
@@ -273,13 +283,21 @@
     }
 
     // Closing (any means) unmounts the whole partial — clean slate for
-    // the next open, no stale listeners or dropdown ids. The unmount
-    // WAITS for the close transition (transitionend + timeout
+    // the next open, no stale listeners or dropdown ids. Every agent
+    // card's comment editor is destroyed FIRST (document-level
+    // listeners + context-menu nodes outlive the DOM otherwise). The
+    // unmount WAITS for the close transition (transitionend + timeout
     // fallback): removing the root on the `close` event itself would
     // yank the dialog out of the DOM mid-fade and kill the animation.
     // Reduced-motion users skip the wait (the fade is what's reduced).
+    function destroyEditors() {
+        root.querySelectorAll('.js-bf-agent').forEach(function (card) {
+            if (card._bfComment) card._bfComment.destroy();
+        });
+    }
     function onClose() {
         window._bfEditorDispose = null;
+        destroyEditors();
         var reduced = window.matchMedia
             && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
         if (reduced) { root.remove(); return; }
@@ -298,6 +316,7 @@
 
     window._bfEditorDispose = function () {
         editModal.removeEventListener('close', onClose);
+        destroyEditors();
         if (editModal.open) editModal.close();
         root.remove();
     };

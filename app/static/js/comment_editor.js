@@ -1,18 +1,16 @@
-/* Reusable rich-comment editor: a Quill instance plus the shared
-   action set (AI Refactor / Copy All / Copy HTML), extracted from the
-   review drawer's notes machinery so the Bad Feedback editor (and the
-   future Refund Check editor) mount the exact same experience per
-   agent card without duplicating the clipboard/AI plumbing.
-
-   Markup contract: vendor Quill + DOMPurify are loaded in base.html.
+/* Reusable rich-comment editor: a Quill instance that behaves 1:1 like
+   the review drawer's notes editor — same glow-shell chrome, same
+   toolbar (plus a link button), and the same RIGHT-CLICK context menu
+   for the actions (AI Refactor / Copy All / Copy HTML). Shared by the
+   Bad Feedback record editor and reusable for future record kinds
+   (Refund Check). Vendor Quill + DOMPurify load in base.html.
 
    window.gysCommentEditor({
-     mount:       element receiving the toolbar + editor,
+     mount:       element receiving the editor shell,
      html:        initial sanitized-on-insert HTML (may be ''),
      placeholder: Quill placeholder text,
      refactorUrl: POST endpoint returning {html} — omit to hide the
-                  Refactor button,
-     refactorLabel: button caption (default "Refactor with AI"),
+                  Refactor menu item,
      emptyMessage:  toast text for actions on an empty comment,
      toast:       notifier (defaults to window.gysToast),
      onChange:    called on every text change.
@@ -21,19 +19,23 @@
      isEmpty(),      // whitespace-only AND without embedded images
      setHtml(html),  // replace content through the Quill API
      focus(),
-     destroy(),      // unhook listeners (the caller removes the DOM)
+     destroy(),      // abort listeners, remove the menu node
    }
 
-   Copy semantics mirror the review drawer: Copy All puts rich text on
-   the clipboard (selection + execCommand, innerText fallback); Copy
-   HTML exports CRM-safe plain-text markup (Quill chrome stripped,
-   bullet-only <ol> swapped to <ul>, DOMPurify allowlist, data:-URIs
-   on <img> preserved). */
+   Menu mechanics mirror review_drawer.html: ul.js-gys-comment-menu
+   (same visual classes as the drawer's .js-ai-context-menu — DIFFERENT
+   hook class on purpose, the drawer queries that one document-wide),
+   absolute position clamped to the viewport, hidden toggled via the
+   `hidden` class, 250 ms re-open grace on hide, 200 ms opening-gesture
+   guard on the document click, Esc + scroll dismissal. */
 (function () {
     var AI_TIMEOUT_MS = 61000;
     var EXPORT_ALLOWED_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
         'ul', 'ol', 'li', 'img', 'a', 'span', 'h1', 'h2', 'h3', 'h4', 'h5',
         'h6', 'blockquote', 'pre', 'code'];
+    var SPARKLES_ICON = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z" /></svg>';
+    var CLIPBOARD_ICON = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184" /></svg>';
+    var CODE_ICON = '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.25 6.75 22.5 12l-5.25 5.25M6.75 17.25 1.5 12l5.25-5.25m7.5-3-4.5 16.5" /></svg>';
 
     function sanitizeHtml(html) {
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : '';
@@ -63,31 +65,48 @@
         var toast = options.toast || window.gysToast || function () {};
         var quill = null;
         var destroyed = false;
+        var controller = new AbortController();
+        var signal = { signal: controller.signal };
 
-        var toolbar = document.createElement('div');
-        toolbar.className = 'mb-1 flex flex-wrap items-center gap-1';
+        /* Editor shell — same chrome as the drawer's notes field
+           (glow-shell wrapper draws the :focus-within halo; the
+           container ships ql-container/ql-snow and the min-height). */
+        var shell = document.createElement('div');
+        shell.className = 'glow-shell overflow-hidden rounded-box border border-base-300 bg-base-100';
+        var editorHost = document.createElement('div');
+        editorHost.className = 'js-gys-quill min-h-24 ql-container ql-snow';
+        shell.appendChild(editorHost);
+        mount.appendChild(shell);
 
-        function button(label, title) {
+        /* Context menu — the drawer's .js-ai-context-menu twin. Lives
+           INSIDE the nearest <dialog> when the editor is mounted in a
+           modal (a body-appended element paints BELOW a top-layer
+           dialog no matter its z-index); fixed positioning keeps the
+           same clientX/Y math in both hosts. */
+        var menu = document.createElement('ul');
+        menu.className = 'js-gys-comment-menu menu menu-sm fixed z-[100] hidden w-52 origin-top-left animate-menu-pop rounded-box border border-base-300 bg-base-100 p-1 shadow-md';
+        function menuItem(icon, label) {
+            var li = document.createElement('li');
             var btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'btn btn-ghost btn-xs';
-            btn.textContent = label;
-            btn.title = title;
+            btn.innerHTML = icon + label;
             btn.dataset.labelHtml = btn.innerHTML;
+            li.appendChild(btn);
+            menu.appendChild(li);
             return btn;
         }
+        var refactorBtn = options.refactorUrl ? menuItem(SPARKLES_ICON, ' Refactor Notes') : null;
+        var copyAllBtn = menuItem(CLIPBOARD_ICON, ' Copy All');
+        var copyHtmlBtn = menuItem(CODE_ICON, ' Copy HTML');
+        // Attached lazily on first open: agent cards are built while
+        // DETACHED (renderEdit builds then appends), so closest('dialog')
+        // only resolves once the card is in the document.
 
-        var refactorBtn = options.refactorUrl ? button(options.refactorLabel || 'Refactor with AI', 'Rewrite this comment with AI') : null;
-        var copyAllBtn = button('Copy All', 'Copy the formatted comment');
-        var copyHtmlBtn = button('Copy HTML', 'Copy CRM-ready HTML source');
-        if (refactorBtn) toolbar.appendChild(refactorBtn);
-        toolbar.appendChild(copyAllBtn);
-        toolbar.appendChild(copyHtmlBtn);
-        mount.appendChild(toolbar);
-
-        var editorHost = document.createElement('div');
-        editorHost.className = 'min-h-24 rounded-box border border-base-300 bg-base-100';
-        mount.appendChild(editorHost);
+        var menuOpenedAt = 0;
+        function hideMenu(force) {
+            if (!force && Date.now() - menuOpenedAt < 250) return;
+            menu.classList.add('hidden');
+        }
 
         function setLoading(btn, label, loading) {
             btn.disabled = loading;
@@ -117,13 +136,51 @@
             modules: { toolbar: [
                 ['bold', 'italic', 'underline'],
                 [{ list: 'ordered' }, { list: 'bullet' }],
-                ['link', 'code-block']
+                [{ color: [] }],
+                ['link', 'image', 'code-block']
             ] }
         });
         if (options.html) {
             quill.clipboard.dangerouslyPasteHTML(sanitizeHtml(options.html), 'silent');
         }
         if (options.onChange) quill.on('text-change', options.onChange);
+
+        /* Right-click opens the menu, exactly like the drawer. Fixed
+           positioning: clientX/Y are viewport coords — no scroll
+           offset needed (the dialog host is viewport-fixed too). */
+        editorHost.addEventListener('contextmenu', function (event) {
+            if (!event.target.closest('.ql-editor')) return;
+            event.preventDefault();
+            // With several editors mounted (agent cards), opening one
+            // menu dismisses every other one first.
+            document.querySelectorAll('.js-gys-comment-menu').forEach(function (other) {
+                if (other !== menu) other.classList.add('hidden');
+            });
+            menuOpenedAt = Date.now();
+            // Top-layer rule: a body-appended menu paints BELOW an open
+            // <dialog> no matter its z-index — live INSIDE the dialog.
+            var host = editorHost.closest('dialog') || document.body;
+            if (menu.parentNode !== host) host.appendChild(menu);
+            menu.classList.remove('hidden');
+            menu.style.left = Math.max(8, Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8)) + 'px';
+            menu.style.top = Math.max(8, Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8)) + 'px';
+        }, signal);
+
+        menu.addEventListener('click', function (event) { event.stopPropagation(); });
+        document.addEventListener('click', function (event) {
+            if (Date.now() - menuOpenedAt < 200) return;
+            hideMenu();
+        }, signal);
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') hideMenu();
+        }, signal);
+        window.addEventListener('scroll', function (event) {
+            var target = event.target;
+            // Scrolling INSIDE the editor keeps the menu (its content
+            // may overflow); any other scroll dismisses it.
+            if (target instanceof Element && target.closest('.ql-editor')) return;
+            hideMenu();
+        }, Object.assign({ capture: true }, signal));
 
         // CRM paste target is its Source Code editor, which receives the
         // markup literally — so the export ships as PLAIN TEXT on the
@@ -154,9 +211,14 @@
                 : '';
         }
 
+        function isEmpty() {
+            return !quill.getText().trim() && !quill.root.querySelector('img');
+        }
+
         if (refactorBtn) {
             refactorBtn.addEventListener('click', async function () {
                 if (destroyed) return;
+                hideMenu(true);
                 if (isEmpty()) { toast(options.emptyMessage || 'Comment is empty.'); return; }
                 setLoading(refactorBtn, 'Refactoring…', true);
                 try {
@@ -184,6 +246,7 @@
 
         copyAllBtn.addEventListener('click', function () {
             if (destroyed) return;
+            hideMenu(true);
             if (isEmpty()) { toast(options.emptyMessage || 'Comment is empty.'); return; }
             var source = quill.root;
             var selection = window.getSelection();
@@ -208,6 +271,7 @@
 
         copyHtmlBtn.addEventListener('click', function () {
             if (destroyed) return;
+            hideMenu(true);
             var html = buildExportHtml();
             if (!html || isEmpty()) { toast(options.emptyMessage || 'Comment is empty.'); return; }
             copyPlainText(html, function (ok) {
@@ -215,10 +279,6 @@
                     ok ? 'alert-success' : undefined);
             });
         });
-
-        function isEmpty() {
-            return !quill.getText().trim() && !quill.root.querySelector('img');
-        }
 
         return {
             getHtml: function () { return sanitizeHtml(quill.root.innerHTML); },
@@ -230,7 +290,9 @@
             focus: function () { quill.focus(); },
             destroy: function () {
                 destroyed = true;
+                controller.abort();
                 quill.off('text-change', options.onChange || function () {});
+                menu.remove();
             }
         };
     };
