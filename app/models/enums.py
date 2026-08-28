@@ -44,3 +44,4 @@ class RoleEnum(str, enum.Enum):
     SUPERVISOR = "Supervisor"
     QA = "QA"
     SUPPORT = "Support"
+    SALES = "Sales"

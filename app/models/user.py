@@ -137,7 +137,12 @@ class User(Base):
 
     @property
     def is_support_only(self) -> bool:
-        """True when the user has SUPPORT but no elevated role."""
-        return self.has_role(RoleEnum.SUPPORT) and not self.has_role(
-            RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
-        )
+        """True when the user has only front-line roles (no elevated one).
+
+        "Front-line" = SUPPORT or SALES with no QA/Supervisor/Admin role:
+        such users see only their own work surfaces, never the aggregate
+        QA views gated on ``not is_support_only``.
+        """
+        return self.has_role(
+            RoleEnum.SUPPORT, RoleEnum.SALES
+        ) and not self.has_role(RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN)
