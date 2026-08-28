@@ -100,7 +100,7 @@ def _agent_read(agent: BadFeedbackAgent) -> BadFeedbackAgentRead:
 
 
 def _read(feedback: BadFeedback) -> BadFeedbackRead:
-    """Serialize a record with agent cards."""
+    """Serialize a record with agent cards (labels resolved eagerly)."""
     return BadFeedbackRead(
         id=feedback.id,
         fb_date=feedback.fb_date,

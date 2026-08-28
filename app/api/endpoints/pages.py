@@ -35,6 +35,7 @@ from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
 from app.models import (
     BadFeedback,
+    BadFeedbackAgent,
     CaseTypeEnum,
     FaultEnum,
     QAAssignment,
@@ -67,6 +68,19 @@ def _period_range_label(start: datetime, end_exclusive: datetime) -> str:
         f"{_MONTH_ABBREVS[start.month - 1]} {start.day}"
         f" \u2013 {_MONTH_ABBREVS[last_day.month - 1]} {last_day.day}"
     )
+
+
+# Tracker categories (the global QA Score / Bad Feedback selector on the
+# dashboard). Every category-aware partial reads ?cat= and renders the
+# matching flavor; unknown values silently fall back to "qa-score" so a
+# stale bookmark never 500s. Refund Check joins here once it exists.
+CATEGORIES: tuple[str, ...] = ("qa-score", "bad-feedback")
+
+
+def _resolve_category(params) -> str:
+    """Validated ?cat= query param (default "qa-score")."""
+    cat = params.get("cat") or "qa-score"
+    return cat if cat in CATEGORIES else "qa-score"
 
 
 # Reporting-period switcher wire format: the CLOSING month as
@@ -383,6 +397,15 @@ async def _render_reviews_view(
     if scope == "all" and not is_reviewer(auth):
         return _forbidden()
 
+    # Category selector: Bad Feedback flavor replaces the QA-score table
+    # for both scopes ("my" = records I'm listed as an agent on — the
+    # support-facing view; "all" = the full tracker list, reviewer-only
+    # and already guarded above).
+    if _resolve_category(request.query_params) == "bad-feedback":
+        if scope == "all":
+            return await _render_bad_feedback(request, auth, db)
+        return await _render_my_bad_feedback(request, auth, db)
+
     performed_by_me = auth.has_role(
         RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
     )
@@ -543,6 +566,120 @@ async def _render_reviews_view(
     )
 
 
+async def _render_bad_feedback(
+    request: Request,
+    auth: PageUser,
+    db: AsyncSession,
+) -> Response:
+    """Render the Bad Feedback tracker list (QA Score category's sibling).
+
+    Shared by THREE entries: the legacy /partials/bad-feedback tab, the
+    QA Tracker sidebar link with cat=bad-feedback, and All Reviews'
+    Bad Feedback flavor — same content everywhere: every non-deleted
+    record (newest first) with agent cards, the status filter, the
+    import modal, and the picker contexts for the editor. Reviewer-only
+    (callers guard before invoking).
+    """
+    status_filter = request.query_params.get("status")
+    stmt = (
+        select(BadFeedback)
+        .where(BadFeedback.deleted_at.is_(None))
+        .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
+        .limit(200)
+    )
+    if status_filter in (ReviewStatusEnum.PENDING.value, ReviewStatusEnum.COMPLETED.value):
+        stmt = stmt.where(BadFeedback.status == status_filter)
+    feedbacks = list((await db.execute(stmt)).scalars().unique().all())
+    qas = await _qas(db)
+    agents = await _frontline_agents(db)
+    agent_options = [{"id": user.id, "name": user.nickname} for user in agents]
+    qa_options = [{"id": qa.id, "name": qa.nickname} for qa in qas]
+
+    def label(user_id: int | None) -> str | None:
+        return next(
+            (o["name"] for o in qa_options if o["id"] == user_id), None
+        )
+
+    rows = []
+    for fb in feedbacks:
+        rows.append(
+            {
+                "record": fb,
+                "assigned_qa_name": label(fb.assigned_qa_id),
+                "qa_name": label(fb.qa_id),
+            }
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/bad_feedback.html",
+        context={
+            "rows": rows,
+            "status_filter": status_filter,
+            "qa_options": qa_options,
+            "agent_options": agent_options,
+            "field_labels": bad_feedback_import.FIELD_LABELS,
+            "fault_values": [
+                {"value": f.value, "label": f.value} for f in FaultEnum
+            ],
+        },
+    )
+
+
+async def _render_my_bad_feedback(
+    request: Request,
+    auth: PageUser,
+    db: AsyncSession,
+) -> Response:
+    """Render the personal Bad Feedback view (My Reviews' BF flavor).
+
+    Records where the CALLER is listed as an agent — for Support/Sales
+    users this is the feedback ABOUT them (their fault + the QA
+    comment), and multi-role users may appear on records they were
+    reviewed in too. Deliberately READ-ONLY: editing stays a QA+ action
+    in the tracker list. No reviewer gate — Support-only users reach
+    this through My Reviews.
+    """
+    redirect = _htmx_redirect_if_needed(auth, request)
+    if redirect is not None:
+        return redirect
+
+    records = list(
+        (
+            await db.execute(
+                select(BadFeedback)
+                .join(
+                    BadFeedbackAgent,
+                    BadFeedbackAgent.feedback_id == BadFeedback.id,
+                )
+                .where(
+                    BadFeedbackAgent.user_id == auth.id,
+                    BadFeedback.deleted_at.is_(None),
+                )
+                .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
+                .limit(200)
+            )
+        ).scalars().unique().all()
+    )
+    rows = [
+        {
+            "record": fb,
+            "entries": [
+                {"kind": a.kind, "fault": a.fault, "qa_comment": a.qa_comment}
+                for a in fb.agents
+                if a.user_id == auth.id
+            ],
+        }
+        for fb in records
+    ]
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/my_bad_feedback.html",
+        context={"rows": rows},
+    )
+
+
 @router.get(
     "/partials/to-review",
     name="partial_to_review",
@@ -566,6 +703,10 @@ async def partial_to_review(
     Support-only users get a bare 403 like the other aggregate
     partials. Delegator names are batch-resolved via the nickname map
     (``qa_id`` first, ``created_by`` fallback).
+
+    ``?cat=`` (the global tracker selector) scopes the queue to ONE
+    category: "qa-score" lists only delegated QA-score reviews,
+    "bad-feedback" only Bad Feedback handoffs (default "qa-score").
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -573,53 +714,62 @@ async def partial_to_review(
     if not is_reviewer(auth):
         return _forbidden()
 
+    cat = _resolve_category(request.query_params)
+
     open_filters = (
         Review.status == ReviewStatusEnum.PENDING,
         Review.deleted_at.is_(None),
     )
-    assigned_reviews = list(
-        (
-            await db.execute(
-                select(Review)
-                .where(Review.assigned_qa_id == auth.id, *open_filters)
-                .order_by(Review.created_at.desc())
-            )
-        ).scalars().all()
-    )
-    shared_reviews = list(
-        (
-            await db.execute(
-                select(Review)
-                .where(Review.assigned_qa_id.is_(None), *open_filters)
-                .order_by(Review.created_at.desc())
-            )
-        ).scalars().all()
-    )
+    assigned_reviews: list[Review] = []
+    shared_reviews: list[Review] = []
+    if cat == "qa-score":
+        assigned_reviews = list(
+            (
+                await db.execute(
+                    select(Review)
+                    .where(Review.assigned_qa_id == auth.id, *open_filters)
+                    .order_by(Review.created_at.desc())
+                )
+            ).scalars().all()
+        )
+        shared_reviews = list(
+            (
+                await db.execute(
+                    select(Review)
+                    .where(Review.assigned_qa_id.is_(None), *open_filters)
+                    .order_by(Review.created_at.desc())
+                )
+            ).scalars().all()
+        )
 
     # Bad Feedback pending rows join the same queue semantics: assigned
-    # to the caller, or sitting unassigned for any QA to grab.
+    # to the caller, or sitting unassigned for any QA to grab. Only
+    # queried on the bad-feedback flavor of the queue.
     bf_open_filters = (
         BadFeedback.status == ReviewStatusEnum.PENDING,
         BadFeedback.deleted_at.is_(None),
     )
-    bf_assigned = list(
-        (
-            await db.execute(
-                select(BadFeedback)
-                .where(BadFeedback.assigned_qa_id == auth.id, *bf_open_filters)
-                .order_by(BadFeedback.created_at.desc())
-            )
-        ).scalars().unique().all()
-    )
-    bf_shared = list(
-        (
-            await db.execute(
-                select(BadFeedback)
-                .where(BadFeedback.assigned_qa_id.is_(None), *bf_open_filters)
-                .order_by(BadFeedback.created_at.desc())
-            )
-        ).scalars().unique().all()
-    )
+    bf_assigned: list[BadFeedback] = []
+    bf_shared: list[BadFeedback] = []
+    if cat == "bad-feedback":
+        bf_assigned = list(
+            (
+                await db.execute(
+                    select(BadFeedback)
+                    .where(BadFeedback.assigned_qa_id == auth.id, *bf_open_filters)
+                    .order_by(BadFeedback.created_at.desc())
+                )
+            ).scalars().unique().all()
+        )
+        bf_shared = list(
+            (
+                await db.execute(
+                    select(BadFeedback)
+                    .where(BadFeedback.assigned_qa_id.is_(None), *bf_open_filters)
+                    .order_by(BadFeedback.created_at.desc())
+                )
+            ).scalars().unique().all()
+        )
 
     reviews = assigned_reviews + shared_reviews
     nicknames = await _nickname_map(
@@ -687,7 +837,7 @@ async def partial_to_review(
     return templates.TemplateResponse(
         request=request,
         name="partials/to_review.html",
-        context={"rows": rows, "bf_rows": bf_rows},
+        context={"rows": rows, "bf_rows": bf_rows, "cat": cat},
     )
 
 
@@ -892,6 +1042,12 @@ async def partial_qa_matrix(
         return redirect
     if not is_reviewer(auth):
         return _forbidden()
+
+    # Category selector: cat=bad-feedback turns the QA Tracker view
+    # into the Bad Feedback tracker list (same content as the legacy
+    # bad-feedback endpoint).
+    if _resolve_category(request.query_params) == "bad-feedback":
+        return await _render_bad_feedback(request, auth, db)
 
     period_start, period_end, closing_year, closing_month, period_value = (
         _resolve_period(request.query_params)
@@ -1181,10 +1337,10 @@ async def partial_bad_feedback(
 ) -> Response:
     """Render the 'Bad Feedback' tracker tab (HTMX partial).
 
-    Reviewer-only like the other aggregate views. Context: every
-    non-deleted record (newest first) with agent cards + display
-    labels, the QA list for the assign filter, and the frontline
-    (Support/Sales) users for the edit modal's agent picker.
+    Reviewer-only like the other aggregate views. Kept as its own
+    endpoint because the list partial self-refetches and the dashboard
+    hash-restore targets it directly; the rendering is shared with the
+    qa-matrix / all-reviews category flavors (see _render_bad_feedback).
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -1192,47 +1348,4 @@ async def partial_bad_feedback(
     if not is_reviewer(auth):
         return _forbidden()
 
-    status_filter = request.query_params.get("status")
-    stmt = (
-        select(BadFeedback)
-        .where(BadFeedback.deleted_at.is_(None))
-        .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
-        .limit(200)
-    )
-    if status_filter in (ReviewStatusEnum.PENDING.value, ReviewStatusEnum.COMPLETED.value):
-        stmt = stmt.where(BadFeedback.status == status_filter)
-    feedbacks = list((await db.execute(stmt)).scalars().unique().all())
-    qas = await _qas(db)
-    agents = await _frontline_agents(db)
-    agent_options = [{"id": user.id, "name": user.nickname} for user in agents]
-    qa_options = [{"id": qa.id, "name": qa.nickname} for qa in qas]
-
-    def label(user_id: int | None) -> str | None:
-        return next(
-            (o["name"] for o in qa_options if o["id"] == user_id), None
-        )
-
-    rows = []
-    for fb in feedbacks:
-        rows.append(
-            {
-                "record": fb,
-                "assigned_qa_name": label(fb.assigned_qa_id),
-                "qa_name": label(fb.qa_id),
-            }
-        )
-
-    return templates.TemplateResponse(
-        request=request,
-        name="partials/bad_feedback.html",
-        context={
-            "rows": rows,
-            "status_filter": status_filter,
-            "qa_options": qa_options,
-            "agent_options": agent_options,
-            "field_labels": bad_feedback_import.FIELD_LABELS,
-            "fault_values": [
-                {"value": f.value, "label": f.value} for f in FaultEnum
-            ],
-        },
-    )
+    return await _render_bad_feedback(request, auth, db)

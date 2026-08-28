@@ -15,8 +15,9 @@
   come back as skips with reasons instead of aborting the batch. Rows
   may omit ``assigned_qa_id`` to land in the shared queue.
 - GET /api/reviews/pending/mine-count: count of pending work AVAILABLE
-  to the calling QA — assigned to them PLUS the unassigned shared
-  queue (sidebar badge polling).
+  to the calling QA — QA-score reviews AND Bad Feedback records,
+  assigned to them PLUS the unassigned shared queue (sidebar badge
+  polling).
 - POST /api/reviews/auto-score: create a review from an AI-analyzed
   ticket transcript (OpenRouter; 503 when unconfigured, 502 when the
   analysis fails).
@@ -71,7 +72,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import RoleChecker, get_current_user, is_reviewer
 from app.db.database import get_db
-from app.models import CaseTypeEnum, Review, ReviewStatusEnum, RoleEnum, User
+from app.models import (
+    BadFeedback,
+    CaseTypeEnum,
+    Review,
+    ReviewStatusEnum,
+    RoleEnum,
+    User,
+)
 from app.schemas.review import (
     AutoScoreCreate,
     IntervalComplianceRead,
@@ -880,14 +888,17 @@ async def count_my_pending_reviews(
 ) -> PendingCountRead:
     """Count pending work AVAILABLE to the calling QA.
 
-    COUNT of non-deleted status='pending' reviews that are either
-    ASSIGNED to the caller (``assigned_qa_id`` = caller) or UNASSIGNED
-    in the shared queue (``assigned_qa_id`` IS NULL) — i.e. everything
-    the caller could pick up in the To-review view. Powers the
-    dashboard sidebar badge polling; Support-only users are 403 via
-    ReviewerUser.
+    COUNT of non-deleted status='pending' work the caller could pick up
+    in the To-review view, across BOTH tracker categories: QA-score
+    reviews (``assigned_qa_id`` = caller or NULL shared queue) plus Bad
+    Feedback records on the same terms. Powers the dashboard sidebar
+    badge polling; Support-only users are 403 via ReviewerUser.
     """
-    count = (
+    open_filters = (
+        Review.status == ReviewStatusEnum.PENDING,
+        Review.deleted_at.is_(None),
+    )
+    review_count = (
         await db.execute(
             select(func.count())
             .select_from(Review)
@@ -896,12 +907,25 @@ async def count_my_pending_reviews(
                     Review.assigned_qa_id == current_user.id,
                     Review.assigned_qa_id.is_(None),
                 ),
-                Review.status == ReviewStatusEnum.PENDING,
-                Review.deleted_at.is_(None),
+                *open_filters,
             )
         )
     ).scalar_one()
-    return PendingCountRead(count=int(count))
+    feedback_count = (
+        await db.execute(
+            select(func.count())
+            .select_from(BadFeedback)
+            .where(
+                or_(
+                    BadFeedback.assigned_qa_id == current_user.id,
+                    BadFeedback.assigned_qa_id.is_(None),
+                ),
+                BadFeedback.status == ReviewStatusEnum.PENDING,
+                BadFeedback.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
+    return PendingCountRead(count=int(review_count + feedback_count))
 
 
 @router.get("/quota/{agent_id}", response_model=QuotaRead)

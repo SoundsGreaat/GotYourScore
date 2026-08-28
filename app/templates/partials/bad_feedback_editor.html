@@ -264,10 +264,26 @@
     }
 
     // Closing (any means) unmounts the whole partial — clean slate for
-    // the next open, no stale listeners or dropdown ids.
+    // the next open, no stale listeners or dropdown ids. The unmount
+    // WAITS for the close transition (transitionend + timeout
+    // fallback): removing the root on the `close` event itself would
+    // yank the dialog out of the DOM mid-fade and kill the animation.
+    // Reduced-motion users skip the wait (the fade is what's reduced).
     function onClose() {
         window._bfEditorDispose = null;
-        root.remove();
+        var reduced = window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        if (reduced) { root.remove(); return; }
+        var done = function (event) {
+            // Only the dialog's own fade ends the wait — micro
+            // transitions on inner buttons (border-color on the clicked
+            // Cancel) BUBBLE transitionend up and would unmount instantly.
+            if (event && event.target !== editModal) return;
+            editModal.removeEventListener('transitionend', done);
+            root.remove();
+        };
+        editModal.addEventListener('transitionend', done);
+        window.setTimeout(done, 350);
     }
     editModal.addEventListener('close', onClose);
 

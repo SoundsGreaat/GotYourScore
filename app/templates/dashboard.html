@@ -51,35 +51,32 @@
         <main id="main-content" class="flex-1 p-4 md:p-6 lg:p-8">
             <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <h1 class="text-2xl font-bold">QA Tracker</h1>
-                {% if can_review %}
-                <button type="button" class="btn btn-primary"
-                        hx-get="/partials/review-drawer"
-                        hx-target="#drawer-container"
-                        hx-swap="innerHTML">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                    New Review
-                </button>
-                {% endif %}
-            </div>
-
             {% if can_review %}
-            <!-- Tracker tabs: shared sliding-underline strip (js/tabs.js).
-                  Refund Check is a future feature — muted and unclickable
-                  for now. -->
-            <div class="gys-tabs" data-tabs role="tablist" aria-label="Tracker sections">
-                <button type="button" role="tab" data-tab="qa-score"
-                        hx-get="/partials/qa-matrix" hx-target="#view-container"
-                        >QA Score</button>
-                <button type="button" role="tab" data-tab="bad-feedback"
-                        hx-get="/partials/bad-feedback" hx-target="#view-container"
-                        >Bad Feedback</button>
-                <button type="button" role="tab" data-tab="refund-check" disabled
-                        aria-disabled="true">Refund Check</button>
-                <span class="gys-tabs-line" aria-hidden="true"></span>
-            </div>
+            <button type="button" class="btn btn-primary"
+                    hx-get="/partials/review-drawer"
+                    hx-target="#drawer-container"
+                    hx-swap="innerHTML">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                New Review
+            </button>
             {% endif %}
+        </div>
+
+        <!-- Global category selector (QA Score / Bad Feedback / Refund
+             Check): a FILTER, not navigation — clicking a tab re-fetches
+             the CURRENT view in that category (js/dashboard.js owns the
+             state and the underline via the gys-tabs-sync event).
+             Visible for everyone: Support users use it on My Reviews
+             (their QA reviews vs. Bad Feedback about them). Refund Check
+             is a future feature — muted and unclickable for now. -->
+        <div class="gys-tabs" data-tabs role="tablist" aria-label="Tracker categories">
+            <button type="button" role="tab" data-cat="qa-score">QA Score</button>
+            <button type="button" role="tab" data-cat="bad-feedback">Bad Feedback</button>
+            <button type="button" role="tab" disabled aria-disabled="true">Refund Check</button>
+            <span class="gys-tabs-line" aria-hidden="true"></span>
+        </div>
 
             <div id="view-container" class="mt-5" hx-get="{{ '/partials/qa-matrix' if can_review else '/partials/my-reviews' }}" hx-trigger="load" hx-swap="innerHTML"></div>
             <!-- Drawer mount survives sidebar navigation. -->
@@ -104,11 +101,23 @@
                 <ul class="menu gys-nav-menu w-full p-0">
                     {% if not is_support_only %}
                     <li>
-                        <a href="#" hx-get="/partials/qa-matrix" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                        <!-- data-view feeds the hash engine (#view/cat),
+                             data-cat pins the category a click selects. -->
+                        <a href="#" data-view="qa-tracker" data-cat="qa-score" hx-get="/partials/qa-matrix" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
                             </svg>
                             <span>QA Tracker</span>
+                        </a>
+                    </li>
+                    {% endif %}
+                    {% if is_reviewer %}
+                    <li>
+                        <a href="#" data-view="qa-tracker" data-cat="bad-feedback" hx-get="/partials/bad-feedback" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span>Bad Feedback</span>
                         </a>
                     </li>
                     {% endif %}
@@ -120,7 +129,7 @@
                         </span>
                             <ul>
                                 <li>
-                                    <a href="#" hx-get="/partials/my-reviews" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                                    <a href="#" data-view="my-reviews" hx-get="/partials/my-reviews" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                                         </svg>
@@ -129,7 +138,7 @@
                                 </li>
                                 {% if is_reviewer %}
                                 <li>
-                                    <a href="#" hx-get="/partials/all-reviews" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                                    <a href="#" data-view="all-reviews" hx-get="/partials/all-reviews" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                         </svg>
@@ -141,7 +150,7 @@
                     </li>
                     {% if is_reviewer %}
                     <li>
-                        <a href="#" hx-get="/partials/to-review" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                        <a href="#" data-view="to-review" hx-get="/partials/to-review" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                             </svg>
@@ -152,7 +161,7 @@
                     {% endif %}
                     {% if not is_support_only %}
                     <li>
-                        <a href="#" hx-get="/partials/team-quotas" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                        <a href="#" data-view="team-quotas" hx-get="/partials/team-quotas" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                             </svg>

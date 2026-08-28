@@ -1,0 +1,53 @@
+{# My Reviews' Bad Feedback flavor: records where the CURRENT USER is
+   listed as an agent. Deliberately READ-ONLY — faults and QA comments
+   are authored in the tracker list by QA+; this view is what the
+   reviewed agent (Support/Sales) gets to see. Self-refetches on
+   bad-feedback-changed with the category BAKED into the URL (the
+   dashboard's configRequest injection only covers view switches). #}
+<section hx-get="/partials/my-reviews?cat=bad-feedback" hx-trigger="bad-feedback-changed from:body" hx-swap="outerHTML">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-lg font-semibold">Bad Feedback about you</h2>
+        <span class="hidden text-sm text-base-content/70 sm:inline">Records where you are listed as an agent</span>
+    </div>
+    {% if rows %}
+    {% for row in rows %}
+    {% set fb = row.record %}
+    <div class="card mb-3 rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 gap-2 p-3 sm:p-4">
+            <div class="flex flex-wrap items-center gap-2">
+                {% if fb.fb_date %}<span class="text-sm">{{ fb.fb_date.strftime('%b %d, %Y') }}</span>{% endif %}
+                {% if fb.source %}<span class="badge badge-ghost badge-sm">{{ fb.source }}</span>{% endif %}
+                {% if fb.related_case %}<span class="text-sm text-base-content/70">{{ fb.related_case }}</span>{% endif %}
+                {% if fb.status == 'pending' %}
+                <span class="badge badge-warning badge-sm">Pending</span>
+                {% else %}
+                <span class="badge badge-success badge-sm">Completed</span>
+                {% endif %}
+            </div>
+            {% if fb.customer_feedback %}
+            <p class="whitespace-pre-line text-sm text-base-content/80">{{ fb.customer_feedback }}</p>
+            {% endif %}
+            {% for entry in row.entries %}
+            <div class="rounded-box bg-base-200 p-2 text-sm">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="badge badge-soft badge-sm" title="Your role on this record">{{ entry.kind.value }}</span>
+                    {% if entry.fault %}
+                    <span class="badge badge-error badge-soft badge-sm">{{ entry.fault.value }}</span>
+                    {% else %}
+                    <span class="badge badge-ghost badge-sm">No fault assessment yet</span>
+                    {% endif %}
+                </div>
+                {% if entry.qa_comment %}
+                <p class="mt-1 text-base-content/80">{{ entry.qa_comment }}</p>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+        No Bad Feedback records list you as an agent
+    </div>
+    {% endif %}
+</section>

@@ -283,6 +283,18 @@
             scale: none;
         }
 
+        /* The Bad Feedback edit modal: daisyUI's default modal-middle
+           entrance (2% slide under the shared 0.2s) reads as a hard
+           pop — give THIS dialog a deliberate rise instead. Closed
+           pins translate 12px down, the daisyUI [open] rule (higher
+           specificity) lifts it to 0; the fade + close reverse ride
+           the transition block above. Decorative motion → gated. */
+        @media (prefers-reduced-motion: no-preference) {
+            .js-bf-edit-modal > .modal-box {
+                translate: 0 12px;
+            }
+        }
+
         /* Theme switch uses the View Transitions API (base.html): old and
            new palettes are compositor-crossfaded as full-page snapshots,
            which stays smooth in Chrome where per-element color

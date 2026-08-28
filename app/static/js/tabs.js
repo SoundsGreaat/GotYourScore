@@ -26,7 +26,13 @@
 
     Array.prototype.forEach.call(tracks, function (track) {
         var line = track.querySelector('.gys-tabs-line');
-        var buttons = Array.prototype.slice.call(track.querySelectorAll('button[data-tab]'));
+        var buttons = Array.prototype.slice.call(
+            // data-tab = declarative navigation tabs (admin panel);
+            // data-cat = the dashboard's category-filter tabs, whose
+            // click behavior lives in js/dashboard.js — visuals here
+            // are shared, so the strip must recognize BOTH.
+            track.querySelectorAll('button[data-tab], button[data-cat]')
+        );
         if (!buttons.length) return;
         var armed = false;
 
@@ -83,6 +89,11 @@
         }
 
         place();
+        // dashboard.js toggles .active programmatically (hash restore,
+        // category filter switches) — it fires this event because plain
+        // class toggles never pass through the click handler above and
+        // the underline would keep pointing at the previous tab.
+        track.addEventListener('gys-tabs-sync', place);
         window.addEventListener('resize', function () { place(); });
         if (document.fonts && document.fonts.ready) {
             document.fonts.ready.then(function () { place(); });

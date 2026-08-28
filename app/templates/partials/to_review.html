@@ -1,16 +1,16 @@
 {% import "macros/to_review_table.html" as to_review_table %}
-<section hx-get="/partials/to-review" hx-trigger="reviews-changed from:body, bad-feedback-changed from:body" hx-swap="outerHTML">
+{# Category-aware queue: the global QA Score / Bad Feedback selector
+   decides the flavor; ?cat= is BAKED into the self-refetch so
+   reviews-changed / bad-feedback-changed refetches keep the flavor
+   (configRequest only injects for view switches). #}
+<section hx-get="/partials/to-review?cat={{ cat }}" hx-trigger="reviews-changed from:body, bad-feedback-changed from:body" hx-swap="outerHTML">
+    {% if cat == 'qa-score' %}
     {% set assigned_rows = rows | rejectattr('unassigned') | list %}
     {% set shared_rows = rows | selectattr('unassigned') | list %}
-    {% set bf_assigned = bf_rows | rejectattr('unassigned') | list %}
-    {% set bf_shared = bf_rows | selectattr('unassigned') | list %}
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">To review</h2>
         <span class="hidden text-sm text-base-content/70 sm:inline">Cases delegated to you or waiting in the shared queue</span>
     </div>
-    {% if rows %}
-    {# Both tables MUST come from the shared macro — hand-copied markup
-       drifts and their columns stop lining up (see macro docstring). #}
     {% if assigned_rows %}
     <div class="mb-4">
         {{ to_review_table.card(assigned_rows) }}
@@ -19,17 +19,18 @@
     {% if shared_rows %}
     {{ to_review_table.card(shared_rows, unassigned=true) }}
     {% endif %}
-    {% else %}
+    {% if not rows %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
         Nothing waiting for review
     </div>
     {% endif %}
-
-    {% if bf_rows %}
-    <h3 class="mb-2 mt-6 flex items-center gap-2 text-base font-semibold">
-        Bad Feedback
-        <span class="badge badge-soft badge-sm">{{ bf_rows | length }}</span>
-    </h3>
+    {% else %}
+    {% set bf_assigned = bf_rows | rejectattr('unassigned') | list %}
+    {% set bf_shared = bf_rows | selectattr('unassigned') | list %}
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-lg font-semibold">To review</h2>
+        <span class="hidden text-sm text-base-content/70 sm:inline">Bad Feedback records delegated to you or waiting in the shared queue</span>
+    </div>
     {% for row in bf_assigned %}
     <div class="card mb-3 rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
@@ -101,6 +102,11 @@
                 </table>
             </div>
         </div>
+    </div>
+    {% endif %}
+    {% if not bf_rows %}
+    <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+        Nothing waiting for review
     </div>
     {% endif %}
     {% endif %}
