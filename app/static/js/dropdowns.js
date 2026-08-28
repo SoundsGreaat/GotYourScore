@@ -189,10 +189,14 @@ window.setDropdownValue = function (hiddenId, displayRef, value, text, btnEl) {
     }
     // displayRef may be an id ("x-display"), an id selector
     // ("#x-display") or a class selector (".js-x-display" — id-less
-    // spans survive htmx's settle step, see review_drawer).
-    var display = document.getElementById(displayRef)
-        || (displayRef.indexOf('#') === 0 || displayRef.indexOf('.') === 0
-            ? document.querySelector(displayRef) : null);
+    // spans survive htmx's settle step, see review_drawer). Null means
+    // "no visible label" (programmatic/hidden-only callers): skip the
+    // display update instead of crashing on indexOf.
+    var display = displayRef
+        ? document.getElementById(displayRef)
+          || (displayRef.indexOf('#') === 0 || displayRef.indexOf('.') === 0
+              ? document.querySelector(displayRef) : null)
+        : null;
     if (display) {
         display.textContent = text;
         display.classList.remove('text-base-content/70');
