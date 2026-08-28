@@ -2,6 +2,8 @@
 
 - POST /api/ai/refactor: rewrite QA notes (HTML) for clarity, grammar
   and professional tone while preserving markup and images.
+- POST /api/ai/refactor-comment: same pipeline for per-agent Bad
+  Feedback comments (own ``bf_comment_refactor`` system-prompt slot).
 - POST /api/ai/score: preview AI scoring of QA notes against the case
   type's configured scorecard rules — returns the raw deductions and
   a multiplier-free base score; nothing is persisted (saving goes
@@ -59,6 +61,39 @@ async def refactor_notes(
     """
     try:
         html = await ai_service.refactor_qa_notes(payload.html, db)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
+                "in the environment or the .env file to enable AI features."
+            ),
+        ) from exc
+    except ai_service.AnalyzeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"AI refactoring failed: {exc}",
+        ) from exc
+    return RefactorOut(html=html)
+
+
+@router.post("/refactor-comment", response_model=RefactorOut)
+async def refactor_bf_comment(
+    payload: RefactorIn,
+    db: DbSession,
+    _current_user: AiUser,
+) -> RefactorOut:
+    """Rewrite a per-agent Bad Feedback comment (HTML), unpersisted.
+
+    The system prompt is the newest ACTIVE ``bf_comment_refactor``
+    SystemPrompt row (hardcoded fallback when none exists); the slot is
+    editable in the admin panel like the other AI prompts.
+
+    - 503 when ``OPENROUTER_API_KEY`` is not configured.
+    - 502 when the AI call fails or returns an empty response.
+    """
+    try:
+        html = await ai_service.refactor_bf_comment(payload.html, db)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

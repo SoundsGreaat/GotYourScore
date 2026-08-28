@@ -11,6 +11,7 @@ placeholder users — see ``app.services.bad_feedback_import``.
 """
 
 import json
+from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import (
@@ -304,6 +305,7 @@ async def complete_feedback(
         )
     feedback.status = ReviewStatusEnum.COMPLETED
     feedback.qa_id = auth.id
+    feedback.completed_at = datetime.now(timezone.utc)
     await db.commit()
     return _read(feedback)
 

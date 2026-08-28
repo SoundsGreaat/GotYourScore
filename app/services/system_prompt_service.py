@@ -46,6 +46,16 @@ PROMPT_SLOTS = [
         ),
     },
     {
+        "key": "bf_comment_refactor",
+        "title": "Bad Feedback Comment Refactoring",
+        "description": (
+            "System prompt used when rewriting the per-agent Bad "
+            "Feedback comment for clarity and constructive tone. "
+            "Receives the raw HTML comment and must return improved "
+            "HTML with the verdict meaning unchanged."
+        ),
+    },
+    {
         "key": "notes_from_score",
         "title": "Notes from Score",
         "description": (

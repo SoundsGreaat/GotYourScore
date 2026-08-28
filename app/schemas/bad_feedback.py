@@ -119,6 +119,7 @@ class BadFeedbackRead(BaseModel):
     status: ReviewStatusEnum = ReviewStatusEnum.PENDING
     assigned_qa_id: int | None = None
     qa_id: int | None = None
+    completed_at: datetime | None = None
     created_by: int | None = None
     deleted_at: datetime | None = None
     created_at: datetime

@@ -83,6 +83,12 @@ class BadFeedback(Base):
     qa_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # When the record was completed — the calendar-month grouping key
+    # for the BF views' month selector (unlike QA Score's reporting
+    # periods, BF months are plain calendar months of completion).
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Who imported / created the record.
     created_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True

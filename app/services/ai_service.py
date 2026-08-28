@@ -203,6 +203,37 @@ Strict rules:
 """
 
 
+# SystemPrompt key whose newest active row replaces the hardcoded
+# Bad Feedback comment refactoring prompt (see refactor_bf_comment).
+BF_COMMENT_PROMPT_KEY = "bf_comment_refactor"
+
+BF_COMMENT_SYSTEM_PROMPT = """\
+You are a QA writing assistant for a customer support team.
+
+You will receive the HTML-formatted feedback comment written by a
+quality analyst ABOUT a specific support or sales agent, based on a
+customer complaint. Rewrite it to improve clarity, grammar, and
+professional tone, keeping it constructive and actionable for the
+agent.
+
+Strict rules:
+- PRESERVE the HTML structure: keep every tag, attribute, and
+  formatting element exactly as provided (paragraphs, lists,
+  bold/italic, links, ...).
+- PRESERVE all embedded images: keep every <img> tag with its src (and
+  all other attributes) untouched.
+- Keep the verdict meaning (fault, responsibility, severity) EXACTLY as
+  written; never soften or escalate it. Do not translate; do not change
+  facts, names, or numbers.
+- Address the agent professionally; no blame beyond what the original
+  text states.
+- Output ONLY the improved HTML — no markdown code fences, no
+  commentary, no explanations.
+- NEVER include reasoning or meta-commentary: the output must contain
+  ONLY the rewritten comment itself, nothing else.
+"""
+
+
 NOTES_FROM_SCORE_SYSTEM_PROMPT = """\
 You are a support QA reviewer writing the official review notes for an
 internal quality-assurance record.
@@ -616,17 +647,22 @@ async def analyze_support_ticket(
 # Refactor
 # ---------------------------------------------------------------------------
 
-async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
-    """Rewrite QA notes for clarity, grammar and professional tone.
+async def _refactor_html(
+    raw_html: str,
+    db_session: AsyncSession,
+    *,
+    prompt_key: str,
+    fallback_prompt: str,
+) -> str:
+    """Shared rewrite pipeline for every HTML-refactoring capability.
 
-    The base system prompt is the newest ACTIVE SystemPrompt row for
-    ``REFACTOR_PROMPT_KEY``; the hardcoded ``REFACTOR_SYSTEM_PROMPT``
-    constant is only the fallback for an empty/inactive table
-    (identical behavior to before the system-prompt feature).
+    Resolves the newest ACTIVE SystemPrompt row for ``prompt_key``
+    (``fallback_prompt`` only when none exists), commits the session to
+    release the connection before the multi-second network call, calls
+    OpenRouter and returns the extracted HTML fragment.
     """
-    # DB-stored prompt wins; the hardcoded constant is only a fallback.
-    db_prompt = await _active_system_prompt(REFACTOR_PROMPT_KEY, db_session)
-    system_prompt = db_prompt if db_prompt else REFACTOR_SYSTEM_PROMPT
+    db_prompt = await _active_system_prompt(prompt_key, db_session)
+    system_prompt = db_prompt if db_prompt else fallback_prompt
     provider = await resolve_openrouter_provider(db_session)
 
     # Release the DB connection before the multi-second network request
@@ -678,6 +714,37 @@ async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
         )
 
     return _extract_html_fragment(content)
+
+
+async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
+    """Rewrite QA notes for clarity, grammar and professional tone.
+
+    The base system prompt is the newest ACTIVE SystemPrompt row for
+    ``REFACTOR_PROMPT_KEY``; the hardcoded ``REFACTOR_SYSTEM_PROMPT``
+    constant is only the fallback for an empty/inactive table
+    (identical behavior to before the system-prompt feature).
+    """
+    return await _refactor_html(
+        raw_html,
+        db_session,
+        prompt_key=REFACTOR_PROMPT_KEY,
+        fallback_prompt=REFACTOR_SYSTEM_PROMPT,
+    )
+
+
+async def refactor_bf_comment(raw_html: str, db_session: AsyncSession) -> str:
+    """Rewrite a per-agent Bad Feedback comment for clarity and tone.
+
+    Same pipeline as ``refactor_qa_notes`` with its OWN system-prompt
+    slot (``BF_COMMENT_PROMPT_KEY``, editable in the admin panel) so the
+    agent-facing tone stays tunable independently of the review notes.
+    """
+    return await _refactor_html(
+        raw_html,
+        db_session,
+        prompt_key=BF_COMMENT_PROMPT_KEY,
+        fallback_prompt=BF_COMMENT_SYSTEM_PROMPT,
+    )
 
 
 # ---------------------------------------------------------------------------
