@@ -37,6 +37,22 @@ class ReviewStatusEnum(str, enum.Enum):
     COMPLETED = "completed"
 
 
+class AgentKindEnum(str, enum.Enum):
+    """Which side an agent acted on for a Bad Feedback record."""
+
+    SUPPORT = "Support"
+    SALES = "Sales"
+
+
+class FaultEnum(str, enum.Enum):
+    """QA verdict for one agent on a Bad Feedback record."""
+
+    FULL_FAULT = "Full Fault"
+    PARTIAL_FAULT = "Partial Fault"
+    WARNING = "Warning"
+    NO_FAULT = "No Fault"
+
+
 class RoleEnum(str, enum.Enum):
     """User roles in the QA workflow."""
 
