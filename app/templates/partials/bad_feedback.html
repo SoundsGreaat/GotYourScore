@@ -1,0 +1,463 @@
+{% import "macros/dropdowns.html" as dd %}
+{% import "macros/icons.html" as icons %}
+<!-- Bad Feedback tracker tab. Root section is self-refreshing:
+     bad-feedback-changed refetches this partial via outerHTML swap
+     (same lifecycle as reviews-changed for the reviews views). -->
+<section id="bad-feedback-view"
+         hx-get="/partials/bad-feedback"
+         hx-trigger="bad-feedback-changed from:body"
+         hx-sync="this:replace"
+         hx-swap="outerHTML">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-lg font-semibold">Bad Feedback</h2>
+        <div class="flex flex-wrap items-center gap-2">
+            <form hx-get="/partials/bad-feedback"
+                  hx-target="closest section" hx-swap="outerHTML"
+                  hx-trigger="change" class="flex items-center">
+                {{ dd.dropdown('bf-status-filter',
+                items=[{'value': '', 'label': 'All statuses'},
+                       {'value': 'pending', 'label': 'Pending'},
+                       {'value': 'completed', 'label': 'Completed'}],
+                selected=status_filter or '',
+                aria_label='Filter by status',
+                hidden_attrs='name="status"') }}
+            </form>
+            <button type="button" class="btn btn-primary btn-sm"
+                    data-bf-import aria-label="Import from Excel">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M4 12v2m0-6V4a2 2 0 012-2h12a2 2 0 012 2v4m-6 2l-4 4m0 0l4 4m-4-4h12" />
+                </svg>
+                Import Excel
+            </button>
+        </div>
+    </div>
+
+    {% if rows %}
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Source</th>
+                        <th>Customer</th>
+                        <th>Agents</th>
+                        <th>Case</th>
+                        <th>Assigned QA</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for row in rows %}
+                    {% set fb = row.record %}
+                    <tr>
+                        <td class="whitespace-nowrap">
+                            {% if fb.fb_date %}{{ fb.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}
+                        </td>
+                        <td>{{ fb.source or '—' }}</td>
+                        <td class="max-w-48 truncate" title="{{ fb.customer_info or '' }}">
+                            {% if fb.customer_info %}
+                            <a href="{{ fb.customer_info }}" target="_blank" rel="noopener noreferrer"
+                               class="link link-hover link-primary">{{ fb.customer_info }}</a>
+                            {% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}
+                        </td>
+                        <td>
+                            <div class="flex max-w-72 flex-wrap items-center gap-1">
+                                {% for agent in fb.agents %}
+                                <span class="badge badge-soft badge-sm {{ 'badge-warning' if agent.fault and agent.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if agent.fault and agent.fault.value == 'Warning' }}"
+                                      title="{{ agent.kind.value }}{% if agent.fault %} · {{ agent.fault.value }}{% endif %}{% if agent.qa_comment %} — {{ agent.qa_comment }}{% endif %}">
+                                    {{ agent.user_label or '#' ~ agent.user_id }}{{ ' · ' ~ agent.fault.value if agent.fault }}
+                                </span>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td>{{ fb.related_case or '—' }}</td>
+                        <td>{{ row.assigned_qa_name or '—' }}</td>
+                        <td>
+                            {% if fb.status == 'pending' %}
+                            <span class="badge badge-soft badge-warning badge-sm font-semibold">Pending</span>
+                            {% else %}
+                            <span class="badge badge-soft badge-success badge-sm font-semibold">Completed</span>
+                            {% endif %}
+                        </td>
+                        <td class="whitespace-nowrap">
+                            <button type="button" class="btn btn-ghost btn-xs btn-circle"
+                                    data-bf-edit="{{ fb.id }}"
+                                    aria-label="Edit bad feedback {{ fb.id }}" title="Edit">
+                                {{ icons.edit() }}
+                            </button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+        No bad feedback yet — import an Excel file to get started.
+    </div>
+    {% endif %}
+
+    <!-- ===== Import modal: upload → mapping → report ===== -->
+    <dialog class="modal js-bf-import-modal">
+        <div class="modal-box max-w-2xl">
+            <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">✕</button></form>
+            <h3 class="mb-1 text-lg font-bold">Import Bad Feedback</h3>
+            <p class="mb-4 text-sm text-base-content/70">
+                Upload an .xlsx file, confirm which column holds what, and the rows
+                become pending records. Unknown agent names are created automatically.
+            </p>
+
+            <!-- Step 1: upload -->
+            <div class="js-bf-step-upload">
+                <label class="flex flex-col items-center gap-2 rounded-box border border-dashed border-base-300 p-6 text-center">
+                    <span class="text-sm font-medium">Choose an .xlsx file</span>
+                    <input type="file" accept=".xlsx" class="file-input file-input-sm js-bf-file" />
+                    <span class="text-xs text-base-content/60">First sheet, header row required · max 5 MB</span>
+                </label>
+                <div class="mt-4 flex justify-end">
+                    <button type="button" class="btn btn-primary js-bf-inspect" disabled>Analyze</button>
+        </div>
+            </div>
+
+            <!-- Step 2: mapping -->
+            <div class="js-bf-step-map hidden">
+                <div class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {% for key, label in field_labels.items() %}
+                    <label class="flex flex-col gap-1 text-sm">
+                        <span>{{ label }}</span>
+                        {{ dd.dropdown('bf-map-' ~ key,
+                        items=[{'value': '', 'label': 'Not imported'}],
+                        selected='',
+                        aria_label='Column for ' ~ label,
+                        hidden_attrs='data-bf-map="' ~ key ~ '"') }}
+                    </label>
+                    {% endfor %}
+                </div>
+                <div class="mb-3 rounded-box border border-base-300 p-3">
+                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">Preview</p>
+                    <div class="max-h-40 overflow-auto">
+                        <table class="table table-xs"><tbody class="js-bf-preview"></tbody></table>
+                    </div>
+                </div>
+                <div class="flex justify-between">
+                    <button type="button" class="btn btn-ghost btn-sm js-bf-back">Back</button>
+                    <button type="button" class="btn btn-primary js-bf-commit">Import</button>
+                </div>
+            </div>
+
+            <!-- Step 3: report -->
+            <div class="js-bf-step-report hidden">
+                <div class="js-bf-report-body"></div>
+                <div class="mt-4 flex justify-end">
+                    <form method="dialog"><button class="btn btn-primary btn-sm">Done</button></form>
+                </div>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <!-- ===== Edit modal ===== -->
+    <dialog class="modal js-bf-edit-modal">
+        <div class="modal-box max-w-2xl">
+            <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">✕</button></form>
+            <h3 class="mb-4 text-lg font-bold">Edit Bad Feedback</h3>
+            <div class="js-bf-edit-body"><!-- filled by JS --></div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <script>
+        (function () {
+            var section = document.getElementById('bad-feedback-view');
+            if (!section) return;
+            var showToast = window.gysToast;
+
+            /* ---------- shared state ---------- */
+            var file = null;
+            var inspectData = null;
+            var importModal = section.querySelector('.js-bf-import-modal');
+            var editModal = section.querySelector('.js-bf-edit-modal');
+
+            function step(name) {
+                ['upload', 'map', 'report'].forEach(function (s) {
+                    importModal.querySelector('.js-bf-step-' + s).classList.toggle('hidden', s !== name);
+                });
+            }
+
+            /* ---------- import flow ---------- */
+            section.querySelector('.js-bf-file').addEventListener('change', function () {
+                file = this.files && this.files[0] ? this.files[0] : null;
+                section.querySelector('.js-bf-inspect').disabled = !file;
+            });
+
+            section.querySelector('.js-bf-inspect').addEventListener('click', function () {
+                if (!file) return;
+                var form = new FormData();
+                form.append('file', file);
+                fetch('/api/bad-feedback/import/inspect', {method: 'POST', credentials: 'same-origin', body: form})
+                    .then(function (response) {
+                        if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Inspect failed'); });
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        inspectData = data;
+                        buildMapping(data);
+                        step('map');
+                    })
+                    .catch(function (error) { showToast(error.message || 'Unable to analyze the file.'); });
+            });
+
+            function buildMapping(data) {
+                // One dropdown per canonical field; options = sheet headers.
+                // Preselect the suggested header when there is one.
+                Object.keys({{ field_labels | tojson }}).forEach(function (key) {
+                    var ddId = 'bf-map-' + key;
+                    var holder = document.getElementById(ddId);
+                    if (!holder) return;
+                    var menu = document.getElementById(ddId + '-menu');
+                    if (!menu) return;
+                    menu.innerHTML = '';
+                    var options = [{v: '', l: 'Not imported'}].concat(
+                        data.headers.map(function (h) { return {v: h, l: h}; })
+                    );
+                    var suggested = data.suggestions[key] || '';
+                    options.forEach(function (opt) {
+                        var li = document.createElement('li');
+                        var btn = document.createElement('button');
+                        btn.type = 'button';
+                        btn.setAttribute('data-opt-value', opt.v);
+                        btn.setAttribute('data-opt-label', opt.l);
+                        btn.textContent = opt.l;
+                        btn.addEventListener('click', function () {
+                            window.setDropdownValue(ddId, null, btn);
+                        });
+                        li.appendChild(btn);
+                        menu.appendChild(li);
+                    });
+                    var hidden = holder.querySelector('input[type="hidden"]');
+                    if (hidden) hidden.value = suggested;
+                    var display = holder.querySelector('.js-dd-display');
+                    if (display) display.textContent = suggested || 'Not imported';
+                });
+                var previewBody = importModal.querySelector('.js-bf-preview');
+                previewBody.innerHTML = '';
+                data.preview.forEach(function (rowCells) {
+                    var tr = document.createElement('tr');
+                    rowCells.forEach(function (c) {
+                        var td = document.createElement('td');
+                        td.textContent = c;
+                        td.className = 'max-w-40 truncate';
+                        tr.appendChild(td);
+                    });
+                    previewBody.appendChild(tr);
+                });
+            }
+
+            section.querySelector('.js-bf-back').addEventListener('click', function () { step('upload'); });
+
+            section.querySelector('.js-bf-commit').addEventListener('click', function () {
+                var mapping = {};
+                section.querySelectorAll('[data-bf-map]').forEach(function (hidden) {
+                    mapping[hidden.getAttribute('data-bf-map')] = hidden.value || null;
+                });
+                var form = new FormData();
+                form.append('file', file);
+                form.append('mapping', JSON.stringify(mapping));
+                var btn = this;
+                btn.disabled = true;
+                fetch('/api/bad-feedback/import', {method: 'POST', credentials: 'same-origin', body: form})
+                    .then(function (response) {
+                        if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Import failed'); });
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        renderReport(data);
+                        step('report');
+                        document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                    })
+                    .catch(function (error) { showToast(error.message || 'Unable to import.'); })
+                    .finally(function () { btn.disabled = false; });
+            });
+
+            function renderReport(data) {
+                var body = importModal.querySelector('.js-bf-report-body');
+                var html = '<div class="mb-3 alert alert-success py-2 text-sm">' + data.created_count + ' record(s) imported.';
+                if (data.skipped_count) html += ' ' + data.skipped_count + ' skipped.';
+                html += '</div>';
+                if (data.created_users.length) {
+                    html += '<p class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">New users created</p><ul class="mb-3 list-disc pl-5 text-sm">';
+                    data.created_users.forEach(function (u) { html += '<li>' + u.replace(/</g, '&lt;') + '</li>'; });
+                    html += '</ul>';
+                }
+                if (data.skipped.length) {
+                    html += '<p class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">Skipped rows</p><ul class="list-disc pl-5 text-sm">';
+                    data.skipped.forEach(function (s) {
+                        html += '<li>Row ' + s.row_number + ': ' + s.reason.replace(/</g, '&lt;') + '</li>';
+                    });
+                    html += '</ul>';
+                }
+                body.innerHTML = html;
+            }
+
+            section.querySelector('[data-bf-import]').addEventListener('click', function () {
+                file = null;
+                inspectData = null;
+                section.querySelector('.js-bf-file').value = '';
+                section.querySelector('.js-bf-inspect').disabled = true;
+                step('upload');
+                importModal.showModal();
+            });
+
+            /* ---------- edit flow ---------- */
+            section.addEventListener('click', function (event) {
+                var editBtn = event.target.closest('[data-bf-edit]');
+                if (editBtn) openEdit(editBtn.getAttribute('data-bf-edit'));
+            });
+
+            var agentOptions = {{ agent_options | tojson }};
+            var faultValues = {{ fault_values | tojson }};
+
+            function esc(s) {
+                return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            }
+
+            function openEdit(id) {
+                fetch('/api/bad-feedback/' + id, {credentials: 'same-origin'})
+                    .then(function (response) {
+                        if (!response.ok) throw new Error('Load failed');
+                        return response.json();
+                    })
+                    .then(function (fb) { renderEdit(fb); editModal.showModal(); })
+                    .catch(function () { showToast('Unable to load the record.'); });
+            }
+
+            function agentCard(agent) {
+                var opts = ['<option value="">Fault…</option>'].concat(faultValues.map(function (f) {
+                    return '<option value="' + esc(f.value) + '"' + (agent && agent.fault === f.value ? ' selected' : '') + '>' + esc(f.label) + '</option>';
+                })).join('');
+                return '<div class="js-bf-agent card mb-2 bg-base-200 p-2" data-user-id="' + (agent ? agent.user_id : '') + '" data-kind="' + (agent ? esc(agent.kind) : '') + '">' +
+                    '<div class="flex items-center gap-2">' +
+                    '<select class="js-bf-agent-pick select select-sm w-40">' + agentOptionsHtml(agent ? agent.user_id : null) + '</select>' +
+                    '<select class="js-bf-kind select select-sm w-28">' +
+                    '<option value="Support"' + (agent && agent.kind === 'Support' ? ' selected' : '') + '>Support</option>' +
+                    '<option value="Sales"' + (agent && agent.kind === 'Sales' ? ' selected' : '') + '>Sales</option>' +
+                    '</select>' +
+                    '<select class="js-bf-fault select select-sm w-36">' + opts + '</select>' +
+                    '<button type="button" class="btn btn-ghost btn-xs btn-circle text-error js-bf-agent-remove">✕</button>' +
+                    '</div>' +
+                    '<input type="text" class="js-bf-agent-comment input input-sm input-bordered mt-2 w-full" placeholder="QA comment for this agent" value="' + esc(agent ? agent.qa_comment : '') + '"/>' +
+                    '</div>';
+            }
+
+            function agentOptionsHtml(selectedId) {
+                return ['<option value="">Choose agent…</option>'].concat(agentOptions.map(function (o) {
+                    return '<option value="' + o.id + '"' + (selectedId === o.id ? ' selected' : '') + '>' + esc(o.name) + '</option>';
+                })).join('');
+            }
+
+            function renderEdit(fb) {
+                var body = section.querySelector('.js-bf-edit-body');
+                var agentCards = fb.agents.map(agentCard).join('');
+                body.innerHTML =
+                    '<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">' +
+                    '<label class="flex flex-col gap-1 text-sm"><span>Date</span><input type="date" id="bf-edit-date" class="input input-sm" value="' + esc(fb.fb_date) + '"/></label>' +
+                    '<label class="flex flex-col gap-1 text-sm"><span>Source</span><input type="text" id="bf-edit-source" class="input input-sm" value="' + esc(fb.source) + '"/></label>' +
+                    '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer info</span><input type="text" id="bf-edit-customer" class="input input-sm" value="' + esc(fb.customer_info) + '"/></label>' +
+                    '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer feedback</span><textarea id="bf-edit-feedback" class="textarea textarea-sm">' + esc(fb.customer_feedback) + '</textarea></label>' +
+                    '<label class="flex flex-col gap-1 text-sm"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm" value="' + esc(fb.related_case) + '"/></label>' +
+                    '</div>' +
+                    '<p class="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-base-content/60">Agents — Fault & comment per agent</p>' +
+                    '<div class="js-bf-agents">' + agentCards + '</div>' +
+                    '<button type="button" class="btn btn-ghost btn-sm js-bf-agent-add">+ Add agent</button>' +
+                    '<div class="mt-4 flex items-center justify-between">' +
+                    '<div>' +
+                    (fb.status === 'pending'
+                        ? '<button type="button" class="btn btn-success btn-sm js-bf-complete">Mark completed</button>'
+                        : '<span class="badge badge-soft badge-success badge-sm">Completed</span>') +
+                    '</div>' +
+                    '<div class="flex gap-2">' +
+                    '<form method="dialog"><button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button></form>' +
+                    '<button type="button" class="btn btn-primary btn-sm js-bf-save">Save</button>' +
+                    '</div></div>';
+                body.dataset.fbId = fb.id;
+                body.dataset.fbStatus = fb.status;
+
+                body.querySelector('.js-bf-agent-add').addEventListener('click', function () {
+                    section.querySelector('.js-bf-agents').insertAdjacentHTML('beforeend', agentCard(null));
+                });
+                body.addEventListener('click', function (event) {
+                    var remove = event.target.closest('.js-bf-agent-remove');
+                    if (remove) remove.closest('.js-bf-agent').remove();
+                });
+                body.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
+                body.querySelector('.js-bf-save').addEventListener('click', saveEdit);
+                var completeBtn = body.querySelector('.js-bf-complete');
+                if (completeBtn) completeBtn.addEventListener('click', function () { completeEdit(fb.id); });
+            }
+
+            function collectAgents() {
+                var out = [];
+                var seen = {};
+                var ok = true;
+                section.querySelectorAll('.js-bf-agent').forEach(function (card) {
+                    var userId = card.querySelector('.js-bf-agent-pick').value;
+                    if (!userId) { ok = false; return; }
+                    var kind = card.querySelector('.js-bf-kind').value;
+                    var pair = userId + ':' + kind;
+                    if (seen[pair]) { ok = false; return; }
+                    seen[pair] = true;
+                    out.push({
+                        user_id: parseInt(userId, 10),
+                        kind: kind,
+                        fault: card.querySelector('.js-bf-fault').value || null,
+                        qa_comment: card.querySelector('.js-bf-agent-comment').value || null
+                    });
+                });
+                if (!ok) showToast('Every agent card needs an agent and a unique role.');
+                return ok ? out : null;
+            }
+
+            function saveEdit() {
+                var body = section.querySelector('.js-bf-edit-body');
+                var agents = collectAgents();
+                if (agents === null) return;
+                var payload = {
+                    fb_date: document.getElementById('bf-edit-date').value || null,
+                    source: document.getElementById('bf-edit-source').value || null,
+                    customer_info: document.getElementById('bf-edit-customer').value || null,
+                    customer_feedback: document.getElementById('bf-edit-feedback').value || null,
+                    related_case: document.getElementById('bf-edit-case').value || null,
+                    agents: agents
+                };
+                fetch('/api/bad-feedback/' + body.dataset.fbId, {
+                    method: 'PATCH', credentials: 'same-origin',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                })
+                    .then(function (response) {
+                        if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
+                        showToast('Saved.', 'alert-success');
+                        editModal.close();
+                        document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                    })
+                    .catch(function (error) { showToast(error.message || 'Unable to save.'); });
+            }
+
+            function completeEdit(id) {
+                fetch('/api/bad-feedback/' + id + '/complete', {method: 'POST', credentials: 'same-origin'})
+                    .then(function (response) {
+                        if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Complete failed'); });
+                        showToast('Marked completed.', 'alert-success');
+                        editModal.close();
+                        document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                    })
+                    .catch(function (error) { showToast(error.message || 'Unable to complete.'); });
+            }
+        })();
+    </script>
+</section>

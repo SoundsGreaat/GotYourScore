@@ -34,7 +34,9 @@ from sqlalchemy import and_, func, or_, select
 from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
 from app.models import (
+    BadFeedback,
     CaseTypeEnum,
+    FaultEnum,
     QAAssignment,
     Review,
     ReviewStatusEnum,
@@ -42,7 +44,7 @@ from app.models import (
     User,
     UserRole,
 )
-from app.services import quota_service, reporting_period, scorecard_service
+from app.services import bad_feedback_import, quota_service, reporting_period, scorecard_service
 
 router = APIRouter(tags=["pages"])
 
@@ -1056,4 +1058,88 @@ async def partial_case_rules(
         request=request,
         name="partials/case_rules.html",
         context={"rules": rules["items"]},
+    )
+
+
+async def _frontline_agents(db: AsyncSession) -> list[User]:
+    """Active users holding SUPPORT or SALES (Bad Feedback targets)."""
+    result = await db.execute(
+        select(User)
+        .join(UserRole, User.id == UserRole.user_id)
+        .where(
+            UserRole.role.in_([RoleEnum.SUPPORT, RoleEnum.SALES]),
+            User.active_filter(),
+        )
+        .order_by(User.name)
+    )
+    return list(result.scalars().unique().all())
+
+
+@router.get(
+    "/partials/bad-feedback",
+    name="partial_bad_feedback",
+    summary="Bad Feedback partial",
+    include_in_schema=False,
+)
+async def partial_bad_feedback(
+    request: Request,
+    auth: PageUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> Response:
+    """Render the 'Bad Feedback' tracker tab (HTMX partial).
+
+    Reviewer-only like the other aggregate views. Context: every
+    non-deleted record (newest first) with agent cards + display
+    labels, the QA list for the assign filter, and the frontline
+    (Support/Sales) users for the edit modal's agent picker.
+    """
+    redirect = _htmx_redirect_if_needed(auth, request)
+    if redirect is not None:
+        return redirect
+    if not is_reviewer(auth):
+        return _forbidden()
+
+    status_filter = request.query_params.get("status")
+    stmt = (
+        select(BadFeedback)
+        .where(BadFeedback.deleted_at.is_(None))
+        .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
+        .limit(200)
+    )
+    if status_filter in (ReviewStatusEnum.PENDING.value, ReviewStatusEnum.COMPLETED.value):
+        stmt = stmt.where(BadFeedback.status == status_filter)
+    feedbacks = list((await db.execute(stmt)).scalars().unique().all())
+    qas = await _qas(db)
+    agents = await _frontline_agents(db)
+    agent_options = [{"id": user.id, "name": user.nickname} for user in agents]
+    qa_options = [{"id": qa.id, "name": qa.nickname} for qa in qas]
+
+    def label(user_id: int | None) -> str | None:
+        return next(
+            (o["name"] for o in qa_options if o["id"] == user_id), None
+        )
+
+    rows = []
+    for fb in feedbacks:
+        rows.append(
+            {
+                "record": fb,
+                "assigned_qa_name": label(fb.assigned_qa_id),
+                "qa_name": label(fb.qa_id),
+            }
+        )
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/bad_feedback.html",
+        context={
+            "rows": rows,
+            "status_filter": status_filter,
+            "qa_options": qa_options,
+            "agent_options": agent_options,
+            "field_labels": bad_feedback_import.FIELD_LABELS,
+            "fault_values": [
+                {"value": f.value, "label": f.value} for f in FaultEnum
+            ],
+        },
     )

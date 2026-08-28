@@ -161,4 +161,7 @@ class BadFeedbackAgent(Base):
     feedback: Mapped["BadFeedback"] = relationship(
         back_populates="agents"
     )
-    user: Mapped["app.models.user.User"] = relationship()
+    # joined: agent cards serialize with their user label everywhere
+    # (list + detail + import report) — a sync lazy load inside async
+    # sessions would raise MissingGreenlet.
+    user: Mapped["app.models.user.User"] = relationship(lazy="joined")
