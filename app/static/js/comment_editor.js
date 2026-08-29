@@ -213,8 +213,14 @@
         if (refactorBtn) {
             refactorBtn.addEventListener('click', async function () {
                 if (destroyed) return;
-                hideMenu(true);
-                if (isEmpty()) { toast(options.emptyMessage || 'Comment is empty.'); return; }
+                if (isEmpty()) {
+                    toast(options.emptyMessage || 'Comment is empty.');
+                    hideMenu(true);
+                    return;
+                }
+                // The menu STAYS OPEN while streaming (the item shows the
+                // spinner) and closes only on success — same feedback
+                // contract as the drawer's AI menu.
                 setLoading(refactorBtn, 'Refactoring…', true);
                 try {
                     // NDJSON stream twin of the refactor endpoint (the
@@ -230,7 +236,10 @@
                         signal: controller.signal
                     });
                     toast('Comment refactored.', 'alert-success');
+                    hideMenu(true);
                 } catch (error) {
+                    // Failure keeps the menu open (item label restored)
+                    // so the action can be retried — mirrors the drawer.
                     toast(error.message || 'AI request failed.');
                 } finally {
                     setLoading(refactorBtn, 'Refactoring…', false);
