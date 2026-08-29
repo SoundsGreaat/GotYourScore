@@ -6,8 +6,9 @@ Internal QA tool for scoring support-agent cases. FastAPI backend with async SQL
 
 - **Case reviews** — QA staff score support cases against configurable scorecards (per case type, with multipliers); every saved review embeds a snapshot of the then-active scoring rules.
 - **Delegation** — Supervisors/Admins create pending reviews and route them to a specific QA or to a shared queue every QA sees.
+- **Bad Feedback** — complaint tracking (not scored): records with involved agent cards (Support/Sales), a pending → complete lifecycle, tracker views grouped by calendar month, and a two-phase smart Excel import (inspect → confirm mapping → commit).
 - **Quotas & compliance** — each support agent has a monthly quota (default 6) per reporting period; dashboards track completion and average scores per agent.
-- **AI assistance** — OpenRouter-backed note refactoring and preview scoring (503 when no API key is configured), with Admin-managed versioned system prompts.
+- **AI assistance** — OpenRouter-backed QA-note refactoring, Bad Feedback comment rewriting, preview scoring and auto-scoring of pasted ticket transcripts (503 when no API key is configured), with Admin-managed versioned system prompts.
 - **Admin panel** — HTMX panel for users (incl. soft-deleted), scorecards and system prompts.
 
 ## Tech stack
@@ -74,6 +75,7 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 - **Reporting periods**: the 26th of one month through the 25th of the next (UTC), named after its *closing* month (`app/services/reporting_period.py`). Review creation returns **409 once the quota is reached**; "No Cases" reviews have null score/scorecard but still count toward the quota.
 - **Pending reviews** are quota-neutral; completion = PATCH with `raw_scorecard` (deliberately skips the quota gate). The last editor of a pending review becomes its executor; completed rows reject reassignment.
 - **Scorecards**: exactly one active per case type; saved reviews embed `rules_snapshot` and score against it, never live rules. `error_name` on saved items is immutable.
+- **Bad Feedback**: customer complaints with per-agent cards — never quota-counted and never scored. Views group by plain calendar month of `completed_at`; pending records are month-less and always visible.
 
 ## Frontend assets
 
@@ -89,7 +91,9 @@ npm run build        # vendor assets + rebuild CSS
 ## Scripts
 
 - `scripts/import_scorecard_csv.py` — import a scorecard from CSV. Writes to whatever `DATABASE_URL` points at; pass `--dry-run` to preview.
+- `scripts/vendor.mjs` — vendors frontend dependencies (HTMX, Quill, DOMPurify, SortableJS, Inter font) into `app/static/`; wired into `npm run build`.
 - `alembic/` — migrations (`uv run alembic upgrade head`). New models must be exported in `app/models/__init__.py` or autogenerate produces empty migrations.
+- `graphify-out/` — generated knowledge graph of the codebase (graphify: interactive `graph.html`, `GRAPH_REPORT.md`, `graph.json`). Local navigation aid; safe to delete and regenerate.
 
 ## Project structure
 
@@ -98,9 +102,9 @@ app/
 ├── api/            # Routers: auth (Google OAuth), api/* JSON, pages (HTML/partials), admin
 ├── core/           # Settings (pydantic-settings), security helpers, text utils
 ├── db/             # Async engine/session, declarative base, model imports
-├── models/         # SQLAlchemy models (User, Review, Scorecard, SystemPrompt, Assignment)
+├── models/         # SQLAlchemy models (User, Review, Scorecard, SystemPrompt, Assignment, BadFeedback, AppSetting)
 ├── schemas/        # Pydantic request/response schemas
-├── services/       # Business logic: quotas, reporting periods, scorecards, AI, prompts
+├── services/       # Business logic: quotas, reporting periods, scorecards, multipliers, AI, prompts, users, Bad Feedback + Excel import
 ├── static/         # Compiled CSS, JS (app + vendored vendors), fonts
 └── templates/      # Jinja2: base/dashboard/admin shells, partials, macros
 alembic/            # Migration environment + versions
@@ -110,9 +114,10 @@ scripts/            # CSV import, asset vendoring
 ## API surface
 
 - `/auth/*` — Google OAuth login/logout
-- `/api/reviews/*` — create, delegate (`/pending`, `/pending/bulk`), complete/edit (PATCH), soft delete, quota, compliance
+- `/api/reviews/*` — create, AI auto-score, score preview, delegate (`/pending`, `/pending/bulk`, `/pending/mine-count`), complete/edit (PATCH), soft delete, quota, compliance
+- `/api/bad-feedback/*` — complaint CRUD, complete, smart Excel import (`/import/inspect`, `/import`)
 - `/api/assignments/*` — Supervisor/Admin QA staffing
-- `/api/ai/*` — AI note refactoring & preview scoring (OpenRouter)
+- `/api/ai/*` — refactor QA notes / Bad Feedback comments, score notes into a scorecard, draft notes from ticked deductions (OpenRouter)
 - `/api/system-prompts/*` — Admin-only LLM prompt management
 - `/partials/*`, `/admin/*` — RBAC-guarded HTML fragments consumed by HTMX
 - `/ping` — liveness probe
