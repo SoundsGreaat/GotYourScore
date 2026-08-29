@@ -166,8 +166,14 @@
         window.addEventListener('scroll', function (event) {
             var target = event.target;
             // Scrolling INSIDE the editor keeps the menu (its content
-            // may overflow); any other scroll dismisses it.
-            if (target instanceof Element && target.closest('.ql-editor')) return;
+            // may overflow). So does scrolling inside the host dialog:
+            // right-clicking an unfocused editor reveals the caret and
+            // scrolls the modal box AFTER the menu opened — dismissing
+            // here would close it instantly (the drawer ignores every
+            // scroll inside .drawer-content for the same reason). Any
+            // other scroll dismisses it.
+            if (target instanceof Element &&
+                (target.closest('.ql-editor') || target.closest('dialog'))) return;
             hideMenu();
         }, Object.assign({ capture: true }, signal));
 
