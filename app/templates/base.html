@@ -102,6 +102,10 @@
 
     <!-- Shared partial helpers (toast, drawer handoff, escaping). -->
     <script defer src="/static/js/common.js?v={{ asset_v }}"></script>
+    <!-- Streaming AI insertion: token-by-token reveal into Quill for the
+         /api/ai/*/stream NDJSON endpoints (drawer Refactor/Score->Notes,
+         Bad Feedback comment refactor). -->
+    <script defer src="/static/js/ai_stream.js?v={{ asset_v }}"></script>
     <!-- Rich-comment editor module (Quill + AI Refactor + Copy All/HTML):
          shared by the Bad Feedback record editor, reusable for future
          record kinds (Refund Check). -->

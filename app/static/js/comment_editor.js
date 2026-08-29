@@ -9,8 +9,10 @@
      mount:       element receiving the editor shell,
      html:        initial sanitized-on-insert HTML (may be ''),
      placeholder: Quill placeholder text,
-     refactorUrl: POST endpoint returning {html} — omit to hide the
-                  Refactor menu item,
+      refactorUrl: POST endpoint for the Refactor menu item — its NDJSON
+                   streaming twin ("<refactorUrl>/stream") drives a
+                   token-by-token reveal into the editor; omit to hide
+                   the menu item,
      emptyMessage:  toast text for actions on an empty comment,
      toast:       notifier (defaults to window.gysToast),
      onChange:    called on every text change.
@@ -29,7 +31,6 @@
    `hidden` class, 250 ms re-open grace on hide, 200 ms opening-gesture
    guard on the document click, Esc + scroll dismissal. */
 (function () {
-    var AI_TIMEOUT_MS = 61000;
     var EXPORT_ALLOWED_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
         'ul', 'ol', 'li', 'img', 'a', 'span', 'h1', 'h2', 'h3', 'h4', 'h5',
         'h6', 'blockquote', 'pre', 'code'];
@@ -116,18 +117,6 @@
             } else {
                 btn.innerHTML = btn.dataset.labelHtml;
             }
-        }
-
-        function aiFetch(url, payload) {
-            var ctrl = new AbortController();
-            var timer = window.setTimeout(function () { ctrl.abort(); }, AI_TIMEOUT_MS);
-            return fetch(url, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload),
-                signal: ctrl.signal
-            }).finally(function () { window.clearTimeout(timer); });
         }
 
         quill = new window.Quill(editorHost, {
@@ -222,22 +211,21 @@
                 if (isEmpty()) { toast(options.emptyMessage || 'Comment is empty.'); return; }
                 setLoading(refactorBtn, 'Refactoring…', true);
                 try {
-                    var response = await aiFetch(options.refactorUrl, { html: quill.root.innerHTML });
-                    if (!response.ok) {
-                        var err = null;
-                        try { err = (await response.json()).detail; } catch (e) { /* ignore */ }
-                        throw new Error(err || 'AI refactoring failed.');
-                    }
-                    var clean = sanitizeHtml((await response.json()).html);
-                    // Replace content through the Quill API: a direct
-                    // innerHTML write desyncs Quill's internal delta.
-                    quill.deleteText(0, quill.getLength());
-                    quill.clipboard.dangerouslyPasteHTML(0, clean);
+                    // NDJSON stream twin of the refactor endpoint (the
+                    // buffered URL gets a "/stream" sibling): tokens are
+                    // revealed as the model writes; the helper restores
+                    // the original comment and throws on any failure.
+                    await window.gysAiStream.streamInto({
+                        url: options.refactorUrl + '/stream',
+                        payload: { html: quill.root.innerHTML },
+                        quill: quill,
+                        sanitize: sanitizeHtml,
+                        emptyMessage: 'The AI returned an empty comment.',
+                        signal: controller.signal
+                    });
                     toast('Comment refactored.', 'alert-success');
                 } catch (error) {
-                    toast(error.name === 'AbortError'
-                        ? 'AI request timed out.'
-                        : (error.message || 'AI request failed.'));
+                    toast(error.message || 'AI request failed.');
                 } finally {
                     setLoading(refactorBtn, 'Refactoring…', false);
                 }

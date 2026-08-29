@@ -254,6 +254,15 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : '';
     }
 
+    // Score -> Notes allowlist: drafted notes are plain prose fragments,
+    // so only the tags the model is prompted to emit survive (identical
+    // config to the pre-streaming insert).
+    function sanitizeDraftNotes(html) {
+        return window.DOMPurify
+            ? window.DOMPurify.sanitize(html, { ALLOWED_TAGS: ['p','ul','ol','li','strong','em','br'], KEEP_CONTENT: true })
+            : '';
+    }
+
     var extractErrorDetail = window.extractDetail;
 
     // Stored scorecards come in two shapes: nested under "breakdown"
@@ -896,20 +905,22 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
         setLoading(refactorButton, 'Refactoring…', true);
         try {
-            var response = await aiFetch('/api/ai/refactor', { html: quill.root.innerHTML });
-            if (!response.ok) throw new Error('Refactor request failed');
-            // Replace content through the Quill API: a direct
-            // quill.root.innerHTML write desyncs Quill's internal delta,
-            // and its mutation sync then deletes everything (editor ends
-            // up empty) — same recipe as the Score-to-Notes flow.
-            var clean = sanitizeHtml((await response.json()).html);
-            quill.deleteText(0, quill.getLength());
-            quill.clipboard.dangerouslyPasteHTML(0, clean);
+            // NDJSON stream: tokens are revealed into the editor as the
+            // model writes them; the helper restores the original notes
+            // and throws on any failure. The final event swaps in the
+            // fully post-processed fragment (same contract as before).
+            await window.gysAiStream.streamInto({
+                url: '/api/ai/refactor/stream',
+                payload: { html: quill.root.innerHTML },
+                quill: quill,
+                sanitize: sanitizeHtml,
+                signal: controller.signal
+            });
             saveDraft();
             hideMenu(true);
             showToast('Notes refactored.', 'alert-success');
         } catch (error) {
-            showToast(aiErrorMessage(error));
+            showToast(error.message || 'AI request failed.');
         } finally {
             setLoading(refactorButton, 'Refactoring…', false);
         }
@@ -1069,28 +1080,28 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         setLoading(button, 'Drafting…', true);
         try {
             var agentId = document.getElementById('review-agent').value;
-            var response = await aiFetch('/api/ai/notes-from-score', {
-                case_type: document.getElementById('case-type').value,
-                raw_scorecard: collectDeductions(),
-                // Same multiplier context as the score preview: the
-                // drafted notes must justify the REAL final score.
-                support_agent_id: agentId ? Number(agentId) : null,
-                exclude_review_id: drawerState.reviewId || null,
-                no_multiplier_keys: Object.keys(multiplierExemptions)
+            await window.gysAiStream.streamInto({
+                url: '/api/ai/notes-from-score/stream',
+                payload: {
+                    case_type: document.getElementById('case-type').value,
+                    raw_scorecard: collectDeductions(),
+                    // Same multiplier context as the score preview: the
+                    // drafted notes must justify the REAL final score.
+                    support_agent_id: agentId ? Number(agentId) : null,
+                    exclude_review_id: drawerState.reviewId || null,
+                    no_multiplier_keys: Object.keys(multiplierExemptions)
+                },
+                quill: quill,
+                sanitize: sanitizeDraftNotes,
+                emptyMessage: 'The AI returned an empty note',
+                focusEnd: true,
+                signal: controller.signal
             });
-            var data = await response.json().catch(function () { return {}; });
-            if (!response.ok) throw new Error(data.detail || 'AI note drafting failed');
-            var clean = DOMPurify.sanitize(data.notes_html || '', { ALLOWED_TAGS: ['p','ul','ol','li','strong','em','br'], KEEP_CONTENT: true });
-            if (!clean.trim()) throw new Error('The AI returned an empty note');
-            quill.deleteText(0, quill.getLength());
-            quill.clipboard.dangerouslyPasteHTML(0, clean);
-            quill.setSelection(quill.getLength());
         saveDraft();
         hideMenu(true);
         showToast('Notes drafted from the current score.', 'alert-success');
         } catch (error) {
-            showToast(error.name === 'AbortError' ? 'AI request timed out.'
-                : (error.message || 'AI note drafting failed'));
+            showToast(error.message || 'AI note drafting failed');
         } finally {
             setLoading(button, '', false);
         }
