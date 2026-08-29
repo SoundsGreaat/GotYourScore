@@ -38,6 +38,7 @@ import json
 import logging
 import math
 import re
+from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Sequence
 
@@ -748,6 +749,156 @@ async def refactor_bf_comment(raw_html: str, db_session: AsyncSession) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Streaming (same capabilities, token-by-token over NDJSON)
+# ---------------------------------------------------------------------------
+
+async def _stream_completion(
+    *,
+    system_prompt: str,
+    user_content: str,
+    db_session: AsyncSession,
+) -> AsyncIterator[str]:
+    """Stream an OpenRouter chat completion as raw content deltas.
+
+    Same call shape as the buffered helpers (model, temperature,
+    provider routing). The system/user messages are expected to be fully
+    resolved before this generator is iterated; it resolves the provider
+    routing and commits the session to release the DB connection before
+    the multi-second network call (commit-then-call pattern). Yields
+    content deltas verbatim as they arrive; raises ``AnalyzeError`` on
+    transport or API failures.
+    """
+    provider = await resolve_openrouter_provider(db_session)
+
+    # Release the DB connection before the multi-second network request.
+    await db_session.commit()
+
+    client = get_openrouter_client()
+
+    try:
+        stream = await client.chat.completions.create(
+            model=AI_SCORING_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": user_content,
+                },
+            ],
+            temperature=0,
+            extra_body={"provider": provider},
+            stream=True,
+        )
+
+    except APIError as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter API error: {exc}"
+        ) from exc
+
+    except Exception as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter request failed: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    try:
+        async for chunk in stream:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            if delta and delta.content:
+                yield delta.content
+
+    except APIError as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter API error: {exc}"
+        ) from exc
+
+    finally:
+        await stream.close()
+
+
+async def _stream_refactor(
+    raw_html: str,
+    db_session: AsyncSession,
+    *,
+    prompt_key: str,
+    fallback_prompt: str,
+) -> AsyncIterator[tuple[str, str]]:
+    """Streaming variant of ``_refactor_html``.
+
+    Yields ``("d", delta)`` for every raw content delta, then a terminal
+    ``("final", html)`` carrying the same post-processed fragment the
+    buffered endpoint returns. Raises ``AnalyzeError`` when the model
+    produced nothing (the buffered pipeline answers 502 in that case —
+    the endpoint converts the error into a terminal ``{"error": ...}``
+    NDJSON event instead).
+    """
+    db_prompt = await _active_system_prompt(prompt_key, db_session)
+    system_prompt = db_prompt if db_prompt else fallback_prompt
+
+    full: list[str] = []
+    async for delta in _stream_completion(
+        system_prompt=system_prompt,
+        user_content=raw_html,
+        db_session=db_session,
+    ):
+        full.append(delta)
+        yield ("d", delta)
+
+    fragment = _extract_html_fragment("".join(full))
+
+    if not fragment:
+        raise AnalyzeError(
+            "OpenRouter returned an empty response."
+        )
+
+    yield ("final", fragment)
+
+
+async def stream_refactor_qa_notes(
+    raw_html: str,
+    db_session: AsyncSession,
+) -> AsyncIterator[tuple[str, str]]:
+    """Stream a QA-notes rewrite (see ``_stream_refactor``).
+
+    System prompt resolves the ``REFACTOR_PROMPT_KEY`` slot, identical
+    to the buffered ``refactor_qa_notes``.
+    """
+    async for event in _stream_refactor(
+        raw_html,
+        db_session,
+        prompt_key=REFACTOR_PROMPT_KEY,
+        fallback_prompt=REFACTOR_SYSTEM_PROMPT,
+    ):
+        yield event
+
+
+async def stream_refactor_bf_comment(
+    raw_html: str,
+    db_session: AsyncSession,
+) -> AsyncIterator[tuple[str, str]]:
+    """Stream a Bad Feedback comment rewrite (see ``_stream_refactor``).
+
+    System prompt resolves the ``BF_COMMENT_PROMPT_KEY`` slot, identical
+    to the buffered ``refactor_bf_comment``.
+    """
+    async for event in _stream_refactor(
+        raw_html,
+        db_session,
+        prompt_key=BF_COMMENT_PROMPT_KEY,
+        fallback_prompt=BF_COMMENT_SYSTEM_PROMPT,
+    ):
+        yield event
+
+
+# ---------------------------------------------------------------------------
 # Notes from score
 # ---------------------------------------------------------------------------
 
@@ -777,6 +928,92 @@ async def draft_notes_from_score(
     The output is NOT sanitized server-side — the client sanitizes it
     with DOMPurify before insertion (same trust boundary as
     ``refactor_qa_notes``).
+    """
+    system_prompt, user_content = await _notes_from_score_messages(
+        case_type,
+        raw_scorecard,
+        db_session,
+        support_agent_id=support_agent_id,
+        exclude_review_id=exclude_review_id,
+        no_multiplier_keys=no_multiplier_keys,
+    )
+    provider = await resolve_openrouter_provider(db_session)
+
+    # Release the DB connection before the multi-second network request
+    # (same commit-then-call pattern as the scoring/refactor flows).
+    await db_session.commit()
+
+    client = get_openrouter_client()
+
+    try:
+        response = await client.chat.completions.create(
+            model=AI_SCORING_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": user_content,
+                },
+            ],
+            temperature=0,
+            extra_body={"provider": provider},
+        )
+
+    except APIError as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter API error: {exc}"
+        ) from exc
+
+    except Exception as exc:
+        _log_openrouter_error(exc)
+        raise AnalyzeError(
+            f"OpenRouter request failed: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not response.choices:
+        raise AnalyzeError(
+            "OpenRouter returned no choices."
+        )
+
+    content = response.choices[0].message.content
+
+    if not content:
+        raise AnalyzeError(
+            "OpenRouter returned an empty response."
+        )
+
+    notes_html = _strip_code_fences(content)
+
+    if not notes_html:
+        raise AnalyzeError(
+            "OpenRouter returned an empty response."
+        )
+
+    return notes_html
+
+
+async def _notes_from_score_messages(
+    case_type: CaseTypeEnum,
+    raw_scorecard: dict[str, int],
+    db_session: AsyncSession,
+    support_agent_id: int | None = None,
+    exclude_review_id: int | None = None,
+    no_multiplier_keys: set[str] | None = None,
+) -> tuple[str, str]:
+    """Build the (system, user) messages for the notes-from-score call.
+
+    Shared by the buffered ``draft_notes_from_score`` and its streaming
+    variant. Performs ALL the DB reads of the capability — active rules,
+    progressive multipliers (when ``support_agent_id`` is given) and the
+    ``NOTES_FROM_SCORE_PROMPT_KEY`` slot — so callers can commit the
+    session right afterwards. Deduction keys missing from the active
+    rules are skipped silently so stale client payloads cannot crash
+    the call.
     """
     rules_snapshot = await get_active_rules(case_type, db_session)
     items = rules_snapshot["items"]
@@ -846,61 +1083,49 @@ async def draft_notes_from_score(
     # DB-stored prompt wins; the hardcoded constant is only a fallback.
     db_prompt = await _active_system_prompt(NOTES_FROM_SCORE_PROMPT_KEY, db_session)
     system_prompt = db_prompt if db_prompt else NOTES_FROM_SCORE_SYSTEM_PROMPT
-    provider = await resolve_openrouter_provider(db_session)
 
-    # Release the DB connection before the multi-second network request
-    # (same commit-then-call pattern as the scoring/refactor flows).
-    await db_session.commit()
+    return system_prompt, "\n".join(user_parts)
 
-    client = get_openrouter_client()
 
-    try:
-        response = await client.chat.completions.create(
-            model=AI_SCORING_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": system_prompt,
-                },
-                {
-                    "role": "user",
-                    "content": "\n".join(user_parts),
-                },
-            ],
-            temperature=0,
-            extra_body={"provider": provider},
-        )
+async def stream_draft_notes_from_score(
+    case_type: CaseTypeEnum,
+    raw_scorecard: dict[str, int],
+    db_session: AsyncSession,
+    support_agent_id: int | None = None,
+    exclude_review_id: int | None = None,
+    no_multiplier_keys: set[str] | None = None,
+) -> AsyncIterator[tuple[str, str]]:
+    """Streaming variant of ``draft_notes_from_score``.
 
-    except APIError as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter API error: {exc}"
-        ) from exc
+    Yields ``("d", delta)`` for every raw content delta, then a terminal
+    ``("final", notes_html)`` carrying the fence-stripped fragment (the
+    buffered endpoint's return value). Raises ``AnalyzeError`` when the
+    model produced nothing — the endpoint converts it into a terminal
+    ``{"error": ...}`` NDJSON event.
+    """
+    system_prompt, user_content = await _notes_from_score_messages(
+        case_type,
+        raw_scorecard,
+        db_session,
+        support_agent_id=support_agent_id,
+        exclude_review_id=exclude_review_id,
+        no_multiplier_keys=no_multiplier_keys,
+    )
 
-    except Exception as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter request failed: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+    full: list[str] = []
+    async for delta in _stream_completion(
+        system_prompt=system_prompt,
+        user_content=user_content,
+        db_session=db_session,
+    ):
+        full.append(delta)
+        yield ("d", delta)
 
-    if not response.choices:
-        raise AnalyzeError(
-            "OpenRouter returned no choices."
-        )
-
-    content = response.choices[0].message.content
-
-    if not content:
-        raise AnalyzeError(
-            "OpenRouter returned an empty response."
-        )
-
-    notes_html = _strip_code_fences(content)
+    notes_html = _strip_code_fences("".join(full))
 
     if not notes_html:
         raise AnalyzeError(
             "OpenRouter returned an empty response."
         )
 
-    return notes_html
+    yield ("final", notes_html)
