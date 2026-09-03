@@ -26,29 +26,7 @@
             {% endif %}
         </div>
     </div>
-    {% if agents %}
-    <div class="card rounded-box bg-base-100 shadow-sm">
-        <div class="card-body min-w-0 p-3 sm:p-4">
-            <div class="max-w-full overflow-x-auto">
-                <!-- table-fixed + colgroup: filling/removing case chips
-                     must not reflow the other columns (Avg score used
-                     to slide sideways); min-w keeps mobile scrolling
-                     instead of squishing. -->
-                <table class="table table-sm table-fixed w-full min-w-[480px]">
-                    <colgroup>
-                        <col class="w-[22%]" /><!-- Agent -->
-                        <col class="w-[58%]" /><!-- Quota -->
-                        <col class="w-[20%]" /><!-- Avg score -->
-                    </colgroup>
-                    <thead>
-                        <tr>
-                            <th>Agent</th>
-                            <th>Quota</th>
-                            <th>Avg score</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for agent in agents %}
+    {% macro agent_row(agent) %}
                         <tr>
                             <th class="truncate font-medium" title="{{ agent.name }}">{{ agent.name }}</th>
                             <td>
@@ -92,12 +70,73 @@
                                 {% endif %}
                             </td>
                         </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+    {% endmacro %}
+    {% macro agent_table(agent_list) %}
+                <div class="max-w-full overflow-x-auto">
+                    <!-- table-fixed + colgroup: filling/removing case chips
+                         must not reflow the other columns (Avg score used
+                         to slide sideways); min-w keeps mobile scrolling
+                         instead of squishing. -->
+                    <table class="table table-sm table-fixed w-full min-w-[480px]">
+                        <colgroup>
+                            <col class="w-[22%]" /><!-- Agent -->
+                            <col class="w-[58%]" /><!-- Quota -->
+                            <col class="w-[20%]" /><!-- Avg score -->
+                        </colgroup>
+                        <thead>
+                            <tr>
+                                <th>Agent</th>
+                                <th>Quota</th>
+                                <th>Avg score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for agent in agent_list %}
+                            {{ agent_row(agent) }}
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+    {% endmacro %}
+    {% if agents %}
+    {% set my_agents = agents | selectattr('id', 'in', my_agent_ids) | list %}
+    {% set other_agents = agents | rejectattr('id', 'in', my_agent_ids) | list %}
+    {% if my_agents and other_agents %}
+    <div class="card mb-4 rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h3 class="mb-2 flex items-center gap-2 text-base font-semibold">
+                Your agents
+                <span class="badge badge-soft badge-sm">{{ my_agents | length }}</span>
+            </h3>
+            {{ agent_table(my_agents) }}
         </div>
     </div>
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h3 class="mb-2 flex items-center gap-2 text-base font-semibold">
+                Other agents
+                <span class="badge badge-soft badge-sm">{{ other_agents | length }}</span>
+            </h3>
+            {{ agent_table(other_agents) }}
+        </div>
+    </div>
+    {% elif my_agents %}
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h3 class="mb-2 flex items-center gap-2 text-base font-semibold">
+                Your agents
+                <span class="badge badge-soft badge-sm">{{ my_agents | length }}</span>
+            </h3>
+            {{ agent_table(my_agents) }}
+        </div>
+    </div>
+    {% else %}
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            {{ agent_table(other_agents) }}
+        </div>
+    </div>
+    {% endif %}
     {% else %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
         No agents available

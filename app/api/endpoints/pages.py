@@ -1182,6 +1182,19 @@ async def partial_qa_matrix(
     )
     support_users = await _support_agents(db)
     agent_ids = [user.id for user in support_users]
+    # Staffing scope of the viewer (qa_assignments) — QA users see their
+    # assigned agents grouped first in the matrix; supervisors/admins
+    # (and unassigned QAs) get an empty set and the plain list.
+    my_agent_ids: set[int] = {
+        row[0]
+        for row in (
+            await db.execute(
+                select(QAAssignment.support_agent_id).where(
+                    QAAssignment.qa_id == auth.id
+                )
+            )
+        ).all()
+    }
     avgs: dict[int, float] = {}
     if agent_ids:
         result = await db.execute(
@@ -1264,6 +1277,10 @@ async def partial_qa_matrix(
             }
         )
 
+    # Stable sort: viewer's assigned agents first, alphabetical order
+    # preserved inside each group.
+    agents.sort(key=lambda agent: agent["id"] not in my_agent_ids)
+
     cases = [
         {
             "id": review.id,
@@ -1288,6 +1305,7 @@ async def partial_qa_matrix(
         name="partials/qa_matrix.html",
         context={
             "agents": agents,
+            "my_agent_ids": my_agent_ids,
             "cases": cases,
             "period_range": _period_range_label(period_start, period_end),
             "period_value": period_value,
