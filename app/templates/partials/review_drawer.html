@@ -914,6 +914,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 payload: { html: quill.root.innerHTML },
                 quill: quill,
                 sanitize: sanitizeHtml,
+                preserveImages: true,
                 signal: controller.signal
             });
             saveDraft();

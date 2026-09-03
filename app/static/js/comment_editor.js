@@ -232,6 +232,7 @@
                         payload: { html: quill.root.innerHTML },
                         quill: quill,
                         sanitize: sanitizeHtml,
+                        preserveImages: true,
                         emptyMessage: 'The AI returned an empty comment.',
                         signal: controller.signal
                     });

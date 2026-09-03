@@ -141,6 +141,28 @@ _HTML_FRAGMENT_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# The browser replaces each image in a refactor request with one of these
+# markers. The image bytes remain local and are rehydrated after the model's
+# terminal HTML arrives, so screenshots never consume the model context.
+_IMAGE_MARKER_RE = re.compile(
+    r"<span\b[^>]*\bdata-gys-image-marker\s*=",
+    re.IGNORECASE,
+)
+
+_IMAGE_MARKER_PROMPT = """\
+The HTML may contain `<span data-gys-image-marker=\"N\">` elements. Each
+one is a protected image placeholder, not prose. Preserve every marker exactly
+once, in its original position, with the tag and `data-gys-image-marker` value
+unchanged. Do not replace a marker with an image or describe it in text.
+"""
+
+
+def _refactor_prompt_with_image_marker_rule(system_prompt: str, raw_html: str) -> str:
+    """Require preservation of local image placeholders when present."""
+    if _IMAGE_MARKER_RE.search(raw_html):
+        return f"{system_prompt}\n\n{_IMAGE_MARKER_PROMPT}"
+    return system_prompt
+
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -664,6 +686,7 @@ async def _refactor_html(
     """
     db_prompt = await _active_system_prompt(prompt_key, db_session)
     system_prompt = db_prompt if db_prompt else fallback_prompt
+    system_prompt = _refactor_prompt_with_image_marker_rule(system_prompt, raw_html)
     provider = await resolve_openrouter_provider(db_session)
 
     # Release the DB connection before the multi-second network request
@@ -842,6 +865,7 @@ async def _stream_refactor(
     """
     db_prompt = await _active_system_prompt(prompt_key, db_session)
     system_prompt = db_prompt if db_prompt else fallback_prompt
+    system_prompt = _refactor_prompt_with_image_marker_rule(system_prompt, raw_html)
 
     full: list[str] = []
     async for delta in _stream_completion(

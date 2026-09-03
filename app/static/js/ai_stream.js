@@ -13,6 +13,10 @@
                   destroy) that cancels the request,
      focusEnd:    keep the caret at the end of the revealed text (Score
                   -> Notes sets the selection; Refactor does not),
+     preserveImages: replace editor images with lightweight markers in a
+                  refactor request, then put the original images back in
+                  the terminal HTML. This keeps data-URI image bytes out
+                  of the model context and makes the final swap lossless,
      emptyMessage: error thrown when the final fragment sanitizes to
                   nothing (per-surface wording),
      timeoutMs:   overall request cap (default 61000, mirrors aiFetch).
@@ -38,6 +42,57 @@
 
     function defaultSanitize(html) {
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : '';
+    }
+
+    /* Quill commonly stores pasted screenshots as large data: URIs. They
+       are not useful to a writing refactor, but sending them consumes the
+       context window and asking the model to reproduce them makes the
+       terminal replacement lossy. Keep their location as a tiny marker;
+       their original markup never leaves the browser. */
+    function protectImages(html) {
+        var tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        var images = [];
+        Array.prototype.forEach.call(tpl.content.querySelectorAll('img'), function (image, index) {
+            images.push(image.outerHTML);
+            var marker = document.createElement('span');
+            marker.setAttribute('data-gys-image-marker', String(index));
+            marker.textContent = '\uFEFF';
+            image.replaceWith(marker);
+        });
+        return { html: tpl.innerHTML, images: images };
+    }
+
+    /* Rehydrate each marker at most once. If a model accidentally omits a
+       marker, append that image rather than silently losing user content. */
+    function restoreImages(html, images) {
+        if (!images.length) return html;
+        var tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        var used = Object.create(null);
+
+        Array.prototype.forEach.call(
+            tpl.content.querySelectorAll('[data-gys-image-marker]'),
+            function (marker) {
+                var index = Number(marker.getAttribute('data-gys-image-marker'));
+                if (!Number.isInteger(index) || index < 0 || index >= images.length || used[index]) {
+                    marker.remove();
+                    return;
+                }
+                var imageTpl = document.createElement('template');
+                imageTpl.innerHTML = images[index];
+                marker.replaceWith(imageTpl.content.cloneNode(true));
+                used[index] = true;
+            }
+        );
+
+        images.forEach(function (imageHtml, index) {
+            if (used[index]) return;
+            var imageTpl = document.createElement('template');
+            imageTpl.innerHTML = imageHtml;
+            tpl.content.appendChild(imageTpl.content.cloneNode(true));
+        });
+        return tpl.innerHTML;
     }
 
     /* Prefix `maxChars` (text-node characters) of an HTML string as
@@ -82,6 +137,10 @@
             // Captured BEFORE any mutation; restoring is a no-op while
             // the reveal never started (editor untouched).
             var originalHtml = quill.root.innerHTML;
+            var imageSnapshot = opts.preserveImages ? protectImages(originalHtml) : null;
+            var requestPayload = imageSnapshot
+                ? Object.assign({}, opts.payload, { html: imageSnapshot.html })
+                : opts.payload;
             var accumulated = '';
             var revealed = 0;
             var started = false;
@@ -121,7 +180,7 @@
                     method: 'POST',
                     credentials: 'same-origin',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(opts.payload),
+                    body: JSON.stringify(requestPayload),
                     signal: ctrl.signal
                 });
                 if (!response.ok) {
@@ -189,7 +248,10 @@
                 restoreOriginal();
                 throw new Error('AI request failed.');
             }
-            var finalClean = sanitize(finalHtml);
+            var finalWithImages = imageSnapshot
+                ? restoreImages(finalHtml, imageSnapshot.images)
+                : finalHtml;
+            var finalClean = sanitize(finalWithImages);
             if (!finalClean.trim()) {
                 restoreOriginal();
                 throw new Error(opts.emptyMessage || 'The AI returned an empty note.');
