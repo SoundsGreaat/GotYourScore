@@ -1,21 +1,19 @@
 {# AI settings partial (swapped into #admin-view).
-   Context: stored=dict|None (the "openrouter_provider" AppSetting
-   value), default=dict (hardcoded ai_service.OPENROUTER_PROVIDER),
-   saved=bool.
-   When no DB row is stored the hardcoded default applies and is shown
-   as such. The textarea holds pretty-printed JSON; Save upserts the
-   row, Reset deletes it (back to the built-in default).
+   Provider routing and model/reasoning overrides are independent
+   AppSettings. Empty request override fields preserve built-in defaults.
    Validation failures return HTTP 400 JSON whose detail the GLOBAL
    htmx error net (common.js) toasts. #}
+{% import "macros/dropdowns.html" as dd %}
 <div id="admin-ai-root" class="space-y-4">
-    {% if saved %}<script>window.gysToast && window.gysToast('Provider routing saved.', 'alert-success');</script>{% endif %}
+    {% if saved == 'provider' %}<script>window.gysToast && window.gysToast('Provider routing saved.', 'alert-success');</script>{% endif %}
+    {% if saved == 'request' %}<script>window.gysToast && window.gysToast('AI request settings saved.', 'alert-success');</script>{% endif %}
 
     <div class="card rounded-box border border-base-300 bg-base-100 shadow-sm">
         <div class="card-body min-w-0 gap-3 p-4 sm:p-5">
             <div class="flex flex-wrap items-center gap-2">
                 <h2 class="card-title text-base">OpenRouter provider routing</h2>
                 <span class="badge badge-sm font-mono">openrouter_provider</span>
-                {% if stored %}
+                {% if provider_stored %}
                 <span class="badge badge-success badge-soft badge-sm">Custom config active</span>
                 {% else %}
                 <span class="badge badge-ghost badge-sm">Built-in default in use</span>
@@ -40,15 +38,71 @@
                     <span class="text-xs font-semibold text-base-content/70">Provider routing JSON</span>
                 </label>
                 <textarea id="provider-json" name="provider" required spellcheck="false" aria-label="Provider routing JSON"
-                          class="textarea h-64 w-full font-mono text-xs leading-relaxed">{{ (stored or default) | tojson(indent=2) }}</textarea>
+                          class="textarea h-64 w-full font-mono text-xs leading-relaxed">{{ (provider_stored or provider_default) | tojson(indent=2) }}</textarea>
                 <div class="flex flex-wrap items-center gap-2">
                     <button type="submit" class="btn btn-primary btn-sm self-start">Save</button>
                     <button type="button" class="btn btn-outline btn-error btn-sm"
                             hx-post="/admin/ai/provider/reset"
                             hx-confirm="Delete the stored config and fall back to the built-in default?"
                             hx-target="#admin-view" hx-swap="innerHTML">Reset to default</button>
-                    {% if not stored %}
+                    {% if not provider_stored %}
                     <span class="text-xs text-base-content/60">Saving stores this JSON; until then the built-in default applies.</span>
+                    {% endif %}
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="card rounded-box border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 gap-3 p-4 sm:p-5">
+            <div class="flex flex-wrap items-center gap-2">
+                <h2 class="card-title text-base">OpenRouter model and reasoning</h2>
+                <span class="badge badge-sm font-mono">openrouter_request</span>
+                {% if request_stored %}
+                <span class="badge badge-success badge-soft badge-sm">Custom override active</span>
+                {% else %}
+                <span class="badge badge-ghost badge-sm">Built-in defaults in use</span>
+                {% endif %}
+            </div>
+            <p class="text-xs text-base-content/60">
+                Applies to scoring, note refactoring and notes generated from a score.
+                Leave both fields empty to use <code>{{ default_model }}</code> and the
+                selected model's own reasoning default. Reasoning support varies by model;
+                unsupported combinations are rejected by OpenRouter.
+            </p>
+
+            <form hx-post="/admin/ai/request" hx-target="#admin-view" hx-swap="innerHTML" class="flex flex-col gap-3">
+                <label class="label" for="ai-model">
+                    <span class="text-xs font-semibold text-base-content/70">Model override</span>
+                </label>
+                <input id="ai-model" name="model" type="text" maxlength="200"
+                       value="{{ (request_stored or {}).get('model', '') }}"
+                       placeholder="Built-in: {{ default_model }}"
+                       aria-describedby="ai-model-help"
+                       class="input input-sm w-full font-mono">
+                <p id="ai-model-help" class="-mt-2 text-xs text-base-content/60">
+                    OpenRouter model slug, for example <code>openai/gpt-5</code>.
+                </p>
+
+                <label class="label" for="ai-reasoning-effort-button">
+                    <span class="text-xs font-semibold text-base-content/70">Reasoning effort</span>
+                </label>
+                {{ dd.dropdown('ai-reasoning-effort',
+                    items=reasoning_options,
+                    selected=(request_stored or {}).get('reasoning_effort', ''),
+                    any_label='Model default (no override)',
+                    placeholder='Model default (no override)',
+                    aria_label='Reasoning effort',
+                    hidden_attrs='name="reasoning_effort"') }}
+
+                <div class="flex flex-wrap items-center gap-2">
+                    <button type="submit" class="btn btn-primary btn-sm self-start">Save</button>
+                    <button type="button" class="btn btn-outline btn-error btn-sm"
+                            hx-post="/admin/ai/request/reset"
+                            hx-confirm="Delete the stored model and reasoning overrides and use built-in defaults?"
+                            hx-target="#admin-view" hx-swap="innerHTML">Reset to defaults</button>
+                    {% if not request_stored %}
+                    <span class="text-xs text-base-content/60">Saving any value stores an override; an empty save keeps defaults.</span>
                     {% endif %}
                 </div>
             </form>

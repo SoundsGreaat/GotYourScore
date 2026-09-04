@@ -23,6 +23,9 @@ Provider routing:
   DB-stored ``"openrouter_provider"`` AppSetting (admin-editable) or,
   when none is stored, the hardcoded ``OPENROUTER_PROVIDER`` constant
   (lowest throughput sort, fallbacks enabled).
+- the model and optional reasoning effort come from the admin-editable
+  ``"openrouter_request"`` AppSetting, falling back to
+  ``AI_SCORING_MODEL`` and the selected model's provider default.
 
 Error contract for callers (see the reviews/ai endpoints):
 - ``ValueError``: the API key is not configured -> HTTP 503.
@@ -61,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-# Exact model identifier required by the spec — do not rename.
+# Built-in model used until an Admin stores an OpenRouter model override.
 AI_SCORING_MODEL = "deepseek/deepseek-v4-flash-0731"
 
 # SystemPrompt key whose newest active row replaces the hardcoded
@@ -101,6 +104,32 @@ async def resolve_openrouter_provider(db_session: AsyncSession) -> dict:
             db_session, app_setting_service.OPENROUTER_PROVIDER_KEY
         )
     ) or dict(OPENROUTER_PROVIDER)
+
+
+async def resolve_openrouter_request_config(
+    db_session: AsyncSession,
+) -> tuple[str, dict]:
+    """Return the effective model and OpenRouter-specific request body.
+
+    The optional reasoning configuration uses OpenRouter's normalized
+    ``reasoning.effort`` request format. Invalid legacy JSONB values are
+    ignored defensively; values written by the Admin form are validated.
+    """
+    stored = await app_setting_service.get_value(
+        db_session, app_setting_service.OPENROUTER_REQUEST_KEY
+    ) or {}
+    if not isinstance(stored, dict):
+        stored = {}
+    model = stored.get("model")
+    reasoning_effort = stored.get("reasoning_effort")
+
+    effective_model = (
+        model if isinstance(model, str) and model else AI_SCORING_MODEL
+    )
+    extra_body = {"provider": await resolve_openrouter_provider(db_session)}
+    if reasoning_effort in app_setting_service.REASONING_EFFORTS:
+        extra_body["reasoning"] = {"effort": reasoning_effort}
+    return effective_model, extra_body
 
 
 # ---------------------------------------------------------------------------
@@ -595,7 +624,7 @@ async def analyze_support_ticket(
     # for an empty/inactive system_prompts table.
     db_prompt = await _active_system_prompt(SCORING_PROMPT_KEY, db_session)
     system_prompt = _build_scoring_prompt(rules, base_system_text=db_prompt)
-    provider = await resolve_openrouter_provider(db_session)
+    model, extra_body = await resolve_openrouter_request_config(db_session)
 
     # Release the DB connection before the multi-second network request.
     await db_session.commit()
@@ -604,7 +633,7 @@ async def analyze_support_ticket(
 
     try:
         response = await client.chat.completions.create(
-            model=AI_SCORING_MODEL,
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -622,7 +651,7 @@ async def analyze_support_ticket(
                 "type": "json_object",
             },
             temperature=0,
-            extra_body={"provider": provider},
+            extra_body=extra_body,
         )
 
     except APIError as exc:
@@ -687,7 +716,7 @@ async def _refactor_html(
     db_prompt = await _active_system_prompt(prompt_key, db_session)
     system_prompt = db_prompt if db_prompt else fallback_prompt
     system_prompt = _refactor_prompt_with_image_marker_rule(system_prompt, raw_html)
-    provider = await resolve_openrouter_provider(db_session)
+    model, extra_body = await resolve_openrouter_request_config(db_session)
 
     # Release the DB connection before the multi-second network request
     # (same commit-then-call pattern as analyze_support_ticket).
@@ -697,7 +726,7 @@ async def _refactor_html(
 
     try:
         response = await client.chat.completions.create(
-            model=AI_SCORING_MODEL,
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -709,7 +738,7 @@ async def _refactor_html(
                 },
             ],
             temperature=0,
-            extra_body={"provider": provider},
+            extra_body=extra_body,
         )
 
     except APIError as exc:
@@ -791,7 +820,7 @@ async def _stream_completion(
     content deltas verbatim as they arrive; raises ``AnalyzeError`` on
     transport or API failures.
     """
-    provider = await resolve_openrouter_provider(db_session)
+    model, extra_body = await resolve_openrouter_request_config(db_session)
 
     # Release the DB connection before the multi-second network request.
     await db_session.commit()
@@ -800,7 +829,7 @@ async def _stream_completion(
 
     try:
         stream = await client.chat.completions.create(
-            model=AI_SCORING_MODEL,
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -812,7 +841,7 @@ async def _stream_completion(
                 },
             ],
             temperature=0,
-            extra_body={"provider": provider},
+            extra_body=extra_body,
             stream=True,
         )
 
@@ -961,7 +990,7 @@ async def draft_notes_from_score(
         exclude_review_id=exclude_review_id,
         no_multiplier_keys=no_multiplier_keys,
     )
-    provider = await resolve_openrouter_provider(db_session)
+    model, extra_body = await resolve_openrouter_request_config(db_session)
 
     # Release the DB connection before the multi-second network request
     # (same commit-then-call pattern as the scoring/refactor flows).
@@ -971,7 +1000,7 @@ async def draft_notes_from_score(
 
     try:
         response = await client.chat.completions.create(
-            model=AI_SCORING_MODEL,
+            model=model,
             messages=[
                 {
                     "role": "system",
@@ -983,7 +1012,7 @@ async def draft_notes_from_score(
                 },
             ],
             temperature=0,
-            extra_body={"provider": provider},
+            extra_body=extra_body,
         )
 
     except APIError as exc:

@@ -935,7 +935,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
         setLoading(scoreButton, 'Scoring…', true);
         try {
-            var response = await aiFetch('/api/ai/score', { html: quill.root.innerHTML, case_type: document.getElementById('case-type').value });
+            var response = await aiFetch('/api/ai/score', {
+                html: window.gysAiStream.omitImages(quill.root.innerHTML),
+                case_type: document.getElementById('case-type').value
+            });
             if (!response.ok) throw new Error('Score request failed');
             var result = await response.json();
             var matched = 0;

@@ -521,24 +521,33 @@ async def toggle_scorecard(
 
 
 # ---------------------------------------------------------------------------
-# AI provider routing
+# AI settings
 # ---------------------------------------------------------------------------
 
 
 async def _ai_context(
-    db: AsyncSession, *, error: str | None = None, saved: bool = False
+    db: AsyncSession, *, error: str | None = None, saved: str | None = None
 ) -> dict[str, object]:
     """Context for the AI settings partial (shared by GET and POST flows).
 
-    ``stored`` is the DB row's value or None; when None the hardcoded
-    ``ai_service.OPENROUTER_PROVIDER`` constant is in effect.
+    Provider routing and request overrides are independent AppSetting rows:
+    no row means the corresponding built-in default remains in effect.
     """
-    stored = await app_setting_service.get_value(
+    provider_stored = await app_setting_service.get_value(
         db, app_setting_service.OPENROUTER_PROVIDER_KEY
     )
+    request_stored = await app_setting_service.get_value(
+        db, app_setting_service.OPENROUTER_REQUEST_KEY
+    )
     return {
-        "stored": stored,
-        "default": ai_service.OPENROUTER_PROVIDER,
+        "provider_stored": provider_stored,
+        "provider_default": ai_service.OPENROUTER_PROVIDER,
+        "request_stored": request_stored,
+        "default_model": ai_service.AI_SCORING_MODEL,
+        "reasoning_options": [
+            {"value": effort, "label": effort.title()}
+            for effort in app_setting_service.REASONING_EFFORTS
+        ],
         "error": error,
         "saved": saved,
     }
@@ -553,7 +562,7 @@ async def _ai_context(
 async def partial_ai(
     request: Request, auth: AdminPageUser, db: DbSession
 ) -> Response:
-    """Current OpenRouter provider routing + its JSON edit form."""
+    """Current OpenRouter provider routing and request overrides."""
     redirect = _guard(auth, request)
     if redirect is not None:
         return redirect
@@ -593,7 +602,7 @@ async def save_ai_provider(
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_ai.html",
-        context=await _ai_context(db, saved=True),
+        context=await _ai_context(db, saved="provider"),
     )
 
 
@@ -608,6 +617,62 @@ async def reset_ai_provider(
 
     await app_setting_service.delete_key(
         db, app_setting_service.OPENROUTER_PROVIDER_KEY
+    )
+    await db.commit()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_ai.html",
+        context=await _ai_context(db),
+    )
+
+
+@router.post("/admin/ai/request", name="admin_save_ai_request")
+async def save_ai_request(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Save optional OpenRouter model and reasoning-effort overrides."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    form = await request.form()
+    try:
+        value = app_setting_service.parse_openrouter_request(
+            str(form.get("model", "")),
+            str(form.get("reasoning_effort", "")),
+        )
+    except ValueError as exc:
+        return _error_json(str(exc))
+
+    if value:
+        await app_setting_service.upsert(
+            db, app_setting_service.OPENROUTER_REQUEST_KEY, value
+        )
+    else:
+        await app_setting_service.delete_key(
+            db, app_setting_service.OPENROUTER_REQUEST_KEY
+        )
+    await db.commit()
+
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_ai.html",
+        context=await _ai_context(db, saved="request"),
+    )
+
+
+@router.post("/admin/ai/request/reset", name="admin_reset_ai_request")
+async def reset_ai_request(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Delete request overrides so model/provider defaults apply again."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    await app_setting_service.delete_key(
+        db, app_setting_service.OPENROUTER_REQUEST_KEY
     )
     await db.commit()
 

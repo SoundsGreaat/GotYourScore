@@ -44,6 +44,16 @@
         return window.DOMPurify ? window.DOMPurify.sanitize(html) : '';
     }
 
+    /* Scoring is text-only: omit image bytes before the request without
+       changing the editor. Unlike refactoring, no result is written back,
+       so no placeholder needs to be restored. */
+    function omitImages(html) {
+        var tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        tpl.content.querySelectorAll('img').forEach(function (image) { image.remove(); });
+        return tpl.innerHTML;
+    }
+
     /* Quill commonly stores pasted screenshots as large data: URIs. They
        are not useful to a writing refactor, but sending them consumes the
        context window and asking the model to reproduce them makes the
@@ -123,6 +133,7 @@
     }
 
     window.gysAiStream = {
+        omitImages: omitImages,
         streamInto: async function (opts) {
             var quill = opts.quill;
             var sanitize = opts.sanitize || defaultSanitize;
