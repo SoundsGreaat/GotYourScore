@@ -17,8 +17,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AppSetting
 
-# The only AppSetting key this feature manages.
+# AppSetting keys managed by the Admin AI panel.
 OPENROUTER_PROVIDER_KEY = "openrouter_provider"
+OPENROUTER_REQUEST_KEY = "openrouter_request"
+
+# OpenRouter's normalized reasoning-effort values. An empty admin value means
+# no ``reasoning`` object is sent, letting the selected model use its default.
+REASONING_EFFORTS = (
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
+)
 
 _STRING_LIST_KEYS = ("order", "only", "ignore", "quantizations")
 _BOOLEAN_KEYS = ("allow_fallbacks", "require_parameters", "zdr",
@@ -154,6 +167,39 @@ def parse_openrouter_provider(raw: str) -> dict:
         _validate_entry(key, value)
 
     return parsed
+
+
+def parse_openrouter_request(model_raw: str, reasoning_effort_raw: str) -> dict:
+    """Validate optional model/reasoning overrides from the Admin form.
+
+    Both fields are deliberately optional: an empty form means no stored
+    override and preserves the application's built-in request defaults.
+    """
+    model = model_raw.strip()
+    reasoning_effort = reasoning_effort_raw.strip()
+
+    if model:
+        if len(model) > 200:
+            raise ValueError("Model identifier must be 200 characters or fewer.")
+        if not model.isascii() or not all(
+            char.isalnum() or char in "._:/-" for char in model
+        ):
+            raise ValueError(
+                "Model identifier may contain only letters, digits, ., _, :, / and -."
+            )
+
+    if reasoning_effort and reasoning_effort not in REASONING_EFFORTS:
+        raise ValueError(
+            "Reasoning effort must be one of: "
+            f"{', '.join(REASONING_EFFORTS)}."
+        )
+
+    value: dict[str, str] = {}
+    if model:
+        value["model"] = model
+    if reasoning_effort:
+        value["reasoning_effort"] = reasoning_effort
+    return value
 
 
 async def get_value(db_session: AsyncSession, key: str) -> dict | None:

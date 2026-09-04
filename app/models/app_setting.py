@@ -10,7 +10,8 @@ a redeploy. Business rules:
 - Nothing is seeded by migrations: an empty table means every setting
   uses its built-in default.
 
-Current keys: ``"openrouter_provider"`` — OpenRouter provider routing
+Current keys: ``"openrouter_provider"`` — OpenRouter provider routing; and
+``"openrouter_request"`` — optional model and reasoning-effort overrides
 (see ``app.services.ai_service``).
 """
 
