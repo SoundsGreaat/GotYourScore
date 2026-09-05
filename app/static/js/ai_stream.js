@@ -197,6 +197,14 @@
                 if (!response.ok) {
                     var detail = null;
                     try { detail = (await response.json()).detail; } catch (e) { /* non-JSON body */ }
+                    if (response.status === 429) {
+                        var retryAfter = Number(response.headers.get('Retry-After'));
+                        throw new Error(
+                            retryAfter > 0
+                                ? 'AI request limit reached. Try again in ' + retryAfter + ' seconds.'
+                                : 'AI request limit reached. Please try again shortly.'
+                        );
+                    }
                     throw new Error(detail || 'AI request failed.');
                 }
 

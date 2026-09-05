@@ -41,6 +41,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ai_rate_limit import (
+    AiRequestLease,
+    reserve_ai_request,
+)
 from app.core.security import RoleChecker
 from app.db.database import get_db
 from app.models import CaseTypeEnum, RoleEnum, User
@@ -71,7 +75,7 @@ _NO_API_KEY_DETAIL = (
 
 
 def _ndjson_response(
-    events: AsyncIterator[tuple[str, str]],
+    events: AsyncIterator[tuple[str, str]], lease: AiRequestLease
 ) -> StreamingResponse:
     """Wrap a service event stream (see the streaming contract) as NDJSON.
 
@@ -90,6 +94,8 @@ def _ndjson_response(
                 {"error": f"AI stream failed: {type(exc).__name__}: {exc}"},
                 ensure_ascii=False,
             ) + "\n"
+        finally:
+            await lease.release()
 
     return StreamingResponse(
         event_stream(),
@@ -102,7 +108,7 @@ def _ndjson_response(
 async def refactor_notes(
     payload: RefactorIn,
     db: DbSession,
-    _current_user: AiUser,
+    current_user: AiUser,
 ) -> RefactorOut:
     """Rewrite QA notes (HTML) without persisting anything.
 
@@ -112,21 +118,25 @@ async def refactor_notes(
     - 503 when ``OPENROUTER_API_KEY`` is not configured.
     - 502 when the AI call fails or returns an empty response.
     """
+    lease = await reserve_ai_request(current_user.id)
     try:
-        html = await ai_service.refactor_qa_notes(payload.html, db)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                "in the environment or the .env file to enable AI features."
-            ),
-        ) from exc
-    except ai_service.AnalyzeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI refactoring failed: {exc}",
-        ) from exc
+        try:
+            html = await ai_service.refactor_qa_notes(payload.html, db)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
+                    "in the environment or the .env file to enable AI features."
+                ),
+            ) from exc
+        except ai_service.AnalyzeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI refactoring failed: {exc}",
+            ) from exc
+    finally:
+        await lease.release()
     return RefactorOut(html=html)
 
 
@@ -134,7 +144,7 @@ async def refactor_notes(
 async def refactor_notes_stream(
     payload: RefactorIn,
     db: DbSession,
-    _current_user: AiUser,
+    current_user: AiUser,
 ) -> StreamingResponse:
     """Stream a QA-notes rewrite as NDJSON (see the streaming contract).
 
@@ -150,14 +160,17 @@ async def refactor_notes_stream(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_NO_API_KEY_DETAIL,
         ) from exc
-    return _ndjson_response(ai_service.stream_refactor_qa_notes(payload.html, db))
+    lease = await reserve_ai_request(current_user.id)
+    return _ndjson_response(
+        ai_service.stream_refactor_qa_notes(payload.html, db), lease
+    )
 
 
 @router.post("/refactor-comment", response_model=RefactorOut)
 async def refactor_bf_comment(
     payload: RefactorIn,
     db: DbSession,
-    _current_user: AiUser,
+    current_user: AiUser,
 ) -> RefactorOut:
     """Rewrite a per-agent Bad Feedback comment (HTML), unpersisted.
 
@@ -168,21 +181,25 @@ async def refactor_bf_comment(
     - 503 when ``OPENROUTER_API_KEY`` is not configured.
     - 502 when the AI call fails or returns an empty response.
     """
+    lease = await reserve_ai_request(current_user.id)
     try:
-        html = await ai_service.refactor_bf_comment(payload.html, db)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                "in the environment or the .env file to enable AI features."
-            ),
-        ) from exc
-    except ai_service.AnalyzeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI refactoring failed: {exc}",
-        ) from exc
+        try:
+            html = await ai_service.refactor_bf_comment(payload.html, db)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
+                    "in the environment or the .env file to enable AI features."
+                ),
+            ) from exc
+        except ai_service.AnalyzeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI refactoring failed: {exc}",
+            ) from exc
+    finally:
+        await lease.release()
     return RefactorOut(html=html)
 
 
@@ -190,7 +207,7 @@ async def refactor_bf_comment(
 async def refactor_bf_comment_stream(
     payload: RefactorIn,
     db: DbSession,
-    _current_user: AiUser,
+    current_user: AiUser,
 ) -> StreamingResponse:
     """Stream a Bad Feedback comment rewrite as NDJSON (see contract).
 
@@ -204,16 +221,15 @@ async def refactor_bf_comment_stream(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_NO_API_KEY_DETAIL,
         ) from exc
-    return _ndjson_response(
-        ai_service.stream_refactor_bf_comment(payload.html, db)
-    )
+    lease = await reserve_ai_request(current_user.id)
+    return _ndjson_response(ai_service.stream_refactor_bf_comment(payload.html, db), lease)
 
 
 @router.post("/score", response_model=ScoreOut)
 async def score_notes(
     payload: ScoreIn,
     db: DbSession,
-    _current_user: AiUser,
+    current_user: AiUser,
 ) -> ScoreOut:
     """Preview-score QA notes (HTML) without persisting anything.
 
@@ -227,23 +243,27 @@ async def score_notes(
     - 503 when ``OPENROUTER_API_KEY`` is not configured.
     - 502 when the AI analysis call or response parsing fails.
     """
+    lease = await reserve_ai_request(current_user.id)
     try:
-        scorecard = await ai_service.analyze_support_ticket(
-            payload.html, payload.case_type, db
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                "in the environment or the .env file to enable AI features."
-            ),
-        ) from exc
-    except ai_service.AnalyzeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI analysis failed: {exc}",
-        ) from exc
+        try:
+            scorecard = await ai_service.analyze_support_ticket(
+                payload.html, payload.case_type, db
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
+                    "in the environment or the .env file to enable AI features."
+                ),
+            ) from exc
+        except ai_service.AnalyzeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI analysis failed: {exc}",
+            ) from exc
+    finally:
+        await lease.release()
 
     total_deduction = sum(scorecard.values())
     return ScoreOut(
@@ -258,7 +278,7 @@ async def score_notes(
 async def notes_from_score(
     payload: NotesFromScoreIn,
     db: DbSession,
-    _current_user: AiUser,
+    current_user: AiUser,
 ) -> NotesFromScoreOut:
     """Draft review notes (HTML) from ticked scorecard deductions.
 
@@ -284,28 +304,32 @@ async def notes_from_score(
                 "case_type 'No Cases' has no scorecard to draft notes from."
             ),
         )
+    lease = await reserve_ai_request(current_user.id)
     try:
-        notes_html = await ai_service.draft_notes_from_score(
-            payload.case_type,
-            payload.raw_scorecard,
-            db,
-            support_agent_id=payload.support_agent_id,
-            exclude_review_id=payload.exclude_review_id,
-            no_multiplier_keys=payload.no_multiplier_keys,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                "in the environment or the .env file to enable AI features."
-            ),
-        ) from exc
-    except ai_service.AnalyzeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI note drafting failed: {exc}",
-        ) from exc
+        try:
+            notes_html = await ai_service.draft_notes_from_score(
+                payload.case_type,
+                payload.raw_scorecard,
+                db,
+                support_agent_id=payload.support_agent_id,
+                exclude_review_id=payload.exclude_review_id,
+                no_multiplier_keys=payload.no_multiplier_keys,
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
+                    "in the environment or the .env file to enable AI features."
+                ),
+            ) from exc
+        except ai_service.AnalyzeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI note drafting failed: {exc}",
+            ) from exc
+    finally:
+        await lease.release()
     return NotesFromScoreOut(notes_html=notes_html)
 
 
@@ -313,7 +337,7 @@ async def notes_from_score(
 async def notes_from_score_stream(
     payload: NotesFromScoreIn,
     db: DbSession,
-    _current_user: AiUser,
+    current_user: AiUser,
 ) -> StreamingResponse:
     """Stream draft review notes as NDJSON (see the streaming contract).
 
@@ -334,6 +358,7 @@ async def notes_from_score_stream(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=_NO_API_KEY_DETAIL,
         ) from exc
+    lease = await reserve_ai_request(current_user.id)
     return _ndjson_response(
         ai_service.stream_draft_notes_from_score(
             payload.case_type,
@@ -342,5 +367,6 @@ async def notes_from_score_stream(
             support_agent_id=payload.support_agent_id,
             exclude_review_id=payload.exclude_review_id,
             no_multiplier_keys=payload.no_multiplier_keys,
-        )
+        ),
+        lease,
     )

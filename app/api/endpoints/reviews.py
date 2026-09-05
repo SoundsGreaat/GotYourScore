@@ -70,6 +70,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, or_, select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.ai_rate_limit import reserve_ai_request
 from app.core.security import RoleChecker, get_current_user, is_reviewer
 from app.db.database import get_db
 from app.models import (
@@ -565,23 +566,27 @@ async def auto_score_review(
     # so the rules query inside the service starts a fresh (read-only)
     # transaction; the connection may sit idle during the network call
     # — accepted trade-off, see analyze_support_ticket.
+    lease = await reserve_ai_request(current_user.id)
     try:
-        raw_scorecard = await ai_service.analyze_support_ticket(
-            payload.transcript, payload.case_type, db
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                "in the environment or the .env file to enable AI auto-scoring."
-            ),
-        ) from exc
-    except ai_service.AnalyzeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"AI analysis failed: {exc}",
-        ) from exc
+        try:
+            raw_scorecard = await ai_service.analyze_support_ticket(
+                payload.transcript, payload.case_type, db
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
+                    "in the environment or the .env file to enable AI auto-scoring."
+                ),
+            ) from exc
+        except ai_service.AnalyzeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"AI analysis failed: {exc}",
+            ) from exc
+    finally:
+        await lease.release()
 
     breakdown, final_score, total_penalty = (
         await multiplier_service.calculate_final_score(agent.id, raw_scorecard, db)
