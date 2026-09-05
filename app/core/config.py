@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,10 +37,15 @@ class Settings(BaseSettings):
     ALLOWED_DOMAIN: str = "example.com"
 
     # Session cookie hardening: set SESSION_COOKIE_SECURE=true in production
-    # (HTTPS-only cookies). SESSION_MAX_AGE bounds cookie lifetime in
-    # seconds (None = browser-session cookie).
+    # (HTTPS-only cookies). Session lifetime is 12 hours unless overridden.
     SESSION_COOKIE_SECURE: bool = False
-    SESSION_MAX_AGE: int | None = None
+    SESSION_MAX_AGE: int = Field(default=12 * 60 * 60, gt=0)
+
+    # AI calls are expensive. Limit each authenticated user to 20 calls per
+    # five minutes and two simultaneous requests; deployments may tune these.
+    AI_RATE_LIMIT_REQUESTS: int = Field(default=20, gt=0)
+    AI_RATE_LIMIT_WINDOW_SECONDS: int = Field(default=5 * 60, gt=0)
+    AI_MAX_CONCURRENT_REQUESTS_PER_USER: int = Field(default=2, gt=0)
 
     # Global QA quota: strictly 6 cases per support agent per month.
     # Calculated dynamically from the Review table; kept here for
@@ -51,7 +56,6 @@ class Settings(BaseSettings):
         "OPENROUTER_API_KEY",
         "GOOGLE_CLIENT_ID",
         "GOOGLE_CLIENT_SECRET",
-        "SESSION_MAX_AGE",
         mode="before",
     )
     @classmethod

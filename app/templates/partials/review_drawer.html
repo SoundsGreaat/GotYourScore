@@ -886,9 +886,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }).finally(function () { window.clearTimeout(timer); });
     }
     function aiErrorMessage(error) {
-        return error.name === 'AbortError'
-            ? 'AI request timed out.'
-            : 'AI request failed.';
+        if (error.name === 'AbortError') return 'AI request timed out.';
+        return error && error.message ? error.message : 'AI request failed.';
     }
 
     // Shared empty guard for the AI/copy menu actions: whitespace-only
@@ -939,7 +938,18 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 html: window.gysAiStream.omitImages(quill.root.innerHTML),
                 case_type: document.getElementById('case-type').value
             });
-            if (!response.ok) throw new Error('Score request failed');
+            if (!response.ok) {
+                var errorPayload = await response.json().catch(function () { return null; });
+                if (response.status === 429) {
+                    var retryAfter = Number(response.headers.get('Retry-After'));
+                    throw new Error(
+                        retryAfter > 0
+                            ? 'AI request limit reached. Try again in ' + retryAfter + ' seconds.'
+                            : 'AI request limit reached. Please try again shortly.'
+                    );
+                }
+                throw new Error(extractErrorDetail(errorPayload, response.status));
+            }
             var result = await response.json();
             var matched = 0;
             Object.entries(result.scorecard || {}).forEach(function (entry) {
