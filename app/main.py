@@ -1,13 +1,17 @@
 """GotYourScore FastAPI application entrypoint."""
 
 import math
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.auth import router as auth_router
@@ -23,6 +27,13 @@ from app.core.config import get_settings
 settings = get_settings()
 
 app = FastAPI(title=settings.PROJECT_NAME)
+
+# Error pages use the same base template and cache-busted assets as the
+# application pages, but live here so they remain available when no route
+# matches at all.
+_TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+error_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+error_templates.env.globals["asset_v"] = str(int(time.time()))
 
 
 def _sanitize_nonfinite(obj: object) -> object:
@@ -50,6 +61,26 @@ async def validation_exception_handler(
         status_code=422,
         content={"detail": _sanitize_nonfinite(jsonable_encoder(exc.errors()))},
     )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_page_handler(
+    request: Request, exc: StarletteHTTPException
+):
+    """Render the branded 404 for browser navigation without changing API errors."""
+    accepts_html = "text/html" in request.headers.get("accept", "")
+    if (
+        exc.status_code == 404
+        and request.method == "GET"
+        and accepts_html
+        and not request.url.path.startswith("/api/")
+    ):
+        return error_templates.TemplateResponse(
+            request=request,
+            name="404.html",
+            status_code=404,
+        )
+    return await http_exception_handler(request, exc)
 
 # Signed HTTP-only cookie sessions (secret overridable via .env SECRET_KEY;
 # set SESSION_COOKIE_SECURE=true behind HTTPS in production).
