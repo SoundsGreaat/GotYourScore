@@ -1,0 +1,49 @@
+{# Deleted Bad Feedback partial, swapped into #admin-view. #}
+<div id="admin-deleted-bad-feedback-root" class="space-y-4">
+    <div class="card rounded-box bg-base-100 shadow-sm">
+        <div class="card-body min-w-0 p-3 sm:p-4">
+            <h2 class="card-title text-base">
+                Deleted Bad Feedback
+                <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
+            </h2>
+            {% if rows %}
+            <div class="max-w-full overflow-x-auto">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Deleted</th>
+                            <th>Date</th>
+                            <th>Agents</th>
+                            <th>Reviewed by</th>
+                            <th>Source</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                        <tr>
+                            <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
+                            <td class="whitespace-nowrap">{% if row.fb_date %}{{ row.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <th class="font-medium">{{ row.agent_names|join(', ') if row.agent_names else '—' }}</th>
+                            <td>{{ row.reviewer_name }}</td>
+                            <td>{{ row.source or '—' }}</td>
+                            <td>{{ row.status.value }}</td>
+                            <td>
+                                <button type="button" class="btn btn-outline btn-success btn-xs"
+                                        hx-post="/admin/bad-feedback/{{ row.id }}/restore"
+                                        hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
+                No deleted Bad Feedback
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
