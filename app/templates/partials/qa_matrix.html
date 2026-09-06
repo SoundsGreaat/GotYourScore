@@ -63,6 +63,17 @@
                                 {% endif %}
                             </td>
                             <td>
+                                <div class="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-x-2 gap-y-1 text-xs"
+                                     role="group" aria-label="Completed cases by type">
+                                    {% for case_type in case_types %}
+                                    <div class="flex min-w-0 items-baseline gap-1 text-base-content/60">
+                                        <span class="truncate" title="{{ case_type.value }}">{{ case_type.value }}</span>
+                                        <span class="font-semibold tabular-nums text-base-content">{{ agent.case_type_counts[case_type.value] }}</span>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </td>
+                            <td>
                                 {% if agent.avg_score is none %}
                                 <span class="text-base-content/50">&mdash;</span>
                                 {% else %}
@@ -77,16 +88,18 @@
                          must not reflow the other columns (Avg score used
                          to slide sideways); min-w keeps mobile scrolling
                          instead of squishing. -->
-                    <table class="table table-sm table-fixed w-full min-w-[480px]">
+                    <table class="table table-sm table-fixed w-full min-w-[720px]">
                         <colgroup>
-                            <col class="w-[22%]" /><!-- Agent -->
-                            <col class="w-[58%]" /><!-- Quota -->
-                            <col class="w-[20%]" /><!-- Avg score -->
+                            <col class="w-[18%]" /><!-- Agent -->
+                            <col class="w-[40%]" /><!-- Quota -->
+                            <col class="w-[26%]" /><!-- Completed cases -->
+                            <col class="w-[16%]" /><!-- Avg score -->
                         </colgroup>
                         <thead>
                             <tr>
                                 <th>Agent</th>
                                 <th>Quota</th>
+                                <th>Completed cases</th>
                                 <th>Avg score</th>
                             </tr>
                         </thead>

@@ -1149,11 +1149,9 @@ async def partial_qa_matrix(
 
     Context: every Support agent with their quota for the SELECTED
     REPORTING period (26th→25th, named after the closing month;
-    ``?period=YYYY-MM`` picks a past one, default current) and their
-    per-period average final score as
-    ``{"id", "name", "completed", "target", "avg_score"}`` (avg_score
-    is the average final score WITHIN THE SELECTED period and is None
-    when the agent has no scored reviews in it). Global data:
+    ``?period=YYYY-MM`` picks a past one, default current), per-period
+    average final score, and completed-real-case counts by every case
+    type except ``No Cases``. Global data:
     reviewer roles only — Support-only users get a bare 403 (no
     redirect). The per-agent quota lookups are N+1 queries —
     acceptable for a small team; averages are one grouped query.
@@ -1210,6 +1208,31 @@ async def partial_qa_matrix(
         )
         avgs = {agent_id: round(float(avg), 1) for agent_id, avg in result.all()}
 
+    case_type_counts_by_agent: dict[int, dict[CaseTypeEnum, int]] = {}
+    case_types = tuple(
+        case_type
+        for case_type in CaseTypeEnum
+        if case_type is not CaseTypeEnum.NO_CASES
+    )
+    if agent_ids:
+        result = await db.execute(
+            select(
+                Review.support_agent_id,
+                Review.case_type,
+                func.count(),
+            )
+            .where(
+                Review.support_agent_id.in_(agent_ids),
+                Review.created_at >= period_start,
+                Review.created_at < period_end,
+                Review.case_type != CaseTypeEnum.NO_CASES,
+                *quota_service.counted_review_filters(),
+            )
+            .group_by(Review.support_agent_id, Review.case_type)
+        )
+        for agent_id, case_type, count in result.all():
+            case_type_counts_by_agent.setdefault(agent_id, {})[case_type] = count
+
     reviews = list(
         (
             await db.execute(
@@ -1261,6 +1284,12 @@ async def partial_qa_matrix(
                 "completed": quota["completed"],
                 "target": quota["target"],
                 "avg_score": avgs.get(user.id),
+                "case_type_counts": {
+                    case_type.value: case_type_counts_by_agent
+                    .get(user.id, {})
+                    .get(case_type, 0)
+                    for case_type in case_types
+                },
                 "cases": [
                     {
                         "id": review.id,
@@ -1310,6 +1339,7 @@ async def partial_qa_matrix(
             "period_range": _period_range_label(period_start, period_end),
             "period_value": period_value,
             "period_options": await _period_options(db),
+            "case_types": case_types,
             "can_delegate": auth.has_role(RoleEnum.SUPERVISOR, RoleEnum.ADMIN),
             "qas": [
                 {"id": qa.id, "name": qa.nickname} for qa in await _qas(db)
