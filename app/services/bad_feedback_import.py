@@ -22,6 +22,7 @@ unknown names are slugified (Cyrillic transliterated) into
 
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from datetime import date, datetime
 from io import BytesIO
 from typing import Any
@@ -41,6 +42,7 @@ from app.models import (
 from app.schemas.bad_feedback import (
     ImportCommitResponse,
     ImportInspectResponse,
+    ImportPreviewRow,
 )
 from app.services import user_service
 
@@ -124,7 +126,6 @@ _SLUG_KEEP_RE = re.compile(r"[^a-z0-9._-]+")
 _NICKNAME_SAFE_RE = re.compile(r"^[a-z0-9._-]{1,50}$")
 
 _MAX_ROWS = 1000
-_PREVIEW_ROWS = 5
 _MAX_CELL = 2000
 
 # Row-level skip reasons.
@@ -303,38 +304,81 @@ def _header_index(headers: list[str], wanted: str | None) -> int | None:
     return None
 
 
-def suggest_mapping(headers: list[str]) -> dict[str, str]:
-    """Best-guess canonical field -> header text from the header row."""
-    lowered = [h.lower() for h in headers]
-    suggestions: dict[str, str] = {}
-    rules = (
-        ("date", ("date", "дата")),
-        ("source", ("source", "источник", "channel")),
-        ("customer_info", ("customer", "клиент", "email", "crm")),
-        ("customer_feedback", ("feedback", "comment", "отзыв")),
-        ("related_case", ("case", "кейс", "ticket")),
-        ("support_agents", ("support agent", "support", "ra support")),
-        ("sales_agents", ("sales",)),
+_MAPPING_THRESHOLD = 0.65
+_MAPPING_AMBIGUITY_MARGIN = 0.08
+
+
+def _normalized_text(value: str) -> str:
+    """Lowercase text while preserving Unicode word boundaries."""
+    text = unicodedata.normalize("NFKC", value).casefold()
+    return " ".join(re.findall(r"[\w]+", text, flags=re.UNICODE))
+
+
+def _field_label(field: str) -> str:
+    """Return the visible label without optional explanatory text."""
+    return FIELD_LABELS[field].split("(", maxsplit=1)[0].strip()
+
+
+def _field_similarity(field: str, header: str) -> float:
+    """Return normalized similarity between an import field and a header.
+
+    Labels are the single source of matching vocabulary. Exact and phrase
+    matches win; otherwise token overlap and edit similarity handle short
+    labels and small spelling differences.
+    """
+    label = _normalized_text(_field_label(field))
+    normalized = _normalized_text(header)
+    if not label or not normalized:
+        return 0.0
+    if normalized == label:
+        return 1.0
+    if label in normalized or normalized in label:
+        length_ratio = min(len(normalized), len(label)) / max(
+            len(normalized), len(label)
+        )
+        return 0.7 + 0.3 * length_ratio
+    header_tokens = set(normalized.split())
+    label_tokens = set(label.split())
+    token_score = (2 * len(header_tokens & label_tokens)) / (
+        len(header_tokens) + len(label_tokens)
     )
-    used: set[int] = set()
-    for key, needles in rules:
-        found = None
-        for idx, header in enumerate(lowered):
-            if idx in used:
-                continue
-            if any(header.startswith(n) for n in needles):
-                found = idx
-                break
-        if found is None:
-            for idx, header in enumerate(lowered):
-                if idx in used:
-                    continue
-                if any(n in header for n in needles):
-                    found = idx
-                    break
-        if found is not None:
-            used.add(found)
-            suggestions[key] = headers[found]
+    text_score = SequenceMatcher(None, normalized, label).ratio()
+    return 0.6 * token_score + 0.4 * text_score
+
+
+def suggest_mapping(headers: list[str]) -> dict[str, str]:
+    """Map each field to its best unambiguous header by similarity."""
+    candidates: list[tuple[float, str, int]] = []
+    for index, header in enumerate(headers):
+        scored = sorted(
+            (
+                (_field_similarity(key, header), key)
+                for key in FIELD_KEYS
+            ),
+            reverse=True,
+        )
+        best_score, best_key = scored[0]
+        next_score = scored[1][0]
+        if best_score < _MAPPING_THRESHOLD:
+            continue
+        if (
+            next_score >= _MAPPING_THRESHOLD
+            and best_score - next_score < _MAPPING_AMBIGUITY_MARGIN
+        ):
+            continue
+        candidates.append((best_score, best_key, index))
+
+    suggestions: dict[str, str] = {}
+    used_fields: set[str] = set()
+    used_headers: set[int] = set()
+    for _, key, index in sorted(
+        candidates, key=lambda item: (-item[0], item[1], item[2])
+    ):
+        if key in used_fields or index in used_headers:
+            continue
+        suggestions[key] = headers[index]
+        used_fields.add(key)
+        used_headers.add(index)
     return suggestions
 
 
@@ -352,15 +396,21 @@ def inspect_workbook(content: bytes) -> ImportInspectResponse:
             _display(value) or f"Column {idx + 1}"
             for idx, value in enumerate(header_row)
         ]
-        data_rows: list[list[str]] = []
+        data_rows: list[ImportPreviewRow] = []
         total = 0
-        for values in rows:
+        for row_number, values in enumerate(rows, start=2):
             if not any(v is not None and str(v).strip() for v in values):
                 continue
             total += 1
-            if len(data_rows) < _PREVIEW_ROWS:
+            # Keep the physical-row limit identical to commit_import(). A
+            # formatted sheet can contain blank rows, so a non-empty row
+            # beyond this range must not appear selectable in the preview.
+            if row_number - 2 < _MAX_ROWS:
                 data_rows.append(
-                    [_display(v) or "" for v in values[: len(headers)]]
+                    ImportPreviewRow(
+                        row_number=row_number,
+                        values=[_display(v) or "" for v in values[: len(headers)]],
+                    )
                 )
         return ImportInspectResponse(
             sheet_names=list(workbook.sheetnames),
@@ -378,15 +428,17 @@ async def commit_import(
     db: AsyncSession,
     content: bytes,
     mapping: dict[str, str | None],
+    excluded_rows: set[int] | None,
     assigned_qa_id: int | None,
     created_by: int,
 ) -> ImportCommitResponse:
     """Create pending BadFeedback rows from the mapped sheet.
 
     ``mapping`` keys are :data:`FIELD_KEYS` with header texts (or
-    None/""). Rows lacking ANY agent name are skipped with a reason;
-    unknown agent names are created as placeholder users; everything
-    commits atomically.
+    None/""). ``excluded_rows`` contains sheet row numbers unchecked
+    in the preview. Rows lacking ANY agent name are skipped with a
+    reason; unknown agent names are created as placeholder users;
+    everything commits atomically.
     """
     workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
     try:
@@ -411,11 +463,15 @@ async def commit_import(
         skipped: list[tuple[int, str]] = []
         created_users: list[str] = []
 
+        excluded_rows = excluded_rows or set()
         for row_number, values in enumerate(rows, start=2):
             if row_number - 2 >= _MAX_ROWS:
                 skipped.append((row_number, "row limit reached"))
                 continue
             if not any(v is not None and str(v).strip() for v in values):
+                continue
+            if row_number in excluded_rows:
+                skipped.append((row_number, "excluded in preview"))
                 continue
 
             def cell(key: str) -> Any:

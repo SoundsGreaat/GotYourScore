@@ -150,7 +150,8 @@
             <h3 class="mb-1 text-lg font-bold">Import Bad Feedback</h3>
             <p class="mb-4 text-sm text-base-content/70">
                 Upload an .xlsx file, confirm which column holds what, and the rows
-                become pending records. Unknown agent names are created automatically.
+                become pending records. Uncheck rows you do not want to import.
+                Unknown agent names are created automatically.
             </p>
 
             <!-- Step 1: upload -->
@@ -190,9 +191,19 @@
                     </label>
                 </div>
                 <div class="mb-3 rounded-box border border-base-300 p-3">
-                    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60">Preview</p>
-                    <div class="max-h-40 overflow-auto">
-                        <table class="table table-xs"><tbody class="js-bf-preview"></tbody></table>
+                    <div class="mb-2 flex items-center justify-between gap-2">
+                        <p class="text-xs font-semibold uppercase tracking-wide text-base-content/60">Preview</p>
+                        <label class="label cursor-pointer gap-2 p-0 text-xs">
+                            <span>Select all</span>
+                            <input type="checkbox" class="checkbox checkbox-xs js-bf-toggle-all" checked>
+                        </label>
+                    </div>
+                    <p class="mb-2 text-xs text-base-content/60 js-bf-preview-note"></p>
+                    <div class="max-h-64 overflow-auto">
+                        <table class="table table-xs">
+                            <thead class="js-bf-preview-head"></thead>
+                            <tbody class="js-bf-preview"></tbody>
+                        </table>
                     </div>
                 </div>
                 <div class="flex justify-between">
@@ -269,10 +280,12 @@
                         data.headers.map(function (h) { return {v: h, l: h}; })
                     );
                     var suggested = data.suggestions[key] || '';
-                    // dispRef must point at the macro-rendered display
-                    // span: setDropdownValue resolves the label from the
-                    // option's dataset and would crash on a null ref.
+                    // Apply the detected value through the same shared
+                    // setter as a user click. That keeps the visible text,
+                    // hidden value, and active menu option in sync.
                     var dispRef = '#' + ddId + '-display';
+                    var selectedButton = null;
+                    var notImportedButton = null;
                     options.forEach(function (opt) {
                         var li = document.createElement('li');
                         var btn = document.createElement('button');
@@ -283,22 +296,49 @@
                         btn.addEventListener('click', function () {
                             window.setDropdownValue(ddId, dispRef, btn);
                         });
+                        if (!opt.v) notImportedButton = btn;
+                        if (opt.v === suggested) selectedButton = btn;
                         li.appendChild(btn);
                         menu.appendChild(li);
                     });
-                    var hidden = holder.querySelector('input[type="hidden"]');
-                    if (hidden) hidden.value = suggested;
-                    var display = holder.querySelector(dispRef);
-                    if (display) {
-                        display.textContent = suggested || 'Not imported';
-                        display.classList.toggle('text-base-content/70', !suggested);
-                    }
+                    window.setDropdownValue(
+                        ddId, dispRef, selectedButton || notImportedButton
+                    );
                 });
                 var previewBody = importModal.querySelector('.js-bf-preview');
                 previewBody.innerHTML = '';
-                data.preview.forEach(function (rowCells) {
+                var previewHead = importModal.querySelector('.js-bf-preview-head');
+                previewHead.innerHTML = '';
+                var headerRow = document.createElement('tr');
+                var chooseHeader = document.createElement('th');
+                chooseHeader.textContent = 'Import';
+                headerRow.appendChild(chooseHeader);
+                var rowHeader = document.createElement('th');
+                rowHeader.textContent = 'Row';
+                headerRow.appendChild(rowHeader);
+                data.headers.forEach(function (header) {
+                    var th = document.createElement('th');
+                    th.textContent = header;
+                    th.className = 'whitespace-nowrap';
+                    headerRow.appendChild(th);
+                });
+                previewHead.appendChild(headerRow);
+                data.preview.forEach(function (row) {
                     var tr = document.createElement('tr');
-                    rowCells.forEach(function (c) {
+                    var selectCell = document.createElement('td');
+                    var checkbox = document.createElement('input');
+                    checkbox.type = 'checkbox';
+                    checkbox.checked = true;
+                    checkbox.className = 'checkbox checkbox-xs js-bf-import-row';
+                    checkbox.setAttribute('data-bf-row-number', row.row_number);
+                    checkbox.setAttribute('aria-label', 'Import row ' + row.row_number);
+                    selectCell.appendChild(checkbox);
+                    tr.appendChild(selectCell);
+                    var numberCell = document.createElement('td');
+                    numberCell.textContent = row.row_number;
+                    numberCell.className = 'text-base-content/60';
+                    tr.appendChild(numberCell);
+                    row.values.forEach(function (c) {
                         var td = document.createElement('td');
                         td.textContent = c;
                         td.className = 'max-w-40 truncate';
@@ -306,6 +346,13 @@
                     });
                     previewBody.appendChild(tr);
                 });
+                var shown = data.preview.length;
+                importModal.querySelector('.js-bf-preview-note').textContent =
+                    shown === data.total_rows
+                        ? shown + ' row(s) found. Uncheck a row to exclude it.'
+                        : shown + ' of ' + data.total_rows + ' row(s) shown; rows after the import limit are skipped.';
+                var toggleAll = importModal.querySelector('.js-bf-toggle-all');
+                toggleAll.checked = true;
             }
 
             section.querySelector('.js-bf-back').addEventListener('click', function () { step('upload'); });
@@ -319,6 +366,11 @@
                 var form = new FormData();
                 form.append('file', file);
                 form.append('mapping', JSON.stringify(mapping));
+                var excludedRows = [];
+                importModal.querySelectorAll('.js-bf-import-row:not(:checked)').forEach(function (checkbox) {
+                    excludedRows.push(Number(checkbox.getAttribute('data-bf-row-number')));
+                });
+                form.append('excluded_rows', JSON.stringify(excludedRows));
                 if (assignee && assignee.value) {
                     form.append('assigned_qa_id', assignee.value);
                 }
@@ -365,6 +417,12 @@
                 section.querySelector('.js-bf-inspect').disabled = true;
                 step('upload');
                 importModal.showModal();
+            });
+
+            importModal.querySelector('.js-bf-toggle-all').addEventListener('change', function () {
+                importModal.querySelectorAll('.js-bf-import-row').forEach(function (checkbox) {
+                    checkbox.checked = this.checked;
+                }, this);
             });
 
             /* ---------- edit flow (on-demand editor partial) ---------- */

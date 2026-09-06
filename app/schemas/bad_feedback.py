@@ -132,14 +132,21 @@ class BadFeedbackRead(BaseModel):
     agents: list[BadFeedbackAgentRead] = Field(default_factory=list)
 
 
+class ImportPreviewRow(BaseModel):
+    """One selectable non-empty spreadsheet row shown before import."""
+
+    row_number: int
+    values: list[str]
+
+
 class ImportInspectResponse(BaseModel):
     """Headers + preview returned by POST /api/bad-feedback/import/inspect.
 
     ``headers`` keeps the sheet's original text (mapping UI shows it
     verbatim); ``suggestions`` maps canonical field keys to the
-    best-guess header text (empty when no match). ``preview`` is a few
-    raw rows (as display strings) so the user can verify the mapping
-    before committing.
+    best-guess header text (empty when no match). ``preview`` contains
+    selectable raw rows, including their original sheet row numbers, so
+    the user can exclude individual records before committing.
     """
 
     sheet_names: list[str]
@@ -147,7 +154,7 @@ class ImportInspectResponse(BaseModel):
     headers: list[str]
     # Canonical field key -> suggested header text (or absent).
     suggestions: dict[str, str]
-    preview: list[list[str]]
+    preview: list[ImportPreviewRow]
     total_rows: int
 
 
