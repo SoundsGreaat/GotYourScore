@@ -372,13 +372,15 @@ async def import_commit(
     db: DbSession,
     file: Annotated[UploadFile, File()],
     mapping: Annotated[str, Form()],
+    excluded_rows: Annotated[str | None, Form()] = None,
     assigned_qa_id: Annotated[int | None, Form()] = None,
 ) -> ImportCommitResponse:
     """Commit the import with the user-confirmed column mapping.
 
     ``mapping`` is JSON: canonical field key -> header text (or null to
-    leave the field unmapped). Records land as pending; unknown agent
-    names are created as placeholder users with Support/Sales roles.
+    leave the field unmapped). ``excluded_rows`` is a JSON list of sheet
+    row numbers that the user unchecked. Records land as pending; unknown
+    agent names are created as placeholder users with Support/Sales roles.
     """
     content = await file.read()
     if len(content) > _MAX_FILE_BYTES:
@@ -395,6 +397,19 @@ async def import_commit(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="mapping must be a JSON object of field -> header.",
         )
+    try:
+        excluded_raw = json.loads(excluded_rows or "[]")
+        if not isinstance(excluded_raw, list) or any(
+            isinstance(row, bool) or not isinstance(row, int) or row < 2
+            for row in excluded_raw
+        ):
+            raise ValueError
+        excluded_row_numbers = set(excluded_raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="excluded_rows must be a JSON array of spreadsheet row numbers.",
+        )
     if assigned_qa_id is not None:
         await _validate_assigned_qa(assigned_qa_id, db)
     try:
@@ -402,6 +417,7 @@ async def import_commit(
             db=db,
             content=content,
             mapping=mapping_dict,
+            excluded_rows=excluded_row_numbers,
             assigned_qa_id=assigned_qa_id,
             created_by=auth.id,
         )
