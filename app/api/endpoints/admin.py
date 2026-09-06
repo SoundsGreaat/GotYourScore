@@ -38,6 +38,7 @@ from app.api.endpoints.pages import (
 )
 from app.db.database import get_db
 from app.models import (
+    BadFeedback,
     CaseTypeEnum,
     Review,
     RoleEnum,
@@ -1074,3 +1075,103 @@ async def restore_review(
         await db.commit()
 
     return await _render_deleted_reviews(request, db)
+
+
+# ---------------------------------------------------------------------------
+# Deleted Bad Feedback (soft-delete restore)
+# ---------------------------------------------------------------------------
+
+
+async def _deleted_bad_feedback_context(db: AsyncSession) -> dict[str, object]:
+    """Context for the deleted Bad Feedback partial, newest deletion first."""
+    records = list(
+        (
+            await db.execute(
+                select(BadFeedback)
+                .where(BadFeedback.deleted_at.is_not(None))
+                .order_by(BadFeedback.deleted_at.desc())
+            )
+        ).scalars().unique().all()
+    )
+    person_ids = {
+        person_id
+        for record in records
+        for person_id in (record.qa_id, record.created_by)
+        if person_id is not None
+    }
+    nicknames: dict[int, str] = {}
+    if person_ids:
+        people = (
+            await db.execute(select(User).where(User.id.in_(person_ids)))
+        ).scalars().all()
+        nicknames = {person.id: person.nickname for person in people}
+
+    rows = [
+        {
+            "id": record.id,
+            "deleted_at": record.deleted_at,
+            "fb_date": record.fb_date,
+            "source": record.source,
+            "status": record.status,
+            "agent_names": [agent.user.nickname for agent in record.agents],
+            "reviewer_name": nicknames.get(record.qa_id, "Unknown"),
+        }
+        for record in records
+    ]
+    return {"rows": rows}
+
+
+async def _render_deleted_bad_feedback(
+    request: Request, db: AsyncSession
+) -> Response:
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_deleted_bad_feedback.html",
+        context=await _deleted_bad_feedback_context(db),
+    )
+
+
+@router.get(
+    "/admin/partials/deleted-bad-feedback",
+    name="admin_partial_deleted_bad_feedback",
+    summary="Deleted Bad Feedback partial",
+    include_in_schema=False,
+)
+async def partial_deleted_bad_feedback(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Every soft-deleted Bad Feedback record, newest deletion first."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    return await _render_deleted_bad_feedback(request, db)
+
+
+@router.post(
+    "/admin/bad-feedback/{feedback_id}/restore",
+    name="admin_restore_bad_feedback",
+)
+async def restore_bad_feedback(
+    request: Request,
+    feedback_id: int,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    """Restore a soft-deleted Bad Feedback record and refresh its list."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+
+    feedback = await db.get(BadFeedback, feedback_id)
+    if feedback is None:
+        return _not_found()
+
+    if feedback.deleted_at is not None:
+        await db.execute(
+            update(BadFeedback)
+            .where(BadFeedback.id == feedback_id)
+            .values(deleted_at=None)
+        )
+        await db.commit()
+
+    return await _render_deleted_bad_feedback(request, db)
