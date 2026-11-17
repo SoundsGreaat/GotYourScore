@@ -20,18 +20,32 @@ Internal QA tool for scoring support-agent cases. FastAPI backend with async SQL
 | Frontend  | Jinja2, HTMX 2, daisyUI v5 + Tailwind CSS v4 (compiled), Quill  |
 | Tooling   | uv (Python deps), npm (CSS build + asset vendoring), Docker     |
 
-## Quickstart (local)
+## Environment setup
 
-Prerequisites: Python ≥3.12 with [uv](https://docs.astral.sh/uv/), Docker, Node.js ≥20 (only for rebuilding frontend assets).
+From the repository root, create `.env` if it does not already exist. This step applies to both quickstarts.
+
+**Linux (Bash)**
+
+```bash
+cp .env.example .env
+```
+
+**Windows (PowerShell)**
 
 ```powershell
-# 1. Start Postgres
-docker compose up -d
+Copy-Item .env.example .env
+```
 
-# 2. Configure environment
-Copy-Item .env.example .env   # then edit — see Configuration below
+Edit `.env` as described in [Configuration](#configuration).
 
-# 3. Install deps, migrate, run
+## Quickstart (local)
+
+For local development, install Python ≥3.12, [uv](https://docs.astral.sh/uv/), and Docker with Compose v2. Node.js ≥20 is required only for rebuilding frontend assets.
+
+After [setting up `.env`](#environment-setup), run these commands from the repository root in Bash or PowerShell.
+
+```sh
+docker compose up -d --wait db
 uv sync
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
@@ -41,10 +55,9 @@ The app serves on http://127.0.0.1:8000 (liveness probe: `GET /ping`).
 
 ## Quickstart (Docker)
 
-Runs both services — Postgres and the app:
+With Docker Compose v2 installed and [`.env` set up](#environment-setup), run this command from the repository root in Bash or PowerShell to start both PostgreSQL and the app.
 
-```powershell
-Copy-Item .env.example .env   # then edit
+```sh
 docker compose up -d --build
 ```
 
@@ -81,7 +94,9 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 
 Styling is compiled by Tailwind v4 CLI + daisyUI v5 (no CDN dependencies anywhere — HTMX, Quill, DOMPurify, SortableJS and the Inter font are vendored into `app/static/` by `scripts/vendor.mjs` and committed).
 
-```powershell
+The npm commands are the same in Bash and PowerShell.
+
+```sh
 npm install          # once
 npm run css:build    # rebuild app/static/css/app.css after markup changes
 npm run css:watch    # while iterating
