@@ -1,0 +1,1 @@
+"""GotYourScore automated tests."""

@@ -103,6 +103,44 @@ npm run css:watch    # while iterating
 npm run build        # vendor assets + rebuild CSS
 ```
 
+Docker always runs `npm ci` and rebuilds the assets from `package-lock.json`. The checked-in copies are only a convenience for running the app without Docker; they cannot mask an npm update in a Docker build. Run `npm ci && npm run build` locally after pulling npm changes.
+
+## Dependency updates and CI
+
+[Dependabot](.github/dependabot.yml) opens weekly version-update PRs for `uv`, npm (app and browser tests), Docker, Docker Compose and GitHub Actions. Routine releases wait at least 7 days (21 for Python/npm major releases); cooldown does not delay security PRs. There is no auto-merge. Upgrade PostgreSQL major versions separately with a data migration plan.
+
+[CI](.github/workflows/ci.yml) runs on PRs, pushes to `main`, merge queues and daily. The required check includes:
+
+- Dependency review on PRs; `uv audit` and both npm lockfile audits. npm findings at moderate severity and above block CI. The existing low-severity Quill advisory is still printed.
+- Integration tests with PostgreSQL on Python 3.12, 3.13 and 3.14: the migration of an older database preserves sample data; tests cover OAuth callback handling, sessions and role checks, review scoring and quota, Bad Feedback, Excel uploads and the no-key AI response. No real Google or OpenRouter credentials are used.
+- Production Docker build with regenerated assets, a clean-volume boot and restart, migration and `/ping` checks, and Chromium tests against the running container. Fixable high/critical OS findings block both the app and PostgreSQL images. The [temporary PostgreSQL libxml2 exception](.github/trivy-postgres-ignore.yml) is printed in CI, expires on December 12, 2026, and should be removed as soon as the official image includes the fix.
+
+After a successful push to `main`, the exact tested Linux/amd64 image is available under **Actions → CI → Artifacts** as `gotyourscore-<commit SHA>` for 14 days. Unzip it and use `docker load -i gotyourscore.tar` to import it. CI does not deploy to production.
+
+**One-time GitHub setup** (repository admin, after this configuration lands on `main`):
+
+1. Under **Settings → Security → Advanced Security** (also shown as **Code security**), enable **Dependency graph**, **Dependabot alerts** and **Dependabot security updates**. Docker image pins receive version PRs; Dependabot does not generate Docker CVE-specific PRs.
+2. After the first CI run, add a ruleset or branch protection for `main`: require PRs, at least one human approval (dismiss stale approvals), and the **Required CI** status check from GitHub Actions. Require the branch to be up to date before merging, or use a merge queue. Avoid routine bypasses.
+
+To run against a fresh, separate Compose stack locally (Bash; use Compose 2.24.4+):
+
+```bash
+export APP_ENV_FILE=tests/ci.env COMPOSE_FILE=docker-compose.yml:tests/compose.yml
+export COMPOSE_PROJECT_NAME=gys-ci-local
+docker compose up --build --wait
+docker compose run --rm --no-deps -T -v "$PWD/tests:/app/tests:ro" app \
+  python -m unittest discover -s tests -v
+npm ci --prefix tests/browser --ignore-scripts
+npm run --prefix tests/browser install:chromium   # add `-- --with-deps` on Linux if needed
+export APP_BASE_URL="http://$(docker compose port app 8000)"
+CI_SESSION_COOKIE="$(docker compose run --rm --no-deps -T \
+  -v "$PWD/tests:/app/tests:ro" app python -m tests.browser_session)" \
+  npm test --prefix tests/browser
+docker compose down --volumes
+```
+
+The test overlay binds to random loopback ports and uses the `gotyourscore_ci` database. Use `down --volumes` only with the test project and overlay active. On Windows, the `COMPOSE_FILE` separator is `;` and environment variables are set with `$env:...`.
+
 ## Scripts
 
 - `scripts/import_scorecard_csv.py` — import a scorecard from CSV. Writes to whatever `DATABASE_URL` points at; pass `--dry-run` to preview.

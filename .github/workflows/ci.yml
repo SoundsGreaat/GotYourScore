@@ -1,0 +1,206 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  schedule:
+    - cron: "43 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ENV_FILE: tests/ci.env
+  COMPOSE_FILE: docker-compose.yml:tests/compose.yml
+  COMPOSE_PROJECT_NAME: gys-ci
+  UV_VERSION: "0.11.19"
+  TRIVY_IMAGE: aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb
+
+jobs:
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          fail-on-severity: moderate
+
+  dependency-audit:
+    name: Lockfile security audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate GitHub Actions syntax
+        run: |
+          docker run --rm -v "$PWD:/repo:ro" -w /repo \
+            rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - run: uv audit --locked
+      # A pre-existing low-severity Quill advisory is reported, not hidden.
+      - run: npm audit --audit-level=moderate
+      - run: npm audit --prefix tests/browser --audit-level=moderate
+
+  integration:
+    name: Integration (Python ${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.12", "3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python }}
+      OPENROUTER_API_KEY: ""
+      GOOGLE_CLIENT_ID: ""
+      GOOGLE_CLIENT_SECRET: ""
+      ALLOWED_DOMAIN: example.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - name: Install locked dependencies
+        run: |
+          uv sync --locked --no-dev
+          uv run --locked uv pip check
+      - name: Start isolated PostgreSQL
+        run: |
+          docker compose up --wait --wait-timeout 90 db
+          address="$(docker compose port db 5432)"
+          echo "DATABASE_URL=postgresql+asyncpg://postgres:postgres@${address}/gotyourscore_ci" >> "$GITHUB_ENV"
+      - name: Migrate an existing database and verify data survives
+        run: |
+          uv run --locked alembic upgrade 615b6b3d8d0c
+          docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d gotyourscore_ci \
+            -c "INSERT INTO bad_feedbacks (customer_feedback) VALUES ('CI legacy feedback');"
+          uv run --locked alembic upgrade head
+          uv run --locked alembic current --check-heads
+          feedback="$(docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d gotyourscore_ci -At \
+            -c "SELECT customer_feedback FROM bad_feedbacks WHERE customer_feedback = 'CI legacy feedback';")"
+          test "$feedback" = "CI legacy feedback"
+      - name: Run PostgreSQL integration tests
+        run: uv run --locked python -m unittest discover -s tests -v
+      - if: failure()
+        run: docker compose logs --no-color db
+      - if: always()
+        run: docker compose down --volumes
+
+  container:
+    name: Docker build and browser smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    needs: [dependency-audit, integration]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Build production image and start the stack on a fresh volume
+        run: |
+          docker compose config --quiet
+          docker compose up --build --wait --wait-timeout 120
+          docker compose exec -T app alembic current --check-heads
+          address="$(docker compose port app 8000)"
+          curl --fail --silent --show-error --max-time 10 "http://${address}/ping"
+          echo "APP_BASE_URL=http://${address}" >> "$GITHUB_ENV"
+      - name: Run Chromium smoke tests against the production image
+        run: |
+          npm ci --prefix tests/browser --ignore-scripts --no-audit --no-fund
+          npm run --prefix tests/browser install:chromium -- --with-deps
+          CI_SESSION_COOKIE="$(docker compose run --rm --no-deps -T \
+            -v "$PWD/tests:/app/tests:ro" app python -m tests.browser_session)"
+          test -n "$CI_SESSION_COOKIE"
+          echo "::add-mask::$CI_SESSION_COOKIE"
+          export CI_SESSION_COOKIE
+          npm test --prefix tests/browser
+      - name: Restart against the migrated volume
+        run: |
+          docker compose restart app
+          docker compose up --no-build --wait --wait-timeout 90
+          docker compose exec -T app alembic current --check-heads
+          address="$(docker compose port app 8000)"
+          curl --fail --silent --show-error --max-time 10 "http://${address}/ping"
+      - name: Save the exact tested image
+        run: |
+          mkdir -p "$RUNNER_TEMP/gys-images"
+          image_id="$(docker inspect --format '{{.Image}}' "$(docker compose ps -q app)")"
+          docker tag "$image_id" "gotyourscore:$GITHUB_SHA"
+          docker image save -o "$RUNNER_TEMP/gys-images/gotyourscore.tar" "gotyourscore:$GITHUB_SHA"
+      - name: Scan the app and PostgreSQL images for fixable high and critical OS vulnerabilities
+        run: |
+          db_id="$(docker inspect --format '{{.Image}}' "$(docker compose ps -q db)")"
+          docker image save -o "$RUNNER_TEMP/gys-images/postgres.tar" "$db_id"
+          cp .github/trivy-postgres-ignore.yml "$RUNNER_TEMP/gys-images/"
+          scan() {
+            local image="$1"
+            shift
+            docker run --rm \
+              -v "$RUNNER_TEMP/gys-images:/scan:ro" -v gys-ci-trivy-cache:/root/.cache/trivy \
+              "$TRIVY_IMAGE" image --input "/scan/$image.tar" --scanners vuln --pkg-types os \
+              --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "$@"
+          }
+          scan gotyourscore
+          scan postgres --ignorefile /scan/trivy-postgres-ignore.yml --show-suppressed
+      - name: Upload the tested image on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gotyourscore-${{ github.sha }}
+          path: ${{ runner.temp }}/gys-images/gotyourscore.tar
+          if-no-files-found: error
+          retention-days: 14
+      - if: failure()
+        run: docker compose logs --no-color
+      - if: always()
+        run: docker compose down --volumes
+
+  required:
+    name: Required CI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: always()
+    needs: [dependency-review, dependency-audit, integration, container]
+    env:
+      DEPENDENCY_REVIEW: ${{ needs.dependency-review.result }}
+      AUDIT: ${{ needs.dependency-audit.result }}
+      INTEGRATION: ${{ needs.integration.result }}
+      CONTAINER: ${{ needs.container.result }}
+    steps:
+      - name: Reject failed, skipped, or cancelled required checks
+        run: |
+          printf 'Dependency review: %s\nAudit: %s\nIntegration: %s\nContainer: %s\n' \
+            "$DEPENDENCY_REVIEW" "$AUDIT" "$INTEGRATION" "$CONTAINER"
+          if [[ "$GITHUB_EVENT_NAME" == "pull_request" ]]; then
+            test "$DEPENDENCY_REVIEW" = success
+          fi
+          test "$AUDIT" = success
+          test "$INTEGRATION" = success
+          test "$CONTAINER" = success

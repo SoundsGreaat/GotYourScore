@@ -1,0 +1,19 @@
+# Applied on top of the real stack. Keep local containers/volumes untouched
+# and publish only on unpredictable loopback ports.
+services:
+  db:
+    container_name: !reset null
+    environment:
+      POSTGRES_DB: gotyourscore_ci
+    ports: !override
+      - "127.0.0.1::5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d gotyourscore_ci"]
+
+  app:
+    container_name: !reset null
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/gotyourscore_ci
+    ports: !override
+      - "127.0.0.1::8000"

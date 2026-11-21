@@ -11,3 +11,6 @@ scripts/*.csv
 # Python
 __pycache__/
 *.py[cod]
+
+# Browser test output
+tests/browser/test-results/

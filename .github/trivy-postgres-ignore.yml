@@ -1,0 +1,4 @@
+vulnerabilities:
+  - id: CVE-2026-86144
+    expired_at: 2026-12-12
+    statement: Remove after the official postgres:17-alpine digest ships patched libxml2.

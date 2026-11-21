@@ -1,0 +1,11 @@
+{
+  "name": "gotyourscore-browser-tests",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "install:chromium": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
+  }
+}

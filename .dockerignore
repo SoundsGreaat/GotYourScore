@@ -12,3 +12,11 @@ scripts/*.csv
 Dockerfile
 docker-compose.yml
 README.md
+.github
+graphify-out
+tests
+# The frontend stage regenerates these from package-lock.json.
+app/static/css/app.css
+app/static/css/src/vendor/quill.snow.css
+app/static/js/vendor
+app/static/fonts/*.woff2
