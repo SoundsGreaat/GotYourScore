@@ -27,6 +27,19 @@
 
 @plugin "daisyui";
 
+/* daisyUI's zero translate and transform hint can leave the open panel
+   composited in Chrome, softening text. Let the transition promote the
+   panel only while it moves, then paint the open panel without a transform. */
+.gys-review-drawer-panel {
+    /* Keep the grid item above the overlay even without a transform. */
+    z-index: 1;
+    will-change: auto;
+}
+
+#review-drawer-toggle:checked ~ .drawer-side > .gys-review-drawer-panel {
+    translate: none;
+}
+
 /* ---- Inter Variable (self-hosted via @fontsource-variable/inter).
    woff2 files are vendored to /static/fonts by npm run vendor.
    Subsets + unicode-ranges mirror Google Fonts' default coverage, so
