@@ -3,23 +3,21 @@
 {% import "macros/modals.html" as modals %}
 <!-- data-period: the dashboard hash-sync reads it to mirror
      #view@YYYY-MM into the location hash across swaps. The ?period=
-     on hx-get keeps the selection across reviews-changed refetches
-     (baked into the URL because the inherited hx-include below would
-     otherwise drag the FILTER form's stale period back in). -->
+     on hx-get keeps the selection across reviews-changed refetches. -->
 <section id="reviews-view" data-period="{{ period_value }}"
          hx-get="{{ endpoint }}?period={{ period_value }}"
          hx-trigger="reviews-changed from:body"
          hx-include="#reviews-filter-form"
-         hx-sync="this:replace"
+         hx-sync:inherited="this:replace"
          hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">{{ title }}</h2>
         <div class="flex flex-wrap items-center gap-2">
             <!-- Period switcher: its own mini-form so the hidden input's
                  change event refetches the whole view with the picked
-                 ?period=... (the inherited hx-include also re-applies
-                 the active agent/qa/type filters). -->
+                 ?period=... and re-include the active filters. -->
             <form hx-get="{{ endpoint }}"
+                  hx-include="#reviews-filter-form"
                   hx-target="closest section" hx-swap="outerHTML"
                   hx-trigger="change" class="flex items-center">
                 {{ dd.dropdown('reviews-period',

@@ -14,7 +14,7 @@ in ``app.services.scorecard_service``.
 
 Error convention for HTMX forms: validation failures return HTTP 400
 whose body is ONLY ``{"detail": MESSAGE}`` — the global
-``htmx:responseError`` net in ``common.js`` toasts the message
+``htmx:response:error`` handler in ``common.js`` toasts the message
 bottom-center, like every other notification.
 """
 
@@ -99,7 +99,7 @@ def _not_found() -> PlainTextResponse:
 def _error_json(message: str) -> Response:
     """400 response with a client-safe generic detail message.
 
-    The global htmx:responseError net in common.js extracts this detail
+    The global htmx:response:error handler in common.js extracts this detail
     and toasts it bottom-center like every other notification — errors
     never render as inline page elements.
     """
@@ -455,8 +455,7 @@ async def save_scorecard(
 ) -> Response:
     """Bulk-save the editor form; re-render the editor partial.
 
-    Validation failures return 400 whose body is ONLY the alert
-    fragment for the frontend's ``#editor-alert`` swap target.
+    Validation failures return a 400 with a JSON detail for the error toast.
     """
     redirect = _guard(auth, request)
     if redirect is not None:

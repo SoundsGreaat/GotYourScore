@@ -7,9 +7,9 @@
 /* Floating notifications: every transient note surfaces bottom-center
  * as translucent gradient glass (.gys-float-note in input.css). kind:
  * 'alert-success' for the mint look, anything else renders as
- * error-tinted. options.html replaces the text content (trusted,
- * caller-built markup); options.timeout overrides 3.5s. */
-window.gysFloatNote = function (content, kind, timeout) {
+ * error-tinted. Pass trustedHtml only for caller-built markup.
+ * timeout overrides 3.5s. */
+window.gysFloatNote = function (content, kind, timeout, trustedHtml) {
     // Host choice matters: an open <dialog> lives in the TOP LAYER and
     // paints OVER anything appended to <body> (z-index is powerless
     // against it), so the stack must be created inside the open dialog
@@ -24,8 +24,8 @@ window.gysFloatNote = function (content, kind, timeout) {
     var note = document.createElement('div');
     note.setAttribute('role', 'alert');
     note.className = 'gys-float-note' + (kind === 'alert-success' ? '' : ' gys-error');
-    if (typeof content === 'string' && /<[a-z][\s\S]*>/i.test(content)) {
-        note.innerHTML = content; // trusted: built by our own code only
+    if (trustedHtml) {
+        note.innerHTML = content;
     } else {
         note.textContent = content;
     }
@@ -51,11 +51,11 @@ window.extractDetail = function (payload, statusCode) {
     return 'Request failed (' + statusCode + ').';
 };
 
-/* Message from a failed htmx XHR: server bodies may be JSON detail
+/* Message from a failed HTMX request: server bodies may be JSON detail
  * objects OR legacy HTML fragments — strip tags as a fallback so the
  * user always sees the actual reason, not silence. */
-window.__gysXhrMessage = function (xhr) {
-    var body = xhr && xhr.responseText;
+function htmxErrorMessage(ctx) {
+    var body = ctx.text;
     if (body) {
         try {
             var parsed = JSON.parse(body);
@@ -66,19 +66,24 @@ window.__gysXhrMessage = function (xhr) {
         var text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         if (text) return text;
     }
-    return 'Request failed (' + ((xhr && xhr.status) || '?') + ').';
-};
+    return 'Request failed (' + ctx.response.status + ').';
+}
 
-/* Global HTMX error net: htmx IGNORES non-2xx responses by default, so
- * without this a failed request just does nothing visible. Every failed
- * htmx-driven request toasts the server's message bottom-center like
- * every other notification. fetch()-based flows handle their own errors
- * locally and never reach these events. */
-document.addEventListener('htmx:responseError', function (evt) {
-    window.gysToast(window.__gysXhrMessage(evt.detail.xhr), 'alert-error');
+/* Error responses do not swap (see the HTMX config in base.html).
+ * Show their messages as text; standalone fetch flows handle their own errors. */
+document.addEventListener('htmx:response:error', function (evt) {
+    window.gysToast(htmxErrorMessage(evt.detail.ctx), 'alert-error');
 });
-document.addEventListener('htmx:sendError', function () {
-    window.gysToast('Network error — the request did not reach the server.', 'alert-error');
+document.addEventListener('htmx:error', function (evt) {
+    var ctx = evt.detail.ctx;
+    if (!ctx) return;
+    if (ctx.request.signal.reason === 'timeout') {
+        window.gysToast('The request timed out.', 'alert-error');
+    } else if (!ctx.response) {
+        window.gysToast('Network error — the server could not be reached.', 'alert-error');
+    } else {
+        window.gysToast('Unable to update the page.', 'alert-error');
+    }
 });
 
 window.escapeHtml = function (text) {
@@ -106,7 +111,10 @@ window.openReviewDrawer = function (reviewId, mode) {
             window.__reviewDrawerHookPending = true;
             window.__reviewDrawerEpoch = (window.__reviewDrawerEpoch || 0) + 1;
             var expectedEpoch = window.__reviewDrawerEpoch;
-            return htmx.ajax('GET', '/partials/review-drawer', { target: '#drawer-container', swap: 'innerHTML' })
+            return htmx.ajax('GET', '/partials/review-drawer', {
+                target: '#drawer-container',
+                swap: 'innerHTML settle:0',
+            })
                 .then(function () { return { review: review, expectedEpoch: expectedEpoch }; });
         })
         .then(function (payload) {

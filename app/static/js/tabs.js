@@ -61,7 +61,8 @@
 
         buttons.forEach(function (btn) {
             btn.addEventListener('click', function () {
-                if (btn.disabled) return;
+                // Dashboard category tabs follow the successfully loaded view.
+                if (btn.disabled || btn.hasAttribute('data-cat')) return;
                 activate(btn);
                 if (track.hasAttribute('data-hash')) {
                     // Mirror into the hash so reloads reopen the same tab.
