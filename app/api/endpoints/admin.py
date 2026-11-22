@@ -97,14 +97,15 @@ def _not_found() -> PlainTextResponse:
 
 
 def _error_json(message: str) -> Response:
-    """400 response whose body is ONLY ``{"detail": message}``.
+    """400 response with a client-safe generic detail message.
 
     The global htmx:responseError net in common.js extracts this detail
     and toasts it bottom-center like every other notification — errors
     never render as inline page elements.
     """
+    _ = message  # keep signature/callers stable while avoiding exception detail exposure
     return JSONResponse(
-        content={"detail": message},
+        content={"detail": "Invalid request."},
         status_code=status.HTTP_400_BAD_REQUEST,
     )
 
