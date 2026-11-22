@@ -138,6 +138,7 @@
             values.case_type = form.querySelector("[data-case]").value;
             values.removed_ids = window.__editorRemoved.join(",");
             htmx.ajax("POST", form.getAttribute("data-url"), {
+                source: "#scorecard-editor",
                 values: values,
                 target: "#scorecard-editor",
                 swap: "innerHTML",

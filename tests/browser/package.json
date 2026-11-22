@@ -2,7 +2,7 @@
   "name": "gotyourscore-browser-tests",
   "private": true,
   "scripts": {
-    "test": "playwright test",
+    "test": "playwright test --workers=1",
     "install:chromium": "playwright install chromium"
   },
   "devDependencies": {

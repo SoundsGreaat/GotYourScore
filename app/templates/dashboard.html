@@ -78,7 +78,7 @@
             <span class="gys-tabs-line" aria-hidden="true"></span>
         </div>
 
-            <div id="view-container" class="mt-5" hx-get="{{ '/partials/qa-matrix' if can_review else '/partials/my-reviews' }}" hx-trigger="load" hx-swap="innerHTML"></div>
+            <div id="view-container" class="mt-5" hx-get="{{ '/partials/qa-matrix' if can_review else '/partials/my-reviews' }}" hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
             <!-- Drawer mount survives sidebar navigation. -->
             <div id="drawer-container"></div>
             <!-- Bad Feedback editor mount (on-demand partial, opened from
@@ -89,7 +89,7 @@
 
     <div class="drawer-side z-30">
         <label for="app-drawer" aria-label="close sidebar" class="drawer-overlay"></label>
-        <aside class="min-h-full w-64 bg-neutral text-neutral-content">
+        <aside class="min-h-full w-64 bg-neutral text-neutral-content" hx-sync:inherited="#view-container:replace">
             <!-- Brand header: h-16 (4rem) matches the navbar's fixed height so the
                  sidebar and navbar brand blocks align exactly. -->
             <div class="flex h-16 items-center gap-2 border-b border-white/10 px-5">

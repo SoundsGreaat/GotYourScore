@@ -76,7 +76,7 @@ toggling one ON demotes its same-type siblings server-side. #}
         </div>
 
         <div class="min-w-0 flex-1">
-            <div id="scorecard-editor">
+            <div id="scorecard-editor" hx-sync="this:queue last">
                 {% if selected_id %}
                 <div hx-get="/admin/partials/scorecard-editor/{{ selected_id }}" hx-trigger="load"
                      hx-swap="innerHTML"></div>

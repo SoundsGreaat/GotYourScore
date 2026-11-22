@@ -17,7 +17,7 @@ Internal QA tool for scoring support-agent cases. FastAPI backend with async SQL
 |-----------|-----------------------------------------------------------------|
 | Backend   | Python ≥3.12, FastAPI, Starlette sessions, async SQLAlchemy 2   |
 | Database  | PostgreSQL (asyncpg driver), Alembic migrations                 |
-| Frontend  | Jinja2, HTMX 2, daisyUI v5 + Tailwind CSS v4 (compiled), Quill  |
+| Frontend  | Jinja2, HTMX 4, daisyUI v5 + Tailwind CSS v4 (compiled), Quill  |
 | Tooling   | uv (Python deps), npm (CSS build + asset vendoring), Docker     |
 
 ## Environment setup
