@@ -386,8 +386,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
     window._reviewDrawerDispose = dispose;
 
-    document.addEventListener('htmx:beforeSwap', function (event) {
-        if (event.detail && event.detail.target === drawerMount) dispose();
+    document.addEventListener('htmx:before:swap', function (event) {
+        if (event.detail.tasks.some(function (task) {
+            return task.target === drawerMount && task.swapSpec.style !== 'none';
+        })) dispose();
     }, { signal: controller.signal });
 
     quill = window.Quill.find(editorContainer);

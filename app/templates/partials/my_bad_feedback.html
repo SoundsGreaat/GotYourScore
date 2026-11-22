@@ -13,7 +13,7 @@
 <section id="my-bad-feedback-view"
          hx-get="/partials/my-reviews?cat=bad-feedback&month={{ month_value }}"
          hx-trigger="bad-feedback-changed from:body"
-         hx-sync="this:replace"
+         hx-sync:inherited="this:replace"
          hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">My Reviews</h2>

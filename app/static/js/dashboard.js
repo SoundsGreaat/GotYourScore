@@ -140,7 +140,7 @@
         state.view = view;
         container.dataset.view = view;
         container.setAttribute('hx-get', endpointFor(view, state.category));
-        htmx.ajax('GET', withPeriod(url, period), container);
+        htmx.ajax('GET', withPeriod(url, period), { source: container, target: container });
     }
 
     function setCategory(category) {
@@ -191,33 +191,28 @@
         });
     });
 
-    // Mirror every successful swap into the hash + highlight. afterSwap
-    // fires ONLY on real swaps, so 403s (forbidden views) never touch
-    // the hash. htmx 1.x gotcha: detail.elt here is the SWAP TARGET
-    // (the container), never the requester — the requesting sidebar
-    // link / container lives on detail.requestConfig.elt, and its
-    // data-view/data-cat tell us which view switched. A section
-    // self-refetching INSIDE the container keeps the current view AND
-    // category.
-    document.body.addEventListener('htmx:afterSwap', function (event) {
-        var detail = event.detail || {};
-        var swapped = detail.target;
-        var elt = (detail.requestConfig && detail.requestConfig.elt) || detail.elt;
-        var touchesView =
-            swapped === container ||
-            !!(swapped && swapped.closest && swapped.closest('#view-container')) ||
-            !!elt && (
-                elt === container ||
-                (elt.getAttribute && elt.getAttribute('hx-target') === '#view-container') ||
-                !!(elt.closest && elt.closest('#view-container'))
-            );
-        if (!touchesView) return;
+    // Record real view swaps while their original targets are still connected.
+    // HTMX 4 emits after:swap even for no-swap responses, and an outerHTML
+    // swap can replace the original section (and the event source).
+    var viewSwaps = new WeakMap();
+    document.addEventListener('htmx:before:swap', function (event) {
+        var detail = event.detail;
+        if (detail.tasks.some(function (task) {
+            return task.type === 'main' && task.swapSpec.style !== 'none'
+                && container.contains(task.target);
+        })) {
+            viewSwaps.set(detail.ctx, detail.ctx.sourceElement);
+        }
+    });
+    document.addEventListener('htmx:after:swap', function (event) {
+        var elt = viewSwaps.get(event.detail.ctx);
+        if (!elt) return;
 
         var view = state.view;
         var category = state.category;
         if (elt === container) {
             view = container.dataset.view || state.view;
-        } else if (elt.getAttribute && elt.getAttribute('data-view')) {
+        } else if (elt.matches('aside a[data-view][hx-target="#view-container"]')) {
             view = elt.getAttribute('data-view');
             if (elt.getAttribute('data-cat')) category = elt.getAttribute('data-cat');
         }
@@ -234,30 +229,22 @@
         setActive(view, category);
     });
 
-    // Carry the selected category AND period into sidebar-driven view
-    // switches. Gotcha: htmx strips a query string from hx-get when the
-    // requester is an <a> (anchor path resolution), so both ride as
-    // REQUEST PARAMETERS in configRequest (serialized into the query
-    // string for GETs). Tab clicks build their own URL and skip this.
-    // Section self-refetches bake ?cat=/?period= server-side and are
-    // skipped here.
-    document.body.addEventListener('htmx:configRequest', function (event) {
-        var detail = event.detail;
-        var elt = detail.elt;
+    // Carry category and period into view switches unless the request
+    // already provides them. Section self-refetches set their own filters.
+    document.body.addEventListener('htmx:config:request', function (event) {
+        var ctx = event.detail.ctx;
+        var elt = ctx.sourceElement;
         var isViewSwitch =
             elt === container ||
-            !!(elt && elt.getAttribute &&
-               elt.getAttribute('hx-target') === '#view-container');
+            elt.matches('aside a[data-view][hx-target="#view-container"]');
         if (!isViewSwitch) return;
-        if (detail.parameters && detail.parameters.cat === undefined &&
-            (detail.path || '').indexOf('cat=') === -1) {
-            var forced = elt.getAttribute && elt.getAttribute('data-cat');
-            detail.parameters.cat = forced || state.category;
+        var request = ctx.request;
+        var query = new URL(request.action, document.baseURI).searchParams;
+        if (!request.body.has('cat') && !query.has('cat')) {
+            request.body.set('cat', elt.getAttribute('data-cat') || state.category);
         }
-        if (state.period && detail.parameters &&
-            detail.parameters.period === undefined &&
-            (detail.path || '').indexOf('period=') === -1) {
-            detail.parameters.period = state.period;
+        if (state.period && !request.body.has('period') && !query.has('period')) {
+            request.body.set('period', state.period);
         }
     });
 })();

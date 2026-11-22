@@ -5,7 +5,7 @@
      #view@YYYY-MM into the location hash across swaps. The ?period=
      on hx-get keeps the selection across reviews-changed refetches
      (this partial has no filter form to carry a hidden input). -->
-<section data-period="{{ period_value }}" hx-get="/partials/qa-matrix?period={{ period_value }}" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
+<section data-period="{{ period_value }}" hx-get="/partials/qa-matrix?period={{ period_value }}" hx-trigger="reviews-changed from:body" hx-sync:inherited="this:replace" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">QA Score</h2>
         <div class="flex flex-wrap items-center gap-2">
@@ -410,11 +410,10 @@
         // While the delegate modal is open, reviews-changed must not swap
         // this section (it would destroy the in-progress modal); mutations
         // made inside the modal are replayed for the section on dialog close.
-        section.addEventListener('htmx:beforeRequest', function (event) {
-            var config = event.detail && event.detail.requestConfig;
+        section.addEventListener('htmx:before:request', function (event) {
+            var ctx = event.detail.ctx;
             if (window.__qaMatrixDelegateModalOpen
-                && config
-                && config.path === '/partials/qa-matrix') {
+                && ctx.sourceEvent.type === 'reviews-changed') {
                 event.preventDefault();
             }
         });
@@ -580,7 +579,7 @@
                 html += '<div class="mt-1 text-xs opacity-80">' + skipped.length
                     + ' skipped (duplicate agent + case number)</div>';
             }
-            window.gysFloatNote(html, created ? 'alert-success' : 'alert-error', 6000);
+            window.gysFloatNote(html, created ? 'alert-success' : 'alert-error', 6000, true);
             if (skipped.length) {
                 var detail = '<strong>Skipped rows:</strong><ul>'
                     + skipped.map(function (row) {
@@ -588,7 +587,7 @@
                             + ' \u2014 ' + escapeHtml(row.reason) + '</li>';
                     }).join('')
                     + '</ul>';
-                window.gysFloatNote(detail, 'alert-error', 9000);
+                window.gysFloatNote(detail, 'alert-error', 9000, true);
             }
         }
 
