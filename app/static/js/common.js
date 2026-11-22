@@ -111,7 +111,10 @@ window.openReviewDrawer = function (reviewId, mode) {
             window.__reviewDrawerHookPending = true;
             window.__reviewDrawerEpoch = (window.__reviewDrawerEpoch || 0) + 1;
             var expectedEpoch = window.__reviewDrawerEpoch;
-            return htmx.ajax('GET', '/partials/review-drawer', { target: '#drawer-container', swap: 'innerHTML' })
+            return htmx.ajax('GET', '/partials/review-drawer', {
+                target: '#drawer-container',
+                swap: 'innerHTML settle:0',
+            })
                 .then(function () { return { review: review, expectedEpoch: expectedEpoch }; });
         })
         .then(function (payload) {

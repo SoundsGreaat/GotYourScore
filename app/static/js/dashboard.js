@@ -52,6 +52,7 @@
     var LEGACY_BAD_FEEDBACK = { 'bad-feedback': true };
 
     var state = { view: null, category: 'qa-score', period: null };
+    var pendingViewRequest = null;
 
     function baseHx(url) {
         return (url || '').split('?')[0];
@@ -134,21 +135,21 @@
             ? 'qa-tracker' : 'my-reviews';
     }
 
-    function loadView(view, period) {
-        var url = endpointFor(view, state.category);
+    function loadView(view, category, period) {
+        var url = endpointFor(view, category);
         if (!url) return;
-        state.view = view;
-        container.dataset.view = view;
-        container.setAttribute('hx-get', endpointFor(view, state.category));
-        htmx.ajax('GET', withPeriod(url, period), { source: container, target: container });
+        htmx.ajax('GET', withPeriod(url, period), {
+            source: container,
+            target: container,
+            values: { cat: category },
+        });
     }
 
     function setCategory(category) {
         if (CATEGORIES.indexOf(category) === -1) return;
         if (!state.view) return;
-        if (category === state.category) { setActive(state.view, category); return; }
-        state.category = category;
-        loadView(state.view, state.period);
+        if (category === state.category && !pendingViewRequest) return;
+        loadView(state.view, category, state.period);
     }
 
     // Restore BEFORE htmx initializes so the load-trigger fetches the
@@ -161,7 +162,6 @@
     } else {
         state.view = defaultView();
     }
-    container.dataset.view = state.view;
     container.setAttribute(
         'hx-get',
         withPeriod(endpointFor(state.view, state.category), state.period));
@@ -179,7 +179,7 @@
             }
             htmx.ajax('GET', '/partials/review-drawer', {
                 target: '#drawer-container',
-                swap: 'innerHTML',
+                swap: 'innerHTML settle:0',
             });
         });
     }
@@ -205,20 +205,19 @@
         }
     });
     document.addEventListener('htmx:after:swap', function (event) {
-        var elt = viewSwaps.get(event.detail.ctx);
+        var ctx = event.detail.ctx;
+        var elt = viewSwaps.get(ctx);
         if (!elt) return;
 
         var view = state.view;
         var category = state.category;
-        if (elt === container) {
-            view = container.dataset.view || state.view;
-        } else if (elt.matches('aside a[data-view][hx-target="#view-container"]')) {
-            view = elt.getAttribute('data-view');
-            if (elt.getAttribute('data-cat')) category = elt.getAttribute('data-cat');
+        var sidebarLink = elt.matches('aside a[data-view][hx-target="#view-container"]');
+        if (sidebarLink) view = elt.getAttribute('data-view');
+        if (sidebarLink || elt === container) {
+            category = new URL(ctx.request.action, document.baseURI).searchParams.get('cat') || category;
         }
         state.view = view;
         state.category = category;
-        container.dataset.view = view;
         // Sticky selection: views WITHOUT a period picker (To-review,
         // the BF lists) don't reset it — switching there and back must
         // keep the chosen month.
@@ -238,6 +237,7 @@
             elt === container ||
             elt.matches('aside a[data-view][hx-target="#view-container"]');
         if (!isViewSwitch) return;
+        pendingViewRequest = ctx;
         var request = ctx.request;
         var query = new URL(request.action, document.baseURI).searchParams;
         if (!request.body.has('cat') && !query.has('cat')) {
@@ -246,5 +246,8 @@
         if (state.period && !request.body.has('period') && !query.has('period')) {
             request.body.set('period', state.period);
         }
+    });
+    document.addEventListener('htmx:finally:request', function (event) {
+        if (event.detail.ctx === pendingViewRequest) pendingViewRequest = null;
     });
 })();

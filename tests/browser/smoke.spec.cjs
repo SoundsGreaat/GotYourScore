@@ -84,7 +84,60 @@ test("sidebar and category swaps preserve the hash and open the matching editors
   await newReview.click();
   await expect(page.locator("#review-drawer-toggle")).toBeChecked();
   await expect(page.locator("#drawer-container .ql-editor")).toBeVisible();
+  await page.locator("#case-type-button").click();
+  await page.locator("#case-type-menu").getByRole("button", { name: "Service Request" }).click();
+  await expect.poll(() => page.evaluate(() => JSON.parse(
+    localStorage.getItem("gotyourscore:review-draft:new")
+  )?.case_type)).toBe("Service Request");
+  await page.locator("#drawer-container").getByText("Close", { exact: true }).click();
+  await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+  await newReview.click();
+  await expect(page.locator("#review-drawer-toggle")).toBeChecked();
+  await expect(page.locator("#case-type-button")).toHaveText("Service Request");
+  await expect(page.locator("#case-type")).toHaveValue("Service Request");
   expect(failures).toEqual([]);
+});
+
+test("rapid category switches keep the newest view and errors keep the last loaded tab", async ({ page }) => {
+  const failures = watchPage(page);
+  await signIn(page);
+  await page.goto(`${base}/#qa-tracker/qa-score`);
+  await expect(page).toHaveURL(/#qa-tracker\/qa-score@\d{4}-\d{2}$/);
+
+  let release;
+  const holdFirst = new Promise((resolve) => { release = resolve; });
+  await page.route(/\/partials\/bad-feedback\?/, async (route) => {
+    await holdFirst;
+    await route.abort("aborted");
+  }, { times: 1 });
+  const badFeedback = page.getByRole("tab", { name: "Bad Feedback" });
+  const qaScore = page.getByRole("tab", { name: "QA Score" });
+  try {
+    const first = page.waitForRequest((request) =>
+      new URL(request.url()).pathname === "/partials/bad-feedback"
+    );
+    await badFeedback.click();
+    await first;
+    await qaScore.click();
+    await badFeedback.click();
+    await expect(page.locator("#bad-feedback-view")).toBeVisible();
+    await expect(page).toHaveURL(/#qa-tracker\/bad-feedback@\d{4}-\d{2}$/);
+    await expect(badFeedback).toHaveAttribute("aria-selected", "true");
+  } finally {
+    release();
+  }
+
+  await page.route(/\/partials\/qa-matrix\?/, (route) => route.fulfill({
+    status: 503,
+    json: { detail: "Temporarily unavailable." },
+  }), { times: 1 });
+  const failure = nextResponse(page, "/partials/qa-matrix");
+  await qaScore.click();
+  await expect(page.getByRole("alert").filter({ hasText: "Temporarily unavailable." })).toBeVisible();
+  await expect(page.locator("#bad-feedback-view")).toBeVisible();
+  await expect(page).toHaveURL(/#qa-tracker\/bad-feedback@\d{4}-\d{2}$/);
+  await expect(badFeedback).toHaveAttribute("aria-selected", "true");
+  expect(failures).toEqual([`503 ${(await failure).url()}`]);
 });
 
 test("review filters survive period changes and event-driven outer swaps", async ({ page }) => {
@@ -163,13 +216,42 @@ test("admin scorecard saves swap scripts and validation errors leave the editor 
   await expect(page.getByRole("alert").filter({ hasText: "Scorecard saved." })).toBeVisible();
   await expect(editor.locator("[data-row]")).toHaveAttribute("data-item-id", /\d+/);
 
+  const rule = editor.locator("[data-display]");
+  const savePath = /\/admin\/scorecards\/\d+\/save$/;
+  let release;
+  const holdSave = new Promise((resolve) => { release = resolve; });
+  await page.route(savePath, async (route) => {
+    await holdSave;
+    await route.continue();
+  }, { times: 1 });
+  let lastSave;
+  try {
+    const first = page.waitForRequest((request) => savePath.test(new URL(request.url()).pathname));
+    await rule.fill("First edit");
+    await save.click();
+    await first;
+    await rule.fill("Intermediate edit");
+    await save.click();
+    await rule.fill("Last edit");
+    await save.click();
+    lastSave = page.waitForResponse((response) => {
+      const request = response.request();
+      return savePath.test(new URL(response.url()).pathname)
+        && new URLSearchParams(request.postData()).get("display_name_0") === "Last edit";
+    });
+  } finally {
+    release();
+  }
+  expect((await lastSave).status()).toBe(200);
+  await expect(rule).toHaveValue("Last edit");
+
   await editor.getByRole("textbox", { name: "Template name" }).fill("");
-  const invalid = nextResponse(page, /\/admin\/scorecards\/\d+\/save$/, "POST");
+  const invalid = nextResponse(page, savePath, "POST");
   await save.click();
   const response = await invalid;
   expect(response.status()).toBe(400);
   await expect(page.getByRole("alert").filter({ hasText: "Invalid request." })).toBeVisible();
-  await expect(editor.locator("[data-display]")).toHaveValue("CI rule");
+  await expect(rule).toHaveValue("Last edit");
   expect(failures).toEqual([`400 ${response.url()}`]);
 });
 
