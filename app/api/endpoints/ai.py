@@ -87,11 +87,11 @@ def _ndjson_response(
         try:
             async for kind, value in events:
                 yield json.dumps({kind: value}, ensure_ascii=False) + "\n"
-        except ai_service.AnalyzeError as exc:
-            yield json.dumps({"error": str(exc)}, ensure_ascii=False) + "\n"
-        except Exception as exc:  # status is already 200 — nothing else to do
+        except ai_service.AnalyzeError:
+            yield json.dumps({"error": "AI request failed."}, ensure_ascii=False) + "\n"
+        except Exception:  # status is already 200 — nothing else to do
             yield json.dumps(
-                {"error": f"AI stream failed: {type(exc).__name__}: {exc}"},
+                {"error": "Internal server error."},
                 ensure_ascii=False,
             ) + "\n"
         finally:
