@@ -391,6 +391,12 @@
             letter-spacing: 0.08em;
             text-transform: uppercase;
         }
+        /* Administration is a separate destination, not another tracker view. */
+        .gys-nav-menu > .gys-nav-admin {
+            margin-block-start: 0.5rem;
+            border-block-start: 1px solid rgb(255 255 255 / 0.1);
+            padding-block-start: 0.5rem;
+        }
         /* daisyUI paints the nested-menu guide line ("Reviews" separator)
            with the LIGHT theme's base-content color — invisible on our
            always-dark drawer; opaque white matches the hover language. */
