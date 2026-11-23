@@ -999,7 +999,8 @@ async def get_review(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Review {review_id} not found.",
         )
-    if not is_reviewer(current_user) and review.support_agent_id != current_user.id:
+    reviewer = is_reviewer(current_user)
+    if not reviewer and review.support_agent_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Support agents may only view their own reviews.",
@@ -1011,6 +1012,14 @@ async def get_review(
     agent = await db.get(User, review.support_agent_id)
     if agent is not None:
         payload.support_agent_name = agent.nickname
+    if (
+        reviewer
+        and review.status == ReviewStatusEnum.PENDING
+        and review.assigned_qa_id is not None
+    ):
+        assignee = await db.get(User, review.assigned_qa_id)
+        if assignee is not None:
+            payload.assigned_qa_name = assignee.nickname
     return payload
 
 

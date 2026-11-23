@@ -771,6 +771,100 @@ test("cloned delegation row pickers restore their own choices when a bulk overri
   await expect(picker.getByRole("menuitemradio", { name: "Service Request" })).toBeChecked();
 });
 
+test("the review drawer restores the delegated QA and can clear the assignment", async ({ page }) => {
+  await signIn(page);
+  const me = await (await page.request.get(`${base}/auth/me`)).json();
+  const nickname = me.email[0].toUpperCase() + me.email.split("@")[0].slice(1);
+  const caseNumber = `Delegated ${randomUUID()}`;
+
+  await page.goto(`${base}/#qa-tracker/qa-score`);
+  await page.getByRole("button", { name: "Delegate case", exact: true }).click();
+  const modal = page.locator("#delegate-case-modal");
+  const picker = modal.locator(".gys-picker:popover-open");
+  await modal.getByRole("button", { name: "QA agent (optional)", exact: true }).first().click();
+  await picker.getByRole("menuitemradio", { name: nickname, exact: true }).click();
+  await modal.getByRole("button", { name: "Support agent", exact: true }).first().click();
+  await picker.getByRole("menuitemradio").first().click();
+  await modal.getByRole("button", { name: "Case type", exact: true }).first().click();
+  await picker.getByRole("menuitemradio", { name: "Initial Fix", exact: true }).click();
+  await modal.getByRole("textbox", { name: "Case number (optional)" }).first().fill(caseNumber);
+  const delegation = nextResponse(page, "/api/reviews/pending/bulk", "POST");
+  await modal.getByRole("button", { name: /^Delegate 1 case/ }).click();
+  const { created: [{ id }] } = await (await delegation).json();
+
+  try {
+    await modal.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("link", { name: /To review/ }).click();
+    const row = page.locator("#to-review-view").getByRole("row").filter({ hasText: caseNumber });
+    const open = row.getByRole("button", { name: `Complete delegated case ${caseNumber}`, exact: true });
+    await open.click();
+    const assignee = page.getByRole("button", { name: "Assigned QA", exact: true });
+    await expect(assignee).toHaveText(nickname);
+    await assignee.press("ArrowDown");
+    await expect(page.getByRole("menuitemradio", { name: nickname, exact: true })).toBeChecked();
+    await page.getByRole("menuitemradio", { name: "Unassigned — shared queue" }).press("Enter");
+    const save = nextResponse(page, `/api/reviews/${id}`, "PATCH");
+    await page.getByRole("button", { name: "Save Changes", exact: true }).click();
+    const response = await save;
+    expect(response.status()).toBe(200);
+    expect((await response.json()).assigned_qa_id).toBeNull();
+
+    await expect(assignee).toBeHidden();
+    await open.click();
+    await expect(assignee).toBeVisible();
+    await expect(assignee).toHaveText("Unassigned — shared queue");
+  } finally {
+    await page.request.delete(`${base}/api/reviews/${id}`);
+  }
+});
+
+test("Save For Later restores the author as assignee even without the QA role", async ({ page }) => {
+  await signIn(page);
+  const me = await (await page.request.get(`${base}/auth/me`)).json();
+  const nickname = me.email[0].toUpperCase() + me.email.split("@")[0].slice(1);
+  const rolesPath = `${base}/admin/users/${me.id}/roles`;
+  const headers = { "HX-Request": "true" };
+  const caseNumber = `Draft ${randomUUID()}`;
+  let id;
+
+  try {
+    expect((await page.request.post(rolesPath, { headers, form: { roles: "Admin" } })).ok()).toBe(true);
+    await page.goto(`${base}/#qa-tracker/qa-score`);
+    await page.getByRole("button", { name: "New Review", exact: true }).click();
+    await page.locator("#review-agent-button").click();
+    await page.locator("#review-agent-picker").getByRole("menuitemradio").first().click();
+    await page.getByRole("textbox", { name: "Case number", exact: true }).fill(caseNumber);
+    const creation = nextResponse(page, "/api/reviews", "POST");
+    await page.getByRole("button", { name: "Save For Later", exact: true }).click();
+    const draft = await (await creation).json();
+    id = draft.id;
+    expect(draft.assigned_qa_id).toBe(me.id);
+
+    await page.getByRole("link", { name: /To review/ }).click();
+    const open = page.locator("#to-review-view").getByRole("button", {
+      name: `Complete delegated case ${caseNumber}`, exact: true,
+    });
+    await open.click();
+    await expect(page.getByRole("button", { name: "Assigned QA", exact: true })).toHaveText(nickname);
+    const save = nextResponse(page, `/api/reviews/${id}`, "PATCH");
+    await page.getByRole("button", { name: "Save Changes", exact: true }).click();
+    const response = await save;
+    expect(response.status()).toBe(200);
+    expect((await response.json()).assigned_qa_id).toBe(me.id);
+
+    await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+    await open.click();
+    const completion = nextResponse(page, `/api/reviews/${id}`, "PATCH");
+    await page.getByRole("button", { name: "Complete review", exact: true }).click();
+    const completed = await completion;
+    expect(completed.status()).toBe(200);
+    expect(await completed.json()).toMatchObject({ assigned_qa_id: me.id, status: "completed" });
+  } finally {
+    if (id) await page.request.delete(`${base}/api/reviews/${id}`);
+    expect((await page.request.post(rolesPath, { headers, form: { roles: "QA" } })).ok()).toBe(true);
+  }
+});
+
 test("mobile dashboard menu is keyboard operable and does not leave the page inert", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.emulateMedia({ reducedMotion: "reduce" });
