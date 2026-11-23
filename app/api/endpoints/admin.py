@@ -778,6 +778,10 @@ async def update_user_roles(
 
     form = await request.form()
     values = list(dict.fromkeys(str(value) for value in form.getlist("roles")))
+    # The disabled Admin checkbox is omitted by the browser. Preserve the
+    # role server-side when an administrator edits their own account.
+    if target.id == auth.id and RoleEnum.ADMIN.value not in values:
+        values.append(RoleEnum.ADMIN.value)
 
     if not values:
         return _error_json("Select at least one role.")
@@ -786,9 +790,6 @@ async def update_user_roles(
         return _error_json(
             f"Unknown role(s): {', '.join(unknown)}."
         )
-    if target.id == auth.id and RoleEnum.ADMIN.value not in values:
-        return _error_json("You cannot revoke your own Admin access.")
-
     # Atomic replace: delete + inserts commit together (or not at all).
     await db.execute(delete(UserRole).where(UserRole.user_id == target.id))
     for value in values:
