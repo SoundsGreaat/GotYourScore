@@ -393,6 +393,7 @@
                 display.textContent = placeholder;
                 display.classList.add('text-base-content/70');
             }
+            if (window.gysSyncDropdown) window.gysSyncDropdown(hiddenId);
             if (window.qaMatrixScheduleBatchPreview) window.qaMatrixScheduleBatchPreview();
         };
     }

@@ -412,11 +412,13 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             var agentDisplay = document.querySelector('.js-review-agent-display');
             agentDisplay.textContent = draft.agent_name || '';
             agentDisplay.classList.remove('text-base-content/70');
+            if (window.gysSyncDropdown) window.gysSyncDropdown('review-agent');
         }
         document.getElementById('case-number').value = draft.case_number || '';
         if (draft.case_type) {
             document.getElementById('case-type').value = draft.case_type;
             document.querySelector('.js-case-type-display').textContent = draft.case_type;
+            if (window.gysSyncDropdown) window.gysSyncDropdown('case-type');
         }
         if (draft.period) {
             document.getElementById('review-period').value = draft.period;
@@ -425,6 +427,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 periodDisplay.textContent = draft.period_label || draft.period;
                 periodDisplay.classList.remove('text-base-content/70');
             }
+            if (window.gysSyncDropdown) window.gysSyncDropdown('review-period');
         }
         if (draft.deductions && typeof draft.deductions === 'object') pendingDeductions = draft.deductions;
     }
@@ -595,6 +598,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var agentDisplay = document.querySelector('.js-review-agent-display');
         agentDisplay.textContent = agentName;
         agentDisplay.classList.remove('text-base-content/70');
+        if (window.gysSyncDropdown) window.gysSyncDropdown('review-agent');
         // The reviewed Support agent is IMMUTABLE after creation — the
         // picker stays locked (and visually disabled) in edit/complete
         // mode; reassignment covers only the assigned QA.
@@ -612,6 +616,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var assignedQaDisplay = document.querySelector('.js-review-assigned-qa-display');
         assignedQaDisplay.textContent = assignedQaName;
         assignedQaDisplay.classList.remove('text-base-content/70');
+        if (window.gysSyncDropdown) window.gysSyncDropdown('review-assigned-qa');
 
         var caseNumberInput = document.getElementById('case-number');
         caseNumberInput.value = review.case_number || '';
@@ -636,6 +641,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             : (review.case_type && review.case_type.value) || 'Initial Fix';
         document.getElementById('case-type').value = caseType;
         document.querySelector('.js-case-type-display').textContent = caseType;
+        if (window.gysSyncDropdown) window.gysSyncDropdown('case-type');
         var caseTypeButton = document.getElementById('case-type-button');
         if (caseTypeButton) caseTypeButton.disabled = !drawerState.isPending && drawerState.mode === 'complete';
 
