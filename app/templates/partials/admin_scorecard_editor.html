@@ -14,20 +14,13 @@
 <div id="editor-root">
     <template id="rule-move-controls">{{ admin.move_controls('rule') }}</template>
     <template id="category-move-controls">{{ admin.move_controls('category') }}</template>
+    <template id="rule-sort-grip">{{ admin.sort_grip('rule') }}</template>
+    <template id="category-sort-grip">{{ admin.sort_grip('category') }}</template>
     <script>
         window.__editorRemoved = [];
 
         window.__gripButton = function (kind) {
-            var grip = document.createElement("span");
-            grip.className = "scorecard-grip scorecard-grip-" + kind + " btn btn-square btn-ghost btn-sm cursor-grab";
-            grip.setAttribute("aria-hidden", "true");
-            grip.innerHTML =
-                '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">' +
-                '<circle cx="9" cy="6" r="1.5" /><circle cx="15" cy="6" r="1.5" />' +
-                '<circle cx="9" cy="12" r="1.5" /><circle cx="15" cy="12" r="1.5" />' +
-                '<circle cx="9" cy="18" r="1.5" /><circle cx="15" cy="18" r="1.5" />' +
-                "</svg>";
-            return grip;
+            return document.getElementById(kind + "-sort-grip").content.cloneNode(true);
         };
 
         window.__buildRow = function (category) {
@@ -159,34 +152,14 @@
         // never claim each other's drag start, and no shared group name keeps
         // rows from crossing category containers.
         window.__initRowsSortable = function (rows) {
-            if (!window.Sortable || !rows) return;
-            if (rows.sortable) rows.sortable.destroy();
-            rows.sortable = new Sortable(rows, {
-                handle: ".scorecard-grip-rule",
-                draggable: "[data-row]",
-                animation: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150,
-                ghostClass: "scorecard-ghost",
-                chosenClass: "scorecard-chosen",
-                dragClass: "scorecard-drag"
-            });
+            window.gysAdminSortable(rows, "rule", "[data-row]");
         };
 
         window.__initEditorSortables = function () {
-            if (!window.Sortable) return;
             document.querySelectorAll("#editor-groups [data-rows]").forEach(function (rows) {
                 __initRowsSortable(rows);
             });
-            var groups = document.getElementById("editor-groups");
-            if (!groups) return;
-            if (groups.sortable) groups.sortable.destroy();
-            groups.sortable = new Sortable(groups, {
-                handle: ".scorecard-grip-category",
-                draggable: "[data-group]",
-                animation: matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 150,
-                ghostClass: "scorecard-ghost",
-                chosenClass: "scorecard-chosen",
-                dragClass: "scorecard-drag"
-            });
+            window.gysAdminSortable(document.getElementById("editor-groups"), "category", "[data-group]");
         };
     </script>
 
@@ -227,23 +200,12 @@
                 <h3 class="text-sm font-semibold">Scoring rules</h3>
                 <p class="mt-1 text-xs text-base-content/75">Drag a handle or use the arrows to change the order.</p>
             </div>
-            <p id="scorecard-move-status" role="status" class="sr-only"></p>
+            <p id="scorecard-move-status" data-admin-move-status role="status" class="sr-only"></p>
             <div id="editor-groups" class="space-y-3">
                 {% for group in groups %}
                 <div data-group class="gys-admin-rule-group">
                     <div class="mb-2 flex flex-wrap items-center gap-2">
-                            <span
-                                    class="scorecard-grip scorecard-grip-category btn btn-square btn-ghost btn-sm cursor-grab"
-                                    aria-hidden="true">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                                    <circle cx="9" cy="6" r="1.5" />
-                                    <circle cx="15" cy="6" r="1.5" />
-                                    <circle cx="9" cy="12" r="1.5" />
-                                    <circle cx="15" cy="12" r="1.5" />
-                                    <circle cx="9" cy="18" r="1.5" />
-                                    <circle cx="15" cy="18" r="1.5" />
-                                </svg>
-                            </span>
+                        {{ admin.sort_grip('category') }}
                             <h4 class="min-w-0 grow wrap-anywhere text-sm font-semibold">{{ group['category'] }}</h4>
                         {{ admin.move_controls('category') }}
                         <button type="button" class="btn btn-ghost btn-sm ms-auto"
@@ -253,18 +215,7 @@
                     <div class="divide-y divide-base-300" data-rows>
                         {% for item in group['items'] %}
                         <div class="gys-admin-rule" data-row data-item-id="{{ item.id }}">
-                            <span
-                                    class="scorecard-grip scorecard-grip-rule btn btn-square btn-ghost btn-sm cursor-grab"
-                                    aria-hidden="true">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor">
-                                    <circle cx="9" cy="6" r="1.5" />
-                                    <circle cx="15" cy="6" r="1.5" />
-                                    <circle cx="9" cy="12" r="1.5" />
-                                    <circle cx="15" cy="12" r="1.5" />
-                                    <circle cx="9" cy="18" r="1.5" />
-                                    <circle cx="15" cy="18" r="1.5" />
-                                </svg>
-                            </span>
+                            {{ admin.sort_grip('rule') }}
                             <input data-display value="{{ item.display_name }}" maxlength="255"
                                    class="input input-sm gys-admin-field min-w-0 flex-1 basis-36" aria-label="Rule display name" />
                             <input data-penalty type="number" min="1" max="100" value="{{ item.penalty_points }}"

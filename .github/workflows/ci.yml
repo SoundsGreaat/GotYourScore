@@ -97,12 +97,18 @@ jobs:
         run: |
           uv run --locked alembic upgrade 615b6b3d8d0c
           docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d gotyourscore_ci \
-            -c "INSERT INTO bad_feedbacks (customer_feedback) VALUES ('CI legacy feedback');"
+            -c "INSERT INTO bad_feedbacks (fb_date, customer_feedback) VALUES ('2026-10-01', 'CI legacy feedback');"
+          uv run --locked alembic upgrade a1b2c3d4e5f6
+          docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d gotyourscore_ci \
+            -c "INSERT INTO refund_checks (fb_date, related_case) VALUES ('2026-10-02', 'CI existing refund');"
           uv run --locked alembic upgrade head
           uv run --locked alembic current --check-heads
           feedback="$(docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d gotyourscore_ci -At \
-            -c "SELECT customer_feedback FROM bad_feedbacks WHERE customer_feedback = 'CI legacy feedback';")"
-          test "$feedback" = "CI legacy feedback"
+            -c "SELECT fb_date FROM bad_feedbacks WHERE customer_feedback = 'CI legacy feedback';")"
+          test "$feedback" = "2026-10-01"
+          refund="$(docker compose exec -T db psql -v ON_ERROR_STOP=1 -U postgres -d gotyourscore_ci -At \
+            -c "SELECT r_date FROM refund_checks WHERE related_case = 'CI existing refund';")"
+          test "$refund" = "2026-10-02"
       - name: Run PostgreSQL integration tests
         run: uv run --locked python -m unittest discover -s tests -v
       - if: failure()

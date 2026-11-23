@@ -22,9 +22,11 @@
         <div class="gys-admin-tabs" data-tabs data-hash data-responsive-orientation data-panel="admin-view"
              role="tablist" aria-label="Admin sections" hx-sync:inherited="#admin-view:replace">
             {% for key, label in [
-                ('prompts', 'Prompts'), ('ai', 'AI settings'), ('scorecards', 'Scorecards'), ('users', 'Users'),
+                ('prompts', 'Prompts'), ('ai', 'AI settings'), ('scorecards', 'Scorecards'),
+                ('case-fields', 'Case Fields'), ('users', 'Users'),
                 ('deleted-users', 'Deleted Users'), ('deleted-reviews', 'Deleted Reviews'),
-                ('deleted-bad-feedback', 'Deleted Bad Feedback')
+                ('deleted-bad-feedback', 'Deleted Bad Feedback'),
+                ('deleted-refund-check', 'Deleted Refund Checks')
             ] %}
             <button type="button" role="tab" id="admin-tab-{{ key }}" data-tab="{{ key }}"
                     {% if loop.first %}class="active" aria-selected="true"{% else %}aria-selected="false" tabindex="-1"{% endif %}

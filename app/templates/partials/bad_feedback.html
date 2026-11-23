@@ -1,23 +1,27 @@
 {% import "macros/dropdowns.html" as dd %}
 {% import "macros/icons.html" as icons %}
 {% import "macros/modals.html" as modals %}
-<!-- Bad Feedback tracker tab. Root section is self-refreshing:
-     bad-feedback-changed refetches this partial via outerHTML swap
+{% set tracker = tracker or 'bad-feedback' %}
+{% set tracker_label = tracker_label or 'Bad Feedback' %}
+{% set tracker_event = 'bad-feedback-changed' if tracker == 'bad-feedback' else 'refund-check-changed' %}
+{% set show_related_case = tracker_fields | selectattr('key', 'equalto', 'related_case') | first is defined %}
+<!-- Shared tracker tab. The category's changed event refetches this
+     partial via outerHTML swap
      (same lifecycle as reviews-changed for the reviews views). The
      ?status/?month filters are BAKED into the self-refetch URL so
      event-driven refreshes keep the active view (configRequest
      injection only covers view switches). -->
-<section id="bad-feedback-view"
-         hx-get="/partials/bad-feedback?status={{ status_filter or '' }}&month={{ month_value }}"
-         hx-trigger="bad-feedback-changed from:body"
+<section id="{{ tracker }}-view" data-tracker="{{ tracker }}"
+         hx-get="/partials/{{ tracker }}?status={{ status_filter or '' }}&month={{ month_value }}"
+         hx-trigger="{{ tracker_event }} from:body"
          hx-sync:inherited="this:replace"
          hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 class="text-lg font-semibold">Bad Feedback</h2>
+        <h2 class="text-lg font-semibold">{{ tracker_label }}</h2>
         <div class="flex flex-wrap items-center gap-2">
             <!-- Month selector: plain calendar month of completed_at
                  (pending records are month-less and always visible). -->
-            <form hx-get="/partials/bad-feedback?status={{ status_filter or '' }}"
+            <form hx-get="/partials/{{ tracker }}?status={{ status_filter or '' }}"
                   hx-target="closest section" hx-swap="outerHTML"
                   hx-trigger="change" class="flex items-center">
                 {{ dd.dropdown('bf-month-filter',
@@ -26,7 +30,7 @@
                 aria_label='Completion month',
                 hidden_attrs='name="month"') }}
             </form>
-            <form hx-get="/partials/bad-feedback?month={{ month_value }}"
+            <form hx-get="/partials/{{ tracker }}?month={{ month_value }}"
                   hx-target="closest section" hx-swap="outerHTML"
                   hx-trigger="change" class="flex items-center">
                 {{ dd.dropdown('bf-status-filter',
@@ -38,7 +42,7 @@
                 hidden_attrs='name="status"') }}
             </form>
             <button type="button" class="btn gys-btn-secondary btn-sm"
-                    data-bf-import aria-label="Import from Excel">
+                    data-tracker-import aria-label="Import from Excel">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M4 12v2m0-6V4a2 2 0 012-2h12a2 2 0 012 2v4m-6 2l-4 4m0 0l4 4m-4-4h12" />
                 </svg>
@@ -50,15 +54,14 @@
     {% if rows %}
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
-            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-label="Bad Feedback records table">
-                <table class="table table-sm">
+            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-label="{{ tracker_label }} records table">
+                <table class="table table-sm min-w-max">
                     <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Source</th>
-                        <th>Customer</th>
-                        <th>Agents</th>
-                        <th>Case</th>
+                        {% for field in tracker_fields %}
+                        <th scope="col">{{ field.label }}</th>
+                        {% endfor %}
+                         <th>Agents</th>
                         <th>Assigned QA</th>
                         <th>Status</th>
                         <th>Actions</th>
@@ -67,48 +70,53 @@
                     <tbody>
                     {% for row in rows %}
                     {% set fb = row.record %}
+                    {% set values = fb.field_values %}
+                    {% set related_case_value = values.get('related_case') if show_related_case else none %}
                     <tr>
-                        <td class="whitespace-nowrap">
-                            {% if fb.fb_date %}{{ fb.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}
+                        {% for field in tracker_fields %}
+                        {% set field_value = values.get(field.key) %}
+                        <td class="min-w-36 max-w-48 {% if field.field_type == 'date' %}whitespace-nowrap{% else %}truncate{% endif %}" title="{{ field_value or '' }}">
+                            {% if not field_value %}
+                            <span class="text-base-content/50">&mdash;</span>
+                            {% elif field.field_type == 'text' and field_value.strip().lower().startswith(('https://', 'http://')) %}
+                            <a href="{{ field_value.strip() }}" target="_blank" rel="noopener noreferrer"
+                               class="link link-hover link-primary">{{ field_value }}</a>
+                            {% else %}
+                            {{ field_value }}
+                            {% endif %}
                         </td>
-                        <td>{{ fb.source or '—' }}</td>
-                        <td class="max-w-48 truncate" title="{{ fb.customer_info or '' }}">
-                            {% if fb.customer_info %}
-                            <a href="{{ fb.customer_info }}" target="_blank" rel="noopener noreferrer"
-                               class="link link-hover link-primary">{{ fb.customer_info }}</a>
-                            {% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}
-                        </td>
+                        {% endfor %}
                         <td>
                             <div class="flex max-w-72 flex-wrap items-center gap-1">
-                                {% for agent in fb.agents %}
-                                {% set agent_name = (agent.user.name or agent.user.nickname) if agent.user else ('#' ~ agent.user_id) %}
+                                 {% for agent in fb.agents %}
+                                 {% set agent_name = (agent.user.name or agent.user.nickname) if agent.user else ('#' ~ agent.user_id) %}
+                                 {% set notes_key = tracker ~ '-' ~ fb.id ~ '-' ~ agent.id %}
                                 <!-- Click = the shared notes modal for THIS
                                      record + agent (notes_modal.js
                                      delegation; Edit re-opens the BF editor
                                      via data-notes-kind="bf"). -->
                                 <button type="button"
                                         class="badge badge-soft badge-sm badge-clickable {{ 'badge-warning' if agent.fault and agent.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if agent.fault and agent.fault.value == 'Warning' }}"
-                                        data-case-notes="{{ fb.id }}-{{ agent.user_id }}"
-                                        data-case-prefix="Bad Feedback"
-                                        data-case-label="{{ fb.related_case or fb.id }}"
+                                        data-case-notes="{{ notes_key }}"
+                                        data-case-prefix="{{ tracker_label }}"
+                                        data-case-label="{{ related_case_value or fb.id }}"
                                         data-case-type="{{ agent_name }}"
                                         data-edit-id="{{ fb.id }}"
                                         data-notes-open="edit"
-                                        data-notes-kind="bf"
+                                        data-notes-kind="{{ 'bf' if tracker == 'bad-feedback' else tracker }}"
                                         title="{{ agent.kind.value }}{% if agent.fault %} · {{ agent.fault.value }}{% endif %} — view the QA note">
                                     {{ agent_name }}{{ ' · ' ~ agent.fault.value if agent.fault }}
                                 </button>
-                                <template data-notes-for="{{ fb.id }}-{{ agent.user_id }}">{{ agent.qa_comment or '' }}</template>
+                                 <template data-notes-for="{{ notes_key }}">{{ agent.qa_comment or '' }}</template>
                                 {% endfor %}
                             </div>
                         </td>
-                        <td>{{ fb.related_case or '—' }}</td>
                         <td>{{ row.assigned_qa_name or '—' }}</td>
                         <td>
                             {% if fb.status == 'pending' %}
                             <button type="button" class="badge badge-soft badge-warning badge-sm badge-clickable font-semibold"
-                                    data-bf-edit="{{ fb.id }}"
-                                    aria-label="Open bad feedback {{ fb.id }}"
+                                    data-tracker-edit="{{ fb.id }}" data-tracker="{{ tracker }}"
+                                    aria-label="Open {{ tracker_label|lower }} {{ fb.id }}"
                                     title="Pending — open the editor">Pending</button>
                             {% else %}
                             <span class="badge badge-soft badge-success badge-sm font-semibold">Completed</span>
@@ -116,13 +124,13 @@
                         </td>
                         <td class="whitespace-nowrap">
                             <button type="button" class="btn btn-ghost btn-xs btn-circle"
-                                    data-bf-edit="{{ fb.id }}"
-                                    aria-label="Edit bad feedback {{ fb.id }}" title="Edit">
+                                    data-tracker-edit="{{ fb.id }}" data-tracker="{{ tracker }}"
+                                    aria-label="Edit {{ tracker_label|lower }} {{ fb.id }}" title="Edit">
                                 {{ icons.edit() }}
                             </button>
                             <button type="button" class="btn btn-ghost btn-xs btn-circle text-error"
-                                    data-bf-delete="{{ fb.id }}"
-                                    aria-label="Delete bad feedback {{ fb.id }}" title="Delete">
+                                    data-tracker-delete="{{ fb.id }}" data-tracker="{{ tracker }}"
+                                    aria-label="Delete {{ tracker_label|lower }} {{ fb.id }}" title="Delete">
                                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                 </svg>
@@ -137,17 +145,17 @@
     </div>
     {% else %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-        No bad feedback for this filter yet — import an Excel file or pick another month.
+        No {{ tracker_label|lower }} records for this filter yet — import an Excel file or pick another month.
     </div>
     {% endif %}
 
     {{ modals.notes_modal() }}
 
     <!-- ===== Import modal: upload → mapping → report ===== -->
-    <dialog class="modal js-bf-import-modal" aria-labelledby="bf-import-title">
+    <dialog class="modal js-tracker-import-modal" aria-labelledby="bf-import-title">
         <div class="modal-box max-w-2xl">
             <form method="dialog"><button aria-label="Close import" class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">✕</button></form>
-            <h3 id="bf-import-title" class="mb-1 pr-8 text-lg font-bold">Import Bad Feedback</h3>
+            <h3 id="bf-import-title" class="mb-1 pr-8 text-lg font-bold">Import {{ tracker_label }}</h3>
             <p class="mb-4 text-sm text-base-content/70">
                 Upload an .xlsx file, confirm which column holds what, and the rows
                 become pending records. Uncheck rows you do not want to import.
@@ -229,14 +237,17 @@
 
     <script>
         (function () {
-            var section = document.getElementById('bad-feedback-view');
+            var section = document.getElementById('{{ tracker }}-view');
             if (!section) return;
             var showToast = window.gysToast;
+            var tracker = section.getAttribute('data-tracker');
+            var trackerLabel = {{ tracker_label | tojson }};
+            var eventName = {{ tracker_event | tojson }};
 
             /* ---------- shared state ---------- */
             var file = null;
             var inspectData = null;
-            var importModal = section.querySelector('.js-bf-import-modal');
+            var importModal = section.querySelector('.js-tracker-import-modal');
             var analysisToken = 0;
             var analyzing = false;
             var committing = false;
@@ -307,13 +318,13 @@
                 setImportError();
                 var form = new FormData();
                 form.append('file', analyzedFile);
-                fetch('/api/bad-feedback/import/inspect', {method: 'POST', credentials: 'same-origin', body: form})
+                fetch('/api/' + tracker + '/import/inspect', {method: 'POST', credentials: 'same-origin', body: form})
                     .then(function (response) {
                         if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Inspect failed'); });
                         return response.json();
                     })
                     .then(function (data) {
-                        if (token !== analysisToken || !importModal.open || file !== analyzedFile) return;
+                        if (token !== analysisToken || !importModal.isConnected || !importModal.open || file !== analyzedFile) return;
                         inspectData = data;
                         buildMapping(data);
                         step('map');
@@ -458,14 +469,14 @@
                 }
                 setImportError();
                 setCommitPending(true);
-                fetch('/api/bad-feedback/import', {method: 'POST', credentials: 'same-origin', body: form})
+                fetch('/api/' + tracker + '/import', {method: 'POST', credentials: 'same-origin', body: form})
                     .then(function (response) {
                         if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Import failed'); });
                         return response.json();
                     })
                     .then(function (data) {
                         if (!importModal.open || !importModal.isConnected) {
-                            document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                            document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
                             return;
                         }
                         refreshOnClose = true;
@@ -509,7 +520,7 @@
                 }));
             }
 
-            section.querySelector('[data-bf-import]').addEventListener('click', function () {
+            section.querySelector('[data-tracker-import]').addEventListener('click', function () {
                 analysisToken++;
                 file = null;
                 inspectData = null;
@@ -529,7 +540,7 @@
                 analyzing = false;
                 if (refreshOnClose) {
                     refreshOnClose = false;
-                    document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                    document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
                 }
             });
 
@@ -549,23 +560,23 @@
 
             /* ---------- edit flow (on-demand editor partial) ---------- */
             section.addEventListener('click', function (event) {
-                var editBtn = event.target.closest('[data-bf-edit]');
+                var editBtn = event.target.closest('[data-tracker-edit]');
                 if (editBtn) {
-                    window.openBadFeedbackEditor(editBtn.getAttribute('data-bf-edit'));
+                    window.openTrackerEditor(tracker, editBtn.getAttribute('data-tracker-edit'));
                     return;
                 }
-                var deleteBtn = event.target.closest('[data-bf-delete]');
+                var deleteBtn = event.target.closest('[data-tracker-delete]');
                 if (deleteBtn) {
-                    var deleteId = deleteBtn.getAttribute('data-bf-delete');
+                    var deleteId = deleteBtn.getAttribute('data-tracker-delete');
                     if (deleting.has(deleteId)) return;
-                    if (!window.confirm('Delete this Bad Feedback record?')) return;
+                    if (!window.confirm('Delete this ' + trackerLabel + ' record?')) return;
                     deleting.add(deleteId);
                     deleteBtn.disabled = true;
-                    fetch('/api/bad-feedback/' + deleteId, {method: 'DELETE', credentials: 'same-origin'})
+                    fetch('/api/' + tracker + '/' + deleteId, {method: 'DELETE', credentials: 'same-origin'})
                         .then(function (response) {
                             if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
                             showToast('Record deleted.', 'alert-success');
-                            document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                            document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
                         })
                         .catch(function (error) { showToast(error.message || 'Unable to delete record.'); })
                         .finally(function () {

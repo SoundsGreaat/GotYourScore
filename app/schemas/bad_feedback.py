@@ -41,7 +41,7 @@ class BadFeedbackAgentRead(BaseModel):
     user_label: str | None = None
 
 
-class BadFeedbackCreate(BaseModel):
+class _TrackerCreate(BaseModel):
     """Payload for creating one Bad Feedback record
     (POST /api/bad-feedback). Import passes plain field values too.
 
@@ -56,11 +56,13 @@ class BadFeedbackCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    fb_date: date_type | None = None
     source: str | None = Field(default=None, max_length=255)
     customer_info: str | None = Field(default=None, max_length=2000)
     customer_feedback: str | None = Field(default=None, max_length=10_000)
     related_case: str | None = Field(default=None, max_length=255)
+    # Stable field key -> string/null. Legacy flat fields remain supported;
+    # when both forms provide the same key, this mapping takes precedence.
+    field_values: dict[str, str | None] = Field(default_factory=dict)
     assigned_qa_id: int | None = None
     agents: list[BadFeedbackAgentIn] = Field(default_factory=list, max_length=50)
     complete: bool = False
@@ -74,7 +76,11 @@ class BadFeedbackCreate(BaseModel):
         return value.strip() or None
 
 
-class BadFeedbackUpdate(BaseModel):
+class BadFeedbackCreate(_TrackerCreate):
+    fb_date: date_type | None = None
+
+
+class _TrackerUpdate(BaseModel):
     """Payload for editing a Bad Feedback record
     (PATCH /api/bad-feedback/{id}).
 
@@ -93,11 +99,13 @@ class BadFeedbackUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    fb_date: date_type | None = None
     source: str | None = Field(default=None, max_length=255)
     customer_info: str | None = Field(default=None, max_length=2000)
     customer_feedback: str | None = Field(default=None, max_length=10_000)
     related_case: str | None = Field(default=None, max_length=255)
+    # PATCH semantics are per-key merge: omitted keys are untouched and a
+    # present null clears that configured field.
+    field_values: dict[str, str | None] = Field(default_factory=dict)
     assigned_qa_id: int | None = None
     agents: list[BadFeedbackAgentIn] | None = Field(default=None, max_length=50)
 
@@ -110,17 +118,23 @@ class BadFeedbackUpdate(BaseModel):
         return value.strip() or None
 
 
-class BadFeedbackRead(BaseModel):
-    """Bad Feedback record as returned by the API."""
+class BadFeedbackUpdate(_TrackerUpdate):
+    fb_date: date_type | None = None
+
+
+class _TrackerRead(BaseModel):
+    """Shared tracker record fields as returned by the API."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    fb_date: date_type | None = None
     source: str | None = None
     customer_info: str | None = None
     customer_feedback: str | None = None
     related_case: str | None = None
+    # Canonical values use their stable keys (dates are YYYY-MM-DD/null);
+    # custom values are included, including values retained for archived keys.
+    field_values: dict[str, str | None] = Field(default_factory=dict)
     qa_comment: str | None = None
     status: ReviewStatusEnum = ReviewStatusEnum.PENDING
     assigned_qa_id: int | None = None
@@ -130,6 +144,10 @@ class BadFeedbackRead(BaseModel):
     deleted_at: datetime | None = None
     created_at: datetime
     agents: list[BadFeedbackAgentRead] = Field(default_factory=list)
+
+
+class BadFeedbackRead(_TrackerRead):
+    fb_date: date_type | None = None
 
 
 class ImportPreviewRow(BaseModel):
@@ -181,3 +199,35 @@ class ImportCommitResponse(BaseModel):
     created_users: list[str]
     created_count: int
     skipped_count: int
+
+
+# Refund Check uses its own date key and OpenAPI schema names.
+class RefundCheckAgentIn(BadFeedbackAgentIn):
+    pass
+
+
+class RefundCheckAgentRead(BadFeedbackAgentRead):
+    pass
+
+
+class RefundCheckCreate(_TrackerCreate):
+    r_date: date_type | None = None
+    agents: list[RefundCheckAgentIn] = Field(default_factory=list, max_length=50)
+
+
+class RefundCheckUpdate(_TrackerUpdate):
+    r_date: date_type | None = None
+    agents: list[RefundCheckAgentIn] | None = Field(default=None, max_length=50)
+
+
+class RefundCheckRead(_TrackerRead):
+    r_date: date_type | None = None
+    agents: list[RefundCheckAgentRead] = Field(default_factory=list)
+
+
+class RefundCheckImportInspectResponse(ImportInspectResponse):
+    pass
+
+
+class RefundCheckImportCommitResponse(ImportCommitResponse):
+    pass

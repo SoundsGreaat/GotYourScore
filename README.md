@@ -88,7 +88,8 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 - **Reporting periods**: the 26th of one month through the 25th of the next (UTC), named after its *closing* month (`app/services/reporting_period.py`). Review creation returns **409 once the quota is reached**; "No Cases" reviews have null score/scorecard but still count toward the quota.
 - **Pending reviews** are quota-neutral; completion = PATCH with `raw_scorecard` (deliberately skips the quota gate). The last editor of a pending review becomes its executor; completed rows reject reassignment.
 - **Scorecards**: exactly one active per case type; saved reviews embed `rules_snapshot` and score against it, never live rules. `error_name` on saved items is immutable.
-- **Bad Feedback**: customer complaints with per-agent cards — never quota-counted and never scored. Views group by plain calendar month of `completed_at`; pending records are month-less and always visible.
+- **Bad Feedback and Refund Check**: separate case trackers with the same per-agent cards, queue, completion, and Excel import workflow. Neither is scored or quota-counted. Views group by calendar month of `completed_at`; pending records are visible in every month.
+- **Case fields**: Admin → **Case Fields** manages each tracker's field list independently. Both start with Date, Source, Customer info, Customer feedback, and Related case. Drag a handle or use the arrows to reorder fields; the order saves automatically. Changes apply to the editor, listings, and Excel mapping. Renaming or reordering keeps the same field key; archiving hides a field without deleting historical values, and restoring makes them visible again. Customer info and new fields are hidden from My Reviews unless explicitly enabled. Workflow data (assignment, status, and per-agent cards) is managed separately.
 
 ## Frontend assets
 
@@ -114,7 +115,7 @@ Docker always runs `npm ci` and rebuilds the assets from `package-lock.json`. Th
 [CI](.github/workflows/ci.yml) runs on PRs, pushes to `main`, merge queues and daily. The required check includes:
 
 - Dependency review on PRs; `uv audit` and both npm lockfile audits. npm findings at moderate severity and above block CI. The existing low-severity Quill advisory is still printed.
-- Integration tests with PostgreSQL on Python 3.12, 3.13 and 3.14: the migration of an older database preserves sample data; tests cover OAuth callback handling, sessions and role checks, review scoring and quota, Bad Feedback, Excel uploads and the no-key AI response. No real Google or OpenRouter credentials are used.
+- Integration tests with PostgreSQL on Python 3.12, 3.13 and 3.14: the migration of an older database preserves sample data; tests cover OAuth callback handling, sessions and role checks, review scoring and quota, both case trackers, Excel uploads and the no-key AI response. No real Google or OpenRouter credentials are used.
 - Production Docker build with regenerated assets, a clean-volume boot and restart, migration and `/ping` checks, and Chromium tests against the running container. Fixable high/critical OS findings block both the app and PostgreSQL images. The [temporary PostgreSQL libxml2 exception](.github/trivy-postgres-ignore.yml) is printed in CI, expires on December 12, 2026, and should be removed as soon as the official image includes the fix.
 
 After a successful push to `main`, the exact tested Linux/amd64 image is available under **Actions → CI → Artifacts** as `gotyourscore-<commit SHA>` for 14 days. Unzip it and use `docker load -i gotyourscore.tar` to import it. CI does not deploy to production.
@@ -157,9 +158,9 @@ app/
 ├── api/            # Routers: auth (Google OAuth), api/* JSON, pages (HTML/partials), admin
 ├── core/           # Settings (pydantic-settings), security helpers, text utils
 ├── db/             # Async engine/session, declarative base, model imports
-├── models/         # SQLAlchemy models (User, Review, Scorecard, SystemPrompt, Assignment, BadFeedback, AppSetting)
+├── models/         # SQLAlchemy models (users, reviews, scorecards, case trackers, settings)
 ├── schemas/        # Pydantic request/response schemas
-├── services/       # Business logic: quotas, reporting periods, scorecards, multipliers, AI, prompts, users, Bad Feedback + Excel import
+├── services/       # Business logic: quotas, scoring, AI, users, case fields and Excel import
 ├── static/         # Compiled CSS, JS (app + vendored vendors), fonts
 └── templates/      # Jinja2: base/dashboard/admin shells, partials, macros
 alembic/            # Migration environment + versions
@@ -170,7 +171,7 @@ scripts/            # CSV import, asset vendoring
 
 - `/auth/*` — Google OAuth login/logout
 - `/api/reviews/*` — create, AI auto-score, score preview, delegate (`/pending`, `/pending/bulk`, `/pending/mine-count`), complete/edit (PATCH), soft delete, quota, compliance
-- `/api/bad-feedback/*` — complaint CRUD, complete, smart Excel import (`/import/inspect`, `/import`)
+- `/api/bad-feedback/*` and `/api/refund-check/*` — independent case CRUD, completion, and Excel import (`/import/inspect`, `/import`); configurable values use the `field_values` object keyed by stable field keys
 - `/api/assignments/*` — Supervisor/Admin QA staffing
 - `/api/ai/*` — refactor QA notes / Bad Feedback comments, score notes into a scorecard, draft notes from ticked deductions (OpenRouter)
 - `/api/system-prompts/*` — Admin-only LLM prompt management

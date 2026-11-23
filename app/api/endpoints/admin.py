@@ -41,6 +41,7 @@ from app.db.database import get_db
 from app.models import (
     BadFeedback,
     CaseTypeEnum,
+    RefundCheck,
     Review,
     RoleEnum,
     ScorecardTemplate,
@@ -53,6 +54,7 @@ from app.services import (
     app_setting_service,
     scorecard_service,
     system_prompt_service,
+    tracker_fields,
     user_service,
 )
 
@@ -701,6 +703,269 @@ async def reset_ai_request(
 
 
 # ---------------------------------------------------------------------------
+# Tracker case fields
+# ---------------------------------------------------------------------------
+
+
+_TRACKER_LABELS = {
+    "bad-feedback": "Bad Feedback",
+    "refund-check": "Refund Check",
+}
+_TRACKERS = tuple(_TRACKER_LABELS)
+_TRACKER_MODELS = {"bad-feedback": BadFeedback, "refund-check": RefundCheck}
+
+
+async def _case_fields_for_tracker(db: AsyncSession, tracker: str) -> dict[str, object]:
+    definitions = await tracker_fields.list_fields(
+        db, tracker, include_archived=True
+    )
+    return {
+        "active": [field for field in definitions if field.archived_at is None],
+        "archived": [field for field in definitions if field.archived_at is not None],
+        "date_key": tracker_fields.DATE_FIELD_KEYS[tracker],
+    }
+
+
+async def _render_case_fields(request: Request, db: AsyncSession) -> Response:
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_case_fields.html",
+        context={
+            "trackers": _TRACKERS,
+            "tracker_labels": _TRACKER_LABELS,
+            "fields": {
+                tracker: await _case_fields_for_tracker(db, tracker) for tracker in _TRACKERS
+            },
+            "max_field_label_length": tracker_fields.MAX_FIELD_LABEL_LENGTH,
+        },
+    )
+
+
+async def _render_case_field_tracker(
+    request: Request,
+    db: AsyncSession,
+    tracker: str,
+    *,
+    saved: str | None = None,
+    changed_field_id: int | None = None,
+) -> Response:
+    if request.headers.get("HX-Request", "").lower() != "true":
+        return RedirectResponse(
+            url="/admin#case-fields", status_code=status.HTTP_303_SEE_OTHER
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_case_fields_tracker.html",
+        context={
+            "tracker": tracker,
+            "tracker_label": _TRACKER_LABELS[tracker],
+            "tracker_fields": await _case_fields_for_tracker(db, tracker),
+            "max_field_label_length": tracker_fields.MAX_FIELD_LABEL_LENGTH,
+            "saved": saved,
+            "changed_field_id": changed_field_id,
+        },
+    )
+
+
+def _case_field_error(exc: ValueError) -> Response:
+    # These errors are validation messages from the field service, not DB errors.
+    return JSONResponse({"detail": str(exc)}, status_code=400)
+
+
+def _case_field_position(value: object) -> int:
+    try:
+        return int(str(value))
+    except ValueError:
+        raise ValueError("Field position must be a whole number.") from None
+
+
+@router.get(
+    "/admin/partials/case-fields",
+    name="admin_partial_case_fields",
+    summary="Tracker case fields partial",
+    include_in_schema=False,
+)
+async def partial_case_fields(
+    request: Request, auth: AdminPageUser, db: DbSession
+) -> Response:
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    return await _render_case_fields(request, db)
+
+
+@router.post(
+    "/admin/case-fields/{tracker}/create", name="admin_create_case_field"
+)
+async def create_case_field(
+    request: Request, tracker: str, auth: AdminPageUser, db: DbSession
+) -> Response:
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    if tracker not in _TRACKERS:
+        return _not_found()
+    form = await request.form()
+    try:
+        field = await tracker_fields.create_field(
+            db,
+            tracker,
+            label=str(form.get("label", "")),
+            field_type=str(form.get("field_type", "")),
+            position=(
+                _case_field_position(form.get("position"))
+                if "position" in form
+                else None
+            ),
+            show_in_my_reviews=form.get("show_in_my_reviews") == "true",
+        )
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        return _case_field_error(exc)
+    return await _render_case_field_tracker(
+        request, db, tracker, saved="Field added.", changed_field_id=field.id
+    )
+
+
+@router.post(
+    "/admin/case-fields/{tracker}/{field_id}/update",
+    name="admin_update_case_field",
+)
+async def update_case_field(
+    request: Request,
+    tracker: str,
+    field_id: int,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    if tracker not in _TRACKERS:
+        return _not_found()
+    form = await request.form()
+    try:
+        await tracker_fields.update_field(
+            db,
+            tracker,
+            field_id,
+            label=str(form.get("label", "")),
+            field_type=str(form.get("field_type", "")),
+            position=(
+                _case_field_position(form.get("position"))
+                if "position" in form
+                else None
+            ),
+            show_in_my_reviews=form.get("show_in_my_reviews") == "true",
+        )
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        return _case_field_error(exc)
+    return await _render_case_field_tracker(
+        request,
+        db,
+        tracker,
+        saved="Field updated.",
+        changed_field_id=field_id,
+    )
+
+
+@router.post(
+    "/admin/case-fields/{tracker}/{field_id}/archive",
+    name="admin_archive_case_field",
+)
+async def archive_case_field(
+    request: Request,
+    tracker: str,
+    field_id: int,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    if tracker not in _TRACKERS:
+        return _not_found()
+    try:
+        await tracker_fields.archive_field(db, tracker, field_id)
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        return _case_field_error(exc)
+    return await _render_case_field_tracker(
+        request,
+        db,
+        tracker,
+        saved="Field archived.",
+        changed_field_id=field_id,
+    )
+
+
+@router.post(
+    "/admin/case-fields/{tracker}/{field_id}/restore",
+    name="admin_restore_case_field",
+)
+async def restore_case_field(
+    request: Request,
+    tracker: str,
+    field_id: int,
+    auth: AdminPageUser,
+    db: DbSession,
+) -> Response:
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    if tracker not in _TRACKERS:
+        return _not_found()
+    try:
+        await tracker_fields.restore_field(db, tracker, field_id)
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        return _case_field_error(exc)
+    return await _render_case_field_tracker(
+        request,
+        db,
+        tracker,
+        saved="Field restored.",
+        changed_field_id=field_id,
+    )
+
+
+@router.post(
+    "/admin/case-fields/{tracker}/reorder", name="admin_reorder_case_fields"
+)
+async def reorder_case_fields(
+    request: Request, tracker: str, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Replace the active field order from a JSON array in FormData."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    if tracker not in _TRACKERS:
+        return _not_found()
+    form = await request.form()
+    try:
+        raw_ids = form.get("field_ids")
+        if not isinstance(raw_ids, str):
+            raise ValueError("Field order is required.")
+        try:
+            field_ids = json.loads(raw_ids)
+        except json.JSONDecodeError:
+            raise ValueError("Field order must be a JSON array of field IDs.") from None
+        if not isinstance(field_ids, list):
+            raise ValueError("Field order must be a JSON array of field IDs.")
+        await tracker_fields.reorder_fields(db, tracker, field_ids)
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        return _case_field_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
 # Users & roles management
 # ---------------------------------------------------------------------------
 
@@ -1095,26 +1360,22 @@ async def restore_review(
 
 
 # ---------------------------------------------------------------------------
-# Deleted Bad Feedback (soft-delete restore)
+# Deleted tracker records (soft-delete restore)
 # ---------------------------------------------------------------------------
 
 
-async def _deleted_bad_feedback_context(db: AsyncSession) -> dict[str, object]:
-    """Context for the deleted Bad Feedback partial, newest deletion first."""
-    records = list(
-        (
-            await db.execute(
-                select(BadFeedback)
-                .where(BadFeedback.deleted_at.is_not(None))
-                .order_by(BadFeedback.deleted_at.desc())
-            )
-        ).scalars().unique().all()
+async def _render_deleted_tracker(
+    request: Request, db: AsyncSession, tracker: str
+) -> Response:
+    model = _TRACKER_MODELS[tracker]
+    result = await db.execute(
+        select(model)
+        .where(model.deleted_at.is_not(None))
+        .order_by(model.deleted_at.desc(), model.id.desc())
     )
+    records = result.scalars().unique().all()
     person_ids = {
-        person_id
-        for record in records
-        for person_id in (record.qa_id, record.created_by)
-        if person_id is not None
+        record.qa_id for record in records if record.qa_id is not None
     }
     nicknames: dict[int, str] = {}
     if person_ids:
@@ -1125,29 +1386,29 @@ async def _deleted_bad_feedback_context(db: AsyncSession) -> dict[str, object]:
 
     rows = [
         {
-            "id": record.id,
-            "deleted_at": record.deleted_at,
-            "fb_date": record.fb_date,
-            "source": record.source,
-            "status": record.status,
+            "record": record,
             "agent_names": [agent.user.nickname for agent in record.agents],
             "reviewer_name": nicknames.get(record.qa_id, "Unknown"),
         }
         for record in records
     ]
-    return {"rows": rows}
-
-
-async def _render_deleted_bad_feedback(
-    request: Request, db: AsyncSession
-) -> Response:
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_deleted_bad_feedback.html",
-        context=await _deleted_bad_feedback_context(db),
+        context={
+            "tracker": tracker,
+            "tracker_label": _TRACKER_LABELS[tracker],
+            "tracker_fields": await tracker_fields.list_fields(db, tracker),
+            "rows": rows,
+        },
     )
 
 
+@router.get(
+    "/admin/partials/deleted-refund-check",
+    name="admin_partial_deleted_refund_check",
+    include_in_schema=False,
+)
 @router.get(
     "/admin/partials/deleted-bad-feedback",
     name="admin_partial_deleted_bad_feedback",
@@ -1157,38 +1418,40 @@ async def _render_deleted_bad_feedback(
 async def partial_deleted_bad_feedback(
     request: Request, auth: AdminPageUser, db: DbSession
 ) -> Response:
-    """Every soft-deleted Bad Feedback record, newest deletion first."""
+    """Every soft-deleted record in the requested tracker."""
     redirect = _guard(auth, request)
     if redirect is not None:
         return redirect
-    return await _render_deleted_bad_feedback(request, db)
+    tracker = (
+        "refund-check" if request.url.path.endswith("/deleted-refund-check") else "bad-feedback"
+    )
+    return await _render_deleted_tracker(request, db, tracker)
 
 
+@router.post(
+    "/admin/refund-check/{feedback_id}/restore",
+    name="admin_restore_refund_check",
+)
 @router.post(
     "/admin/bad-feedback/{feedback_id}/restore",
     name="admin_restore_bad_feedback",
 )
-async def restore_bad_feedback(
+async def restore_tracker_record(
     request: Request,
     feedback_id: int,
     auth: AdminPageUser,
     db: DbSession,
 ) -> Response:
-    """Restore a soft-deleted Bad Feedback record and refresh its list."""
+    """Restore a soft-deleted tracker record and refresh its list."""
     redirect = _guard(auth, request)
     if redirect is not None:
         return redirect
 
-    feedback = await db.get(BadFeedback, feedback_id)
-    if feedback is None:
+    tracker = request.url.path.rsplit("/", 3)[-3]
+    record = await db.get(_TRACKER_MODELS[tracker], feedback_id)
+    if record is None:
         return _not_found()
-
-    if feedback.deleted_at is not None:
-        await db.execute(
-            update(BadFeedback)
-            .where(BadFeedback.id == feedback_id)
-            .values(deleted_at=None)
-        )
+    if record.deleted_at is not None:
+        record.deleted_at = None
         await db.commit()
-
-    return await _render_deleted_bad_feedback(request, db)
+    return await _render_deleted_tracker(request, db, tracker)

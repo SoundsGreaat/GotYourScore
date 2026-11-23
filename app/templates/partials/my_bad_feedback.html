@@ -1,5 +1,10 @@
 {% import "macros/dropdowns.html" as dd %}
 {% import "macros/modals.html" as modals %}
+{% set tracker = tracker or 'bad-feedback' %}
+{% set tracker_label = tracker_label or 'Bad Feedback' %}
+{% set tracker_event = 'bad-feedback-changed' if tracker == 'bad-feedback' else 'refund-check-changed' %}
+{% set tracker_fields = tracker_fields or [] %}
+{% set show_related_case = tracker_fields | selectattr('key', 'equalto', 'related_case') | first is defined %}
 {# My Reviews' Bad Feedback flavor: records where the CURRENT USER is
    listed as an agent OR which they completed as the QA — same
    two-sided scope as the QA-score My Reviews. Deliberately READ-ONLY:
@@ -10,15 +15,15 @@
    month BAKED into the URL (configRequest injection only covers view
    switches). The month selector groups by completion date; pending
    records are month-less and always visible. #}
-<section id="my-bad-feedback-view"
-         hx-get="/partials/my-reviews?cat=bad-feedback&month={{ month_value }}"
-         hx-trigger="bad-feedback-changed from:body"
+<section id="my-{{ tracker }}-view" data-tracker="{{ tracker }}"
+         hx-get="/partials/my-reviews?cat={{ tracker }}&month={{ month_value }}"
+         hx-trigger="{{ tracker_event }} from:body"
          hx-sync:inherited="this:replace"
          hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">My Reviews</h2>
         <div class="flex flex-wrap items-center gap-2">
-            <form hx-get="/partials/my-reviews?cat=bad-feedback"
+            <form hx-get="/partials/my-reviews?cat={{ tracker }}"
                   hx-target="closest section" hx-swap="outerHTML"
                   hx-trigger="change" class="flex items-center">
                 {{ dd.dropdown('bf-my-month-filter',
@@ -33,33 +38,36 @@
     {% if rows %}
     {% for row in rows %}
     {% set fb = row.record %}
+    {% set values = fb.field_values %}
+    {% set related_case_value = values.get('related_case') if show_related_case else none %}
     <div class="card mb-3 rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 gap-2 p-3 sm:p-4">
             <div class="flex flex-wrap items-center gap-2">
-                {% if fb.fb_date %}<span class="text-sm">{{ fb.fb_date.strftime('%b %d, %Y') }}</span>{% endif %}
-                {% if fb.source %}<span class="badge badge-ghost badge-sm">{{ fb.source }}</span>{% endif %}
-                {% if fb.related_case %}<span class="text-sm text-base-content/70">{{ fb.related_case }}</span>{% endif %}
+                {% for field in tracker_fields %}
+                {% set field_value = values.get(field.key) %}
+                {% if field_value %}<span class="min-w-0 break-words text-sm {% if field.field_type == 'textarea' %}basis-full whitespace-pre-line{% endif %}">
+                    <span class="font-medium">{{ field.label }}:</span> {{ field_value }}
+                </span>{% endif %}
+                {% endfor %}
                 {% if fb.status == 'pending' %}
                 <span class="badge badge-warning badge-sm">Pending</span>
                 {% else %}
                 <span class="badge badge-success badge-sm">Completed</span>
                 {% endif %}
             </div>
-            {% if fb.customer_feedback %}
-            <p class="whitespace-pre-line text-sm text-base-content/80">{{ fb.customer_feedback }}</p>
-            {% endif %}
             {% if row.entries %}
             <div class="flex flex-wrap items-center gap-1">
                 {% for entry in row.entries %}
+                {% set notes_key = tracker ~ '-' ~ fb.id ~ '-' ~ entry.id %}
                 <button type="button"
                         class="badge badge-soft badge-sm badge-clickable {{ 'badge-warning' if entry.fault and entry.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if entry.fault and entry.fault.value == 'Warning' }}"
-                        data-case-notes="{{ fb.id }}-{{ entry.user_id }}"
-                        data-case-prefix="Bad Feedback"
-                        data-case-label="{{ fb.related_case or fb.id }}"
+                        data-case-notes="{{ notes_key }}"
+                        data-case-prefix="{{ tracker_label }}"
+                        data-case-label="{{ related_case_value or fb.id }}"
                         {% if entry.fault %}title="Your fault: {{ entry.fault.value }} — view the QA note"{% else %}title="View the QA note"{% endif %}>
                     {{ entry.kind.value }}{{ ' · ' ~ entry.fault.value if entry.fault }}
                 </button>
-                <template data-notes-for="{{ fb.id }}-{{ entry.user_id }}">{{ entry.qa_comment or '' }}</template>
+                <template data-notes-for="{{ notes_key }}">{{ entry.qa_comment or '' }}</template>
                 {% endfor %}
                 <span class="text-xs text-base-content/60">— click to read the QA note</span>
             </div>
@@ -69,7 +77,7 @@
     {% endfor %}
     {% else %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-        No Bad Feedback records for this month
+            No {{ tracker_label }} records for this month
     </div>
     {% endif %}
 

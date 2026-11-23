@@ -1,33 +1,38 @@
-{# Deleted Bad Feedback partial, swapped into #admin-view. #}
+{# Shared deleted tracker records partial, swapped into #admin-view. #}
 {% import "macros/admin.html" as admin %}
-<div id="admin-deleted-bad-feedback-root">
-    {% call admin.recovery_panel("deleted-feedback", "Deleted Bad Feedback", "Restore a record to return it to the Bad Feedback tracker.", rows|length, "No deleted Bad Feedback.") %}
+<div id="admin-deleted-{{ tracker }}-root">
+    {% set title = 'Deleted Refund Checks' if tracker == 'refund-check' else 'Deleted Bad Feedback' %}
+    {% call admin.recovery_panel("deleted-" ~ tracker, title, "Restore a record to return it to the " ~ tracker_label ~ " tracker.", rows|length, "No records to restore.") %}
                 <table class="table table-sm">
-                    <caption class="sr-only">Deleted Bad Feedback records</caption>
+                    <caption class="sr-only">{{ title }}</caption>
                     <thead>
                         <tr>
                             <th scope="col">Deleted</th>
-                            <th scope="col">Date</th>
                             <th scope="col">Agents</th>
                             <th scope="col">Reviewed by</th>
-                            <th scope="col">Source</th>
+                            {% for field in tracker_fields %}
+                            <th scope="col">{{ field.label }}</th>
+                            {% endfor %}
                             <th scope="col">Status</th>
                             <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in rows %}
+                        {% set record = row.record %}
+                        {% set values = record.field_values %}
                         <tr>
-                            <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
-                            <td class="whitespace-nowrap">{% if row.fb_date %}{{ row.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                            <td class="whitespace-nowrap">{{ record.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
                             <th scope="row" class="font-medium">{{ row.agent_names|join(', ') if row.agent_names else '—' }}</th>
                             <td>{{ row.reviewer_name }}</td>
-                            <td>{{ row.source or '—' }}</td>
-                            <td>{{ row.status.value }}</td>
+                            {% for field in tracker_fields %}
+                            <td class="max-w-64 truncate" title="{{ values.get(field.key) or '' }}">{{ values.get(field.key) or '—' }}</td>
+                            {% endfor %}
+                            <td>{{ record.status.value }}</td>
                             <td>
                                 <button type="button" class="btn gys-btn-secondary btn-sm"
-                                        aria-label="Restore Bad Feedback{% if row.agent_names %} for {{ row.agent_names|join(', ') }}{% endif %}"
-                                        hx-post="/admin/bad-feedback/{{ row.id }}/restore"
+                                        aria-label="Restore {{ tracker_label }} record {{ record.id }}"
+                                        hx-post="/admin/{{ tracker }}/{{ record.id }}/restore"
                                         hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
                             </td>
                         </tr>

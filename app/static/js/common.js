@@ -4,15 +4,15 @@
  * names instead of re-declaring its own copy.
  */
 
-/* Resize an opted-in panel from its current rendered height, not from a
- * loading placeholder. Return to natural sizing when the motion ends. */
+/* Resize from the current rendered height or a height captured immediately
+ * before a DOM swap. Return to natural sizing when the motion ends. */
 var gysResizeAnimations = new WeakMap();
-window.gysResizePanel = function (panel, update) {
+window.gysResizePanel = function (panel, update, fromHeight) {
     var previous = gysResizeAnimations.get(panel);
     var canAnimate = panel.animate && matchMedia('(prefers-reduced-motion: no-preference)').matches;
-    var start = canAnimate ? panel.getBoundingClientRect().height : 0;
+    var start = canAnimate ? (fromHeight ?? panel.getBoundingClientRect().height) : 0;
     previous?.cancel();
-    update();
+    update?.();
     if (!canAnimate || !panel.isConnected) return;
 
     var end = panel.getBoundingClientRect().height;
@@ -171,34 +171,42 @@ window.openReviewDrawer = function (reviewId, mode) {
  * view (the partial mounts into #bf-editor-container, which lives next
  * to the drawer container on the dashboard). Closing the dialog
  * unmounts the partial entirely. */
-function mountBadFeedbackEditor(query) {
+function mountTrackerEditor(tracker, query) {
+    if (tracker !== 'bad-feedback' && tracker !== 'refund-check') return;
     var target = document.getElementById('bf-editor-container');
     if (!target || !window.htmx) {
         window.gysToast('Unable to open the editor.');
         return;
     }
-    window.__bfEditorEpoch = (window.__bfEditorEpoch || 0) + 1;
-    var epoch = window.__bfEditorEpoch;
-    htmx.ajax('GET', '/partials/bad-feedback-editor' + query, {
+    window.__trackerEditorEpoch = (window.__trackerEditorEpoch || 0) + 1;
+    var epoch = window.__trackerEditorEpoch;
+    htmx.ajax('GET', '/partials/' + tracker + '-editor' + query, {
+        source: target,
         target: '#bf-editor-container',
         swap: 'innerHTML',
     }).then(function () {
         // A newer open superseded this one — let its mount win.
-        if (epoch !== window.__bfEditorEpoch) return;
+        if (epoch !== window.__trackerEditorEpoch) return;
         var modal = target.querySelector('.js-bf-edit-modal');
         if (modal && !modal.open) modal.showModal();
     }).catch(function () {
-        window.gysToast('Unable to open the editor.');
+        if (epoch === window.__trackerEditorEpoch) window.gysToast('Unable to open the editor.');
     });
 }
 
+window.openTrackerEditor = function (tracker, recordId) {
+    mountTrackerEditor(tracker, '?id=' + encodeURIComponent(recordId));
+};
 window.openBadFeedbackEditor = function (recordId) {
-    mountBadFeedbackEditor('?id=' + encodeURIComponent(recordId));
+    window.openTrackerEditor('bad-feedback', recordId);
 };
 
 /* CREATE mode: same modal, no id — the partial renders the empty form
  * with a "Save For Later" (Pending) action. Used by the navbar New
  * Review button while the Bad Feedback category is active. */
 window.openBadFeedbackCreator = function () {
-    mountBadFeedbackEditor('');
+    mountTrackerEditor('bad-feedback', '');
+};
+window.openTrackerCreator = function (tracker) {
+    mountTrackerEditor(tracker, '');
 };

@@ -6,6 +6,8 @@ Importing this package ensures every model module is loaded so that
 
 from app.models.app_setting import AppSetting
 from app.models.bad_feedback import BadFeedback, BadFeedbackAgent
+from app.models.refund_check import RefundCheck, RefundCheckAgent
+from app.models.tracker_field import TrackerField
 from app.models.enums import (
     AgentKindEnum,
     CaseTypeEnum,
@@ -24,6 +26,9 @@ __all__ = [
     "AppSetting",
     "BadFeedback",
     "BadFeedbackAgent",
+    "RefundCheck",
+    "RefundCheckAgent",
+    "TrackerField",
     "CaseTypeEnum",
     "FaultEnum",
     "ReviewStatusEnum",

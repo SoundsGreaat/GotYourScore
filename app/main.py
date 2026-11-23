@@ -18,7 +18,10 @@ from app.api.auth import router as auth_router
 from app.api.endpoints.admin import router as admin_router
 from app.api.endpoints.ai import router as ai_router
 from app.api.endpoints.assignments import router as assignments_router
-from app.api.endpoints.bad_feedback import router as bad_feedback_router
+from app.api.endpoints.bad_feedback import (
+    refund_check_router,
+    router as bad_feedback_router,
+)
 from app.api.endpoints.pages import router as pages_router
 from app.api.endpoints.reviews import router as reviews_router
 from app.api.endpoints.system_prompts import router as system_prompts_router
@@ -108,6 +111,7 @@ app.include_router(ai_router, prefix="/api")
 app.include_router(system_prompts_router, prefix="/api")
 # Bad Feedback: complaint tracking with smart Excel import (QA and up).
 app.include_router(bad_feedback_router, prefix="/api")
+app.include_router(refund_check_router, prefix="/api")
 # Server-rendered HTML pages (login, dashboard) at the application root.
 app.include_router(pages_router)
 # Admin panel pages (HTMX partials, Admin-only) at the application root.
