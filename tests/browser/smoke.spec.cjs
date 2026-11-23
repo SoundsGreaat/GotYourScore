@@ -191,6 +191,29 @@ test("Case Fields reuses admin pickers and keeps the tab and other edits on save
   await refund.locator("summary").filter({ hasText: renamed }).click();
   await renamedForm.getByRole("button", { name: `Archive ${renamed}` }).click();
   await expect(renamedForm).toHaveCount(0);
+
+  let releaseCreate;
+  const heldCreate = new Promise((resolve) => { releaseCreate = resolve; });
+  const createPath = "/admin/case-fields/refund-check/create";
+  await page.route(`**${createPath}`, async (route) => {
+    await heldCreate;
+    await route.continue();
+  }, { times: 1 });
+  await add.getByLabel("Label").fill(`${label} first draft`);
+  const createRequest = page.waitForRequest(`**${createPath}`);
+  await add.getByRole("button", { name: "Add field" }).click();
+  try {
+    await createRequest;
+    await add.getByLabel("Label").fill("Next draft kept");
+  } finally {
+    releaseCreate();
+  }
+  const firstDraft = refund.locator("summary").getByText(`${label} first draft`, { exact: true });
+  await expect(firstDraft).toBeVisible();
+  await expect(add.getByLabel("Label")).toHaveValue("Next draft kept");
+  await firstDraft.click();
+  await refund.getByRole("button", { name: `Archive ${label} first draft`, exact: true }).click();
+  await expect(firstDraft).toHaveCount(0);
   await page.setViewportSize({ width: 320, height: 720 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   expect(failures).toEqual([]);
@@ -235,6 +258,49 @@ test("Case Fields persists drag and arrow moves and respects reduced motion", as
   await expect(page.getByRole("alert").filter({ hasText: "The field order is out of date." })).toBeVisible();
   await expect(names).toHaveText(initial);
   await expect(down).toBeFocused();
+});
+
+test("returning to Case Fields waits for a pending reorder before loading the list", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/admin#case-fields`);
+  const list = page.getByRole("list", { name: "Refund Check active fields", exact: true });
+  const names = list.locator("[data-case-field-name]");
+  const first = await names.first().textContent();
+  const second = await names.nth(1).textContent();
+  await list.evaluate((node) => { window.previousList = node; });
+  const path = "/admin/case-fields/refund-check/reorder";
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await page.route(`**${path}`, async (route) => {
+    await held;
+    await route.continue();
+  }, { times: 1 });
+  await page.evaluate(() => document.addEventListener("htmx:before:request", ({ detail }) => {
+    if (detail.ctx.request.action === "/admin/partials/case-fields") window.caseFieldsRequested = true;
+  }));
+  let fetches = 0;
+  await page.route("**/admin/partials/case-fields", (route) => {
+    fetches++;
+    return route.continue();
+  });
+  const order = page.waitForRequest(`**${path}`);
+  await list.getByRole("button", { name: `Move ${first} down`, exact: true }).click();
+  try {
+    await order;
+    await page.getByRole("tab", { name: "Users", exact: true }).click();
+    await expect(page.getByRole("tabpanel", { name: "Users", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => window.Sortable.get(window.previousList) == null)).toBe(true);
+    await page.getByRole("tab", { name: "Case Fields", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => window.caseFieldsRequested)).toBe(true);
+    expect(fetches).toBe(0);
+  } finally {
+    release();
+  }
+  await expect(names.first()).toHaveText(second);
+  const restored = nextResponse(page, path, "POST");
+  await list.getByRole("button", { name: `Move ${first} up`, exact: true }).click();
+  expect((await restored).status()).toBe(204);
+  await expect(names.first()).toHaveText(first);
 });
 
 test("sidebar and category swaps preserve the hash and open the matching editors", async ({ page }) => {

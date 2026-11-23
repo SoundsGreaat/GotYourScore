@@ -104,9 +104,6 @@
         });
     }
 
-    // Rules can be added, deleted, moved by the drag handle or swapped.
-    new MutationObserver(syncMoveButtons).observe(panel, {childList: true, subtree: true});
-
     var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     var moveAnimations = new WeakMap();
 
@@ -140,11 +137,24 @@
         sortables.set(list, sortable);
         return sortable;
     };
-    panel.addEventListener('htmx:before:cleanup', function (event) {
-        var list = event.target;
-        sortables.get(list)?.destroy();
-        sortables.delete(list);
-    });
+    // A parent swap can remove a Sortable host that has no HTMX attributes.
+    // Don't destroy hosts that are still connected after a DOM move.
+    new MutationObserver(function (changes) {
+        var hosts = '#editor-groups, [data-rows], [data-case-field-list]';
+        changes.forEach(function (change) {
+            change.removedNodes.forEach(function (node) {
+                if (!(node instanceof Element) || node.isConnected) return;
+                var removed = node.matches(hosts) ? [node] : [];
+                removed.push(...node.querySelectorAll(hosts));
+                removed.forEach(function (list) {
+                    if (list.isConnected) return;
+                    sortables.get(list)?.destroy();
+                    sortables.delete(list);
+                });
+            });
+        });
+        syncMoveButtons();
+    }).observe(panel, {childList: true, subtree: true});
 
     // Let details open/close natively before animating the measured box.
     // Holding content-visibility open would leave closed controls tabbable.
@@ -231,6 +241,32 @@
     var fieldRequests = new WeakSet();
     var ordering = new WeakSet();
     var dragOrders = new WeakMap();
+    var pendingFieldWrites = new Set();
+    function beginFieldWrite() {
+        var finish;
+        var pending = new Promise(function (resolve) { finish = resolve; });
+        pendingFieldWrites.add(pending);
+        return function () {
+            pendingFieldWrites.delete(pending);
+            finish();
+        };
+    }
+
+    document.addEventListener('htmx:before:request', function (event) {
+        var ctx = event.detail.ctx;
+        if (!pendingFieldWrites.size || ctx.request.method !== 'GET'
+            || new URL(ctx.request.action, document.baseURI).pathname !== '/admin/partials/case-fields') return;
+        var send = ctx.fetch;
+        ctx.fetch = async function (url, options) {
+            // Returning to the tab while a local write is in flight must
+            // not fetch a snapshot from before that write.
+            while (pendingFieldWrites.size) {
+                await Promise.all(pendingFieldWrites);
+                options.signal?.throwIfAborted?.();
+            }
+            return send(url, options);
+        };
+    });
     function caseListBusy(list) {
         return ordering.has(list) || fieldRequests.has(list.closest('[data-case-field-tracker]'));
     }
@@ -245,6 +281,7 @@
 
     async function persistFieldOrder(list, item, originalOrder, direction) {
         ordering.add(list);
+        var finish = beginFieldWrite();
         setFieldBusy(list, true);
         var status;
         function readStatus(event) { status = event.detail.ctx.response?.status; }
@@ -282,6 +319,7 @@
             list.removeEventListener('htmx:finally:request', readStatus);
             ordering.delete(list);
             setFieldBusy(list, false);
+            finish();
         }
     }
 
@@ -295,7 +333,11 @@
                     persistFieldOrder(list, event.item, originalOrder);
                 }
             });
-            sortable?.option('onStart', function () { dragOrders.set(list, [...list.children]); });
+            sortable?.option('onStart', function () {
+                dragOrders.set(list, [...list.children].filter(function (row) {
+                    return row !== Sortable.ghost && row !== Sortable.clone;
+                }));
+            });
         });
     }
     document.addEventListener('htmx:after:process', function (event) {
@@ -304,6 +346,10 @@
 
     var fieldSwaps = new WeakMap();
     var fieldRequestScopes = new WeakMap();
+    function fieldFormValues(form) {
+        return new URLSearchParams(new FormData(form)).toString();
+    }
+
     panel.addEventListener('htmx:before:request', function (event) {
         var ctx = event.detail.ctx;
         var source = ctx.sourceElement;
@@ -314,15 +360,21 @@
             event.preventDefault();
             return;
         }
-        fieldRequestScopes.set(ctx, scope);
+        fieldRequestScopes.set(ctx, {
+            scope: scope, finish: beginFieldWrite(),
+            submitted: source.dataset.caseFieldAction === 'create' ? fieldFormValues(source) : null,
+        });
         fieldRequests.add(scope);
         setFieldBusy(list, true);
     });
     // HTMX dispatches directly on document if archive/restore removed the request form.
     document.addEventListener('htmx:finally:request', function (event) {
         var ctx = event.detail.ctx;
-        var scope = fieldRequestScopes.get(ctx);
-        if (!scope) return;
+        var request = fieldRequestScopes.get(ctx);
+        if (!request) return;
+        fieldRequestScopes.delete(ctx);
+        request.finish();
+        var scope = request.scope;
         fieldRequests.delete(scope);
         setFieldBusy(scope.querySelector('[data-case-field-list]'), false);
         fieldSwaps.get(ctx)?.untouched.forEach(function (form) { form.removeAttribute('hx-morph-skip'); });
@@ -343,8 +395,9 @@
         scope.querySelectorAll('details[open]').forEach(function (details) {
             task.fragment.getElementById(details.id)?.setAttribute('open', '');
         });
+        var resetCreate = action === 'create' && fieldRequestScopes.get(ctx)?.submitted === fieldFormValues(source);
         var untouched = [...scope.querySelectorAll('form[data-case-field-action="update"], form[data-case-field-action="create"]')]
-            .filter(function (form) { return form !== source; });
+            .filter(function (form) { return form !== source || (action === 'create' && !resetCreate); });
         untouched.forEach(function (form) { form.setAttribute('hx-morph-skip', ''); });
         var active = document.activeElement;
         var row = active.closest('[data-case-field-row]');
@@ -354,7 +407,7 @@
             || (action === 'restore' ? scope.querySelector('[id$="-archive-summary"]') : addSummary);
         var content = scope.querySelector('[data-case-field-content]');
         fieldSwaps.set(ctx, {
-            scope: scope, source: source, action: action, untouched: untouched,
+            scope: scope, source: source, action: action, untouched: untouched, resetCreate: resetCreate,
             positions: capturePositions(scope.querySelectorAll('[data-case-field-row]')),
             height: action !== 'update' && !reducedMotion.matches ? content.getBoundingClientRect().height : null,
             active: active, nextFocus: nextFocus,
@@ -368,7 +421,7 @@
         state.untouched.forEach(function (form) { form.removeAttribute('hx-morph-skip'); });
         var scope = state.scope;
         if (!scope.isConnected) return;
-        if (state.action === 'create') {
+        if (state.resetCreate) {
             state.source.reset();
             var initial = state.source.querySelector('[data-opt-value="text"]');
             var pickerId = initial.closest('[popover]').id.replace(/-picker$/, '');
