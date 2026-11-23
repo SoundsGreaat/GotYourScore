@@ -68,28 +68,26 @@
             {% for field in tracker_fields.active %}
             {% set key = scope ~ '-' ~ field.id %}
             <li id="{{ key }}-row" data-row data-case-field-row data-case-field-id="{{ field.id }}" class="relative py-2">
-                <div class="absolute start-0 top-2 z-10 flex h-10 items-center rounded-field bg-base-200 ps-0.5 pe-1 pointer-coarse:h-12 max-[24rem]:pointer-coarse:static max-[24rem]:pointer-coarse:mb-1 max-[24rem]:pointer-coarse:w-fit"
-                     role="group" aria-label="Reorder {{ field.label }}">
+                <div class="absolute start-0 top-2 z-10 flex h-12 items-center">
                     {{ admin.sort_grip('rule') }}
-                    {{ admin.move_controls(field.label) }}
                 </div>
                 <details id="{{ key }}-details" class="group gys-admin-disclosure min-w-0">
                     <summary id="{{ key }}-summary" data-case-row-focus
                              aria-labelledby="{{ key }}-action {{ key }}-name"
-                             class="flex min-h-10 items-center justify-between gap-2 rounded-field py-1.5 ps-28 pe-2 pointer-coarse:min-h-12 pointer-coarse:ps-40 max-[24rem]:pointer-coarse:ps-2">
+                             class="relative flex min-h-12 items-start justify-between gap-2 rounded-field py-1.5 ps-10 pe-15 pointer-coarse:ps-14 pointer-coarse:pe-27 max-[26rem]:pointer-coarse:px-3 max-[26rem]:pointer-coarse:pt-12 sm:items-center">
                         <span id="{{ key }}-action" class="sr-only">Edit</span>
-                        <span class="grid min-w-0 grow items-center justify-items-start gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto] max-[24rem]:pointer-coarse:grid-cols-[minmax(0,1fr)_auto]">
+                        <span class="grid min-w-0 grow items-center justify-items-start gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto] max-[26rem]:pointer-coarse:grid-cols-[minmax(0,1fr)_auto]">
                             <span class="min-w-0">
                                 <span id="{{ key }}-name" data-case-field-name class="block wrap-anywhere text-sm font-semibold">{{ field.label }}</span>
                                 <code class="block wrap-anywhere text-xs text-base-content/75">{{ field.key }}</code>
                             </span>
                             <span class="badge badge-ghost badge-sm max-w-full">{{ type_labels[field.field_type] }}</span>
                         </span>
-                        <span class="flex shrink-0 items-center gap-1.5 border-s border-base-300 ps-2 text-xs font-medium text-base-content/75 sm:min-w-16" aria-hidden="true">
+                        <span class="flex min-h-9 shrink-0 items-center gap-1.5 border-s border-base-300 ps-2 text-xs font-medium text-base-content/75 sm:min-w-16 max-[26rem]:pointer-coarse:absolute max-[26rem]:pointer-coarse:end-27 max-[26rem]:pointer-coarse:top-1.5 max-[26rem]:pointer-coarse:min-w-16" aria-hidden="true">
                             <span class="group-open:hidden">{{ icons.edit() }}</span>
-                            <span class="hidden sm:inline group-open:hidden">Edit</span>
+                            <span class="hidden sm:inline max-[26rem]:pointer-coarse:inline group-open:hidden">Edit</span>
                             <span class="hidden group-open:inline">{{ icons.x() }}</span>
-                            <span class="hidden sm:group-open:inline">Close</span>
+                            <span class="hidden sm:group-open:inline max-[26rem]:pointer-coarse:group-open:inline">Close</span>
                         </span>
                     </summary>
                     <form method="post" action="{{ url }}/{{ field.id }}/update" hx-post="{{ url }}/{{ field.id }}/update"
@@ -108,6 +106,10 @@
                           hx-post="{{ url }}/{{ field.id }}/archive" hx-target="#{{ scope }}" hx-swap="outerMorph"
                           data-case-field-action="archive"></form>
                 </details>
+                <div class="absolute end-0 top-2 z-10 flex h-12 items-center"
+                     role="group" aria-label="Reorder {{ field.label }}">
+                    {{ admin.move_controls(field.label) }}
+                </div>
             </li>
             {% endfor %}
         </ul>

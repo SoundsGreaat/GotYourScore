@@ -149,10 +149,17 @@ test("Case Fields reuses admin pickers and keeps the tab and other edits on save
   const dateRow = refund.getByRole("listitem").filter({
     has: page.getByRole("group", { name: "Reorder Date", exact: true }),
   });
-  const reorderBox = await dateRow.getByRole("group", { name: "Reorder Date", exact: true }).boundingBox();
-  const summaryBox = await dateRow.locator("summary").getByText("Date", { exact: true }).first().boundingBox();
-  expect(reorderBox.x + reorderBox.width).toBeLessThan(summaryBox.x);
-  await expect(dateRow.locator("summary").getByText("Edit", { exact: true }).last()).toBeVisible();
+  const editAction = dateRow.locator("summary").getByText("Edit", { exact: true }).last();
+  await expect(editAction).toBeVisible();
+  const [gripBox, nameBox, editBox, reorderBox] = await Promise.all([
+    dateRow.locator(".scorecard-grip").boundingBox(),
+    dateRow.locator("[data-case-field-name]").boundingBox(),
+    editAction.boundingBox(),
+    dateRow.getByRole("group", { name: "Reorder Date", exact: true }).boundingBox(),
+  ]);
+  expect(gripBox.x + gripBox.width).toBeLessThan(nameBox.x);
+  expect(editBox.x + editBox.width).toBeLessThan(reorderBox.x);
+  expect(gripBox.y + gripBox.height / 2).toBeCloseTo(reorderBox.y + reorderBox.height / 2);
   await add.getByLabel("Label").fill(label);
   await add.getByRole("button", { name: "Type" }).click();
   await add.getByRole("menuitemradio", { name: "Long text", exact: true }).click();
