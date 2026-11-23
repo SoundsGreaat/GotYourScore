@@ -1,9 +1,7 @@
 {% import "macros/icons.html" as icons %}
-<!-- data-period: the dashboard hash-sync reads it to mirror
-     #team-quotas@YYYY-MM into the location hash across swaps. The
-     view has NO period selector — the backend pins it to the CURRENT
-     reporting period and ignores any ?period= query param. -->
-<section data-period="{{ period_value }}" hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
+<!-- Team Quotas always shows the current period. Do not overwrite the
+     dashboard's selected reporting period when visiting this view. -->
+<section hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Team Quotas
             <span class="block text-xs font-normal text-base-content/60">Period progress across your assigned agents</span>
@@ -39,11 +37,12 @@
             </div>
             {% endif %}
 
-            <div class="max-w-full overflow-x-auto">
+            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-labelledby="team-quotas-caption">
                 {# table-fixed pins column widths: inserting/removing a
                    draggable chip mid-drag must not reflow the other
                    columns (the table used to jump left-right). #}
                 <table class="table table-sm table-fixed w-full min-w-2xl">
+                    <caption id="team-quotas-caption" class="sr-only">Team quota progress and assignments</caption>
                     <colgroup>
                         {# Column shares — tweak the w-[..%] classes to
                            rebalance; "Assigned agents" is the drop zone. #}
@@ -54,16 +53,16 @@
                     </colgroup>
                     <thead>
                         <tr>
-                            <th>QA</th>
-                            <th>Assigned agents</th>
-                            <th>Pacing</th>
-                            <th>Deficit</th>
+                            <th scope="col">QA</th>
+                            <th scope="col">Assigned agents</th>
+                            <th scope="col">Pacing</th>
+                            <th scope="col">Deficit</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in rows %}
                         <tr>
-                            <th class="font-medium">{{ row.name }}</th>
+                            <th scope="row" class="font-medium">{{ row.name }}</th>
                             <td>
                                 {% set qa_assignments = assignments_by_qa.get(row.id, []) %}
                                 {% if can_manage %}
@@ -93,7 +92,8 @@
                             <td>
                                 {% if row.required > 0 %}
                                 <div class="flex items-center gap-3">
-                                    <progress class="progress w-28" value="{{ row.completed }}" max="{{ row.required }}"></progress>
+                                    <progress class="progress w-28" value="{{ row.completed }}" max="{{ row.required }}"
+                                              aria-label="Review quota for {{ row.name }}"></progress>
                                     <span class="text-sm text-base-content/70">{{ row.completed }}/{{ row.required }}</span>
                                 </div>
                                 {% else %}

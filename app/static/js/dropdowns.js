@@ -1,52 +1,140 @@
-/* Keyboard-friendly dropdowns — project-wide, zero per-template wiring,
- * zero injected UI (native <select>-style typeahead: you just type and
- * the matching option gets highlighted).
- *
- * Works on every popover-API dropdown menu (`[popover].dropdown.menu`)
- * via pure event delegation on `document`, so HTMX-swapped partials and
- * cloned batch rows are covered automatically, including menus that do
- * not exist yet when this script runs. The page's CSS/DOM is never
- * touched — nothing is mutated during the daisyUI entry animation.
- *
- * Behavior (with a menu open):
- *  - Typing printable characters highlights the first option whose
- *    label starts with the accumulated buffer (case-insensitive).
- *    Repeating one character cycles through its matches; Backspace
- *    edits the buffer; the buffer resets after a short idle pause.
- *  - ArrowDown/ArrowUp move the active option, Enter picks it (the
- *    option's existing onclick runs — the shared setDropdownValue
- *    setter closes the popover itself).
- *  - ArrowDown/ArrowUp on a closed dropdown's trigger opens it.
- */
+/* Shared single-choice popovers. Delegation also covers HTMX swaps,
+ * cloned batch rows, and dynamically populated options. */
 (function () {
     'use strict';
 
     var TYPEAHEAD_RESET_MS = 800;
-
-    function optionButtons(menu) {
-        return Array.prototype.slice.call(
-            menu.querySelectorAll(':scope > li > button'));
-    }
-
-    function setActive(menu, btn) {
-        optionButtons(menu).forEach(function (b) {
-            b.classList.remove('active');
-            b.classList.remove('menu-active');
-        });
-        if (btn) {
-            btn.classList.add('active');
-            btn.classList.add('menu-active');
-            // Keep the highlighted option in view inside max-h-48 lists.
-            if (btn.scrollIntoView) btn.scrollIntoView({ block: 'nearest' });
+    var SEARCH_THRESHOLD = 10;
+    var activePicker = null;
+    var anchorSupport = CSS.supports('position-area', 'block-end span-inline-end')
+        && CSS.supports('position-try-fallbacks', 'flip-block, flip-inline');
+    var visibility = new IntersectionObserver(function (entries) {
+        if (!activePicker || !activePicker.matches(':popover-open')) return;
+        var trigger = triggerFor(activePicker);
+        if (entries.some(function (entry) { return entry.target === trigger && !entry.isIntersecting; })) {
+            activePicker.hidePopover();
         }
+    });
+
+    function optionButtons(picker) {
+        return Array.from(picker.querySelectorAll('.gys-picker-options > li > button[data-opt-value]'));
     }
 
-    function activeButton(menu) {
-        var current = null;
-        optionButtons(menu).forEach(function (b) {
-            if (b.classList.contains('menu-active')) current = b;
+    function visibleOptions(picker) {
+        return optionButtons(picker).filter(function (button) {
+            return !button.parentElement.hidden && !button.disabled;
         });
-        return current;
+    }
+
+    function pickerFor(trigger) {
+        var picker = trigger.nextElementSibling;
+        return picker && picker.matches('.gys-picker[popover]')
+            && picker.id === trigger.getAttribute('popovertarget') ? picker : null;
+    }
+
+    function triggerFor(picker) {
+        var trigger = picker.previousElementSibling;
+        return trigger && trigger.getAttribute('popovertarget') === picker.id ? trigger : null;
+    }
+
+    function searchFor(picker) {
+        return picker.querySelector('.gys-picker-search:not([hidden]) input');
+    }
+
+    function bestOption(options) {
+        return options.find(function (btn) { return btn.getAttribute('aria-checked') === 'true'; }) || options[0];
+    }
+
+    function syncPicker(picker, trigger) {
+        var options = optionButtons(picker);
+        var value = picker.nextElementSibling.value;
+        var selected = options.find(function (button) { return button.dataset.optValue === value; });
+        options.forEach(function (button) {
+            button.setAttribute('aria-checked', String(button === selected));
+        });
+        var searchable = options.length >= SEARCH_THRESHOLD;
+        picker.querySelector('.gys-picker-search').hidden = !searchable;
+        picker.setAttribute('role', searchable ? 'dialog' : 'menu');
+        picker.querySelector('.gys-picker-options').setAttribute('role', searchable ? 'menu' : 'group');
+        trigger.setAttribute('aria-haspopup', searchable ? 'dialog' : 'menu');
+    }
+
+    // Dynamic consumers can sync after replacing options, before the trigger receives focus.
+    window.gysSyncDropdown = function (idOrTrigger) {
+        var trigger = typeof idOrTrigger === 'string'
+            ? document.getElementById(idOrTrigger + '-button')
+            : idOrTrigger;
+        var picker = trigger && pickerFor(trigger);
+        if (picker) syncPicker(picker, trigger);
+    };
+
+    // Keep the popup at least as wide as the trigger, unless the viewport is narrower.
+    // CSS handles the normal anchored placement; measure only to correct overflow
+    // or to position it on browsers without anchor positioning.
+    function positionPicker(picker, trigger) {
+        var gap = 4;
+        var edge = 8;
+        var viewport = window.visualViewport;
+        var layout = document.documentElement.getBoundingClientRect();
+        var viewportLeft = viewport ? viewport.offsetLeft : 0;
+        var x = Math.max(layout.left, viewportLeft);
+        var y = viewport ? viewport.offsetTop : 0;
+        var width = Math.min(layout.right, viewportLeft + (viewport ? viewport.width : window.innerWidth)) - x;
+        var height = viewport ? viewport.height : window.innerHeight;
+        var anchor = trigger.getBoundingClientRect();
+        if (anchor.right <= x || anchor.left >= x + width || anchor.bottom <= y || anchor.top >= y + height) {
+            picker.hidePopover();
+            return;
+        }
+        picker.style.setProperty('--gys-picker-trigger-width', anchor.width + 'px');
+        picker.style.setProperty('--gys-picker-viewport-width', width + 'px');
+        picker.style.setProperty('--gys-picker-viewport-height', height + 'px');
+        picker.style.removeProperty('--gys-picker-available');
+        picker.classList.remove('gys-picker-positioned');
+        var box = picker.getBoundingClientRect();
+        if (anchorSupport && box.left >= x + edge && box.right <= x + width - edge
+                && box.top >= y + edge && box.bottom <= y + height - edge
+                && (box.top >= anchor.bottom || box.bottom <= anchor.top)) return;
+
+        var below = y + height - edge - anchor.bottom - gap;
+        var above = anchor.top - y - edge - gap;
+        var openBelow = box.height <= below || below >= above;
+        var available = openBelow ? below : above;
+        // On very short viewports a centered popup is more usable than a clipped search input.
+        var usable = available >= Math.min(96, box.height);
+        var maxHeight = usable ? available : height - 2 * edge;
+        var renderedHeight = Math.min(box.height, maxHeight);
+        var top = usable
+            ? (openBelow ? anchor.bottom + gap : anchor.top - gap - renderedHeight)
+            : y + (height - renderedHeight) / 2;
+        var start = getComputedStyle(trigger).direction === 'rtl' ? anchor.right - box.width : anchor.left;
+        picker.style.setProperty('--gys-picker-left', Math.max(x + edge, Math.min(start, x + width - box.width - edge)) + 'px');
+        picker.style.setProperty('--gys-picker-top', Math.max(y + edge, Math.min(top, y + height - edge - renderedHeight)) + 'px');
+        picker.style.setProperty('--gys-picker-available', maxHeight + 'px');
+        picker.classList.add('gys-picker-positioned');
+    }
+
+    function updatePosition() {
+        if (!activePicker) return;
+        if (!activePicker.matches(':popover-open')) {
+            activePicker = null;
+            return;
+        }
+        var trigger = triggerFor(activePicker);
+        if (trigger) positionPicker(activePicker, trigger);
+    }
+
+    function filterOptions(picker, search) {
+        var query = search ? search.value.trim().toLocaleLowerCase() : '';
+        var count = 0;
+        optionButtons(picker).forEach(function (button) {
+            var matches = button.dataset.optLabel.toLocaleLowerCase().includes(query);
+            button.parentElement.hidden = !matches;
+            if (matches) count++;
+        });
+        picker.querySelector('.gys-picker-status').textContent = query && !count ? 'No matching options.' : '';
+        picker.querySelector('.gys-picker-options').scrollTop = 0;
+        if (picker === activePicker) updatePosition();
     }
 
     // First option whose label starts with `query`, searched cyclically
@@ -65,10 +153,10 @@
         var now = Date.now();
         var state = menu.__ddTypeahead || { q: '', t: 0 };
         var fresh = now - state.t > TYPEAHEAD_RESET_MS;
-        var buttons = optionButtons(menu);
+        var buttons = visibleOptions(menu);
         if (!buttons.length) return;
 
-        var currentIndex = buttons.indexOf(activeButton(menu));
+        var currentIndex = buttons.indexOf(document.activeElement);
         var query;
         var match;
         if (!fresh && state.q.length === 1 && state.q === key) {
@@ -87,7 +175,7 @@
             }
         }
         menu.__ddTypeahead = { q: query, t: now };
-        if (match) setActive(menu, match);
+        if (match) match.focus();
     }
 
     // The open menu a keystroke belongs to: either the target sits inside
@@ -95,16 +183,16 @@
     function openMenuFor(event) {
         var t = event.target;
         if (!t || !t.closest) return null;
-        var menu = t.closest('[popover].dropdown.menu');
+        var menu = t.closest('.gys-picker[popover]');
         if (menu && menu.matches(':popover-open')) return menu;
         var trigger = t.closest('button[popovertarget]');
         if (!trigger) return null;
-        var owned = document.getElementById(trigger.getAttribute('popovertarget'));
+        var owned = pickerFor(trigger);
         return owned && owned.matches(':popover-open') ? owned : null;
     }
 
     document.addEventListener('keydown', function (event) {
-        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
 
         var menu = openMenuFor(event);
         if (!menu) {
@@ -115,30 +203,67 @@
                 ? t.closest('button[popovertarget]')
                 : null;
             if (!trigger) return;
-            var closed = document.getElementById(trigger.getAttribute('popovertarget'));
-            if (!closed || !closed.showPopover || closed.matches(':popover-open')) return;
+            var closed = pickerFor(trigger);
+            if (!closed || !closed.showPopover) return;
             event.preventDefault();
             closed.showPopover();
+            var opts = visibleOptions(closed);
+            var selected = event.key === 'ArrowUp' ? opts[opts.length - 1] : (searchFor(closed) || bestOption(opts));
+            if (selected) selected.focus();
             return;
         }
 
+        var search = searchFor(menu);
+        var fromSearch = event.target === search;
+        if (fromSearch && !['ArrowDown', 'ArrowUp', 'Enter', 'Escape', 'Tab'].includes(event.key)) return;
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
             event.preventDefault();
-            var buttons = optionButtons(menu);
+            var buttons = visibleOptions(menu);
             if (!buttons.length) return;
-            var idx = buttons.indexOf(activeButton(menu));
+            var idx = buttons.indexOf(document.activeElement);
             var step = event.key === 'ArrowDown' ? 1 : -1;
+            if (search && idx === 0 && step === -1) {
+                search.focus();
+                return;
+            }
             var next = buttons[
                 ((idx === -1 ? (step === 1 ? -1 : 0) : idx) + step + buttons.length)
                 % buttons.length
             ];
-            setActive(menu, next);
-        } else if (event.key === 'Enter') {
+            next.focus();
+        } else if (event.key === 'Home' || event.key === 'End') {
             event.preventDefault();
-            var pick = activeButton(menu) || optionButtons(menu)[0];
-            // Runs the option's existing onclick handler; the shared
-            // setDropdownValue setter hides the popover after applying.
-            if (pick) pick.click();
+            var edgeOptions = visibleOptions(menu);
+            var edge = event.key === 'Home' ? edgeOptions[0] : edgeOptions[edgeOptions.length - 1];
+            if (edge) edge.focus();
+        } else if (event.key === 'Escape') {
+            // Explicitly restore focus as popover light-dismiss does not
+            // consistently do so across browsers.
+            event.preventDefault();
+            var owner = triggerFor(menu);
+            if (menu.hidePopover) menu.hidePopover();
+            if (owner) owner.focus();
+        } else if (event.key === 'Tab') {
+            if (fromSearch && !event.shiftKey) {
+                var result = bestOption(visibleOptions(menu));
+                if (result) {
+                    event.preventDefault();
+                    result.focus();
+                    return;
+                }
+            } else if (search && event.shiftKey && event.target.matches('button[data-opt-value]')) {
+                event.preventDefault();
+                search.focus();
+                return;
+            }
+            // Continue the browser's tab sequence from the invoker.
+            var trigger = triggerFor(menu);
+            menu.hidePopover();
+            if (trigger) trigger.focus();
+        } else if (fromSearch && event.key === 'Enter') {
+            event.preventDefault(); // Never submit the enclosing form from a picker search.
+            var match = bestOption(visibleOptions(menu));
+            if (match) match.click();
         } else if (event.key === 'Backspace') {
             var st = menu.__ddTypeahead;
             if (st && st.q) {
@@ -146,16 +271,86 @@
                 st.t = Date.now();
                 if (st.q) {
                     var m = findMatch(optionButtons(menu), st.q, -1);
-                    if (m) setActive(menu, m);
+                    if (m) m.focus();
                 }
                 event.preventDefault();
             }
-        } else if (event.key.length === 1) {
-            event.preventDefault(); // e.g. stop Space from scrolling
-            typeahead(menu, event.key);
+        } else if (event.key.length === 1 && event.key !== ' ') {
+            event.preventDefault();
+            if (search) {
+                search.focus();
+                search.value += event.key;
+                filterOptions(menu, search);
+            } else {
+                typeahead(menu, event.key);
+            }
         }
-        // Escape: native light dismiss closes the popover.
     });
+
+    function onSearch(event) {
+        if (!event.target.matches('.gys-picker-search input')) return;
+        // Don't let HTMX filter forms refetch as the user types or blurs the search.
+        event.stopPropagation();
+        if (event.type !== 'change') filterOptions(event.target.closest('.gys-picker'), event.target);
+    }
+    ['input', 'change', 'search'].forEach(function (type) {
+        document.addEventListener(type, onSearch, true);
+    });
+    document.addEventListener('click', function (event) {
+        var trigger = event.target.closest('button[popovertarget]');
+        var picker = trigger && pickerFor(trigger);
+        if (picker) picker.__ddKeyboardOpen = event.detail === 0;
+    }, true);
+    document.addEventListener('beforetoggle', function (event) {
+        var picker = event.target;
+        if (event.newState !== 'open' || !picker.matches('.gys-picker[popover]')) return;
+        var trigger = triggerFor(picker);
+        if (!trigger) return;
+        picker.style.setProperty('--gys-picker-font-size', getComputedStyle(trigger).fontSize);
+        picker.style.removeProperty('--gys-picker-open-width');
+        syncPicker(picker, trigger);
+    }, true);
+
+    // Keep the menu button's expanded state accurate for assistive tech,
+    // including native activation and light-dismiss/outside clicks.
+    document.addEventListener('toggle', function (event) {
+        var menu = event.target;
+        if (!menu.matches || !menu.matches('.gys-picker[popover]')) return;
+        var trigger = triggerFor(menu);
+        if (!trigger) return;
+        var open = menu.matches(':popover-open');
+        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        menu.__ddTypeahead = null;
+        if (open) {
+            activePicker = menu;
+            positionPicker(menu, trigger);
+            if (!menu.matches(':popover-open')) return;
+            visibility.disconnect();
+            visibility.observe(trigger);
+            menu.style.setProperty('--gys-picker-open-width', menu.getBoundingClientRect().width + 'px');
+            if (!menu.contains(document.activeElement)) {
+                var entry = (menu.__ddKeyboardOpen && searchFor(menu)) || bestOption(visibleOptions(menu));
+                if (entry) entry.focus();
+            }
+        } else {
+            if (activePicker === menu) {
+                activePicker = null;
+                visibility.disconnect();
+            }
+            var search = searchFor(menu);
+            if (search) search.value = '';
+            filterOptions(menu, search);
+        }
+        menu.__ddKeyboardOpen = false;
+    }, true);
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', function (event) {
+        if (activePicker && (!(event.target instanceof Node) || !activePicker.contains(event.target))) updatePosition();
+    }, {capture: true, passive: true});
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', updatePosition);
+        window.visualViewport.addEventListener('scroll', updatePosition);
+    }
 })();
 
 /* Shared pick handler for every popover-API dropdown rendered by
@@ -201,30 +396,13 @@ window.setDropdownValue = function (hiddenId, displayRef, value, text, btnEl) {
         display.textContent = text;
         display.classList.remove('text-base-content/70');
     }
-    if (btnEl) {
-        // btnEl is normally the clicked menu OPTION (inside the popover
-        // <ul>), but programmatic callers may pass any trigger — the
-        // option-deselect step only applies when a list is present.
-        var list = btnEl.closest('ul');
-        if (list) {
-            list.querySelectorAll('button').forEach(function (btn) {
-                btn.classList.remove('active');
-                btn.classList.remove('menu-active');
-            });
-            btnEl.classList.add('active');
-            btnEl.classList.add('menu-active');
-        }
-    }
+    window.gysSyncDropdown(hiddenId);
     // Popover-API menus stay open after an inner click — close on pick.
     var pop = btnEl && btnEl.closest('[popover]');
-    if (pop && pop.matches(':popover-open')) pop.hidePopover();
-    // Keyboard focus returns to the TRIGGER (native <select> behavior)
-    // instead of being dropped on <body> — blur() left keyboard users
-    // stranded after an Enter pick.
-    var trigger = pop ? document.querySelector('[popovertarget="' + pop.id + '"]') : null;
-    if (trigger) {
-        trigger.focus();
-    } else if (document.activeElement && document.activeElement.blur) {
-        document.activeElement.blur();
+    if (pop && pop.matches(':popover-open')) {
+        pop.hidePopover();
+        // Programmatic picks in a closed menu must not steal focus.
+        var trigger = document.querySelector('[popovertarget="' + pop.id + '"]');
+        if (trigger) trigger.focus();
     }
 };

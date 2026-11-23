@@ -42,9 +42,13 @@
         var prefix = button.getAttribute('data-case-prefix') || 'Case';
         titleElement.textContent = prefix + ' ' + label + (caseType ? ' \u00B7 ' + caseType : '');
         if (!raw.trim()) {
-            bodyElement.innerHTML = '<p class="text-base-content/60 italic">No notes for this case.</p>';
+            var message = document.createElement('p');
+            message.className = 'text-base-content/60 italic';
+            message.textContent = 'No notes for this case.';
+            bodyElement.replaceChildren(message);
         } else if (window.DOMPurify) {
-            bodyElement.innerHTML = window.DOMPurify.sanitize(raw);
+            // Keep the existing formatting policy in every browser; insert the sanitized nodes.
+            bodyElement.replaceChildren(window.DOMPurify.sanitize(raw, { RETURN_DOM_FRAGMENT: true }));
         } else {
             bodyElement.textContent = raw;
         }

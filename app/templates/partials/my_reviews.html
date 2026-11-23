@@ -38,8 +38,8 @@
           hx-swap="outerHTML"
           hx-trigger="change, input changed delay:400ms, search">
         {% if perspective == 'reviewer' %}
-        <label class="flex w-full max-w-44 flex-col gap-1 text-sm">
-            <span>Agent</span>
+        <div class="flex w-full max-w-44 flex-col gap-1 text-sm">
+            <label for="rf-agent-button">Agent</label>
             {{ dd.dropdown('rf-agent',
             items=filters.agents,
             value_attr='id', label_attr='name',
@@ -47,9 +47,9 @@
             any_label='All agents',
             aria_label='Filter by support agent',
             hidden_attrs='name="agent"') }}
-        </label>
-        <label class="flex w-full max-w-44 flex-col gap-1 text-sm">
-            <span>Reviewer / QA</span>
+        </div>
+        <div class="flex w-full max-w-44 flex-col gap-1 text-sm">
+            <label for="rf-qa-button">Reviewer / QA</label>
             {{ dd.dropdown('rf-qa',
             items=filters.qas,
             value_attr='id', label_attr='name',
@@ -57,17 +57,17 @@
             any_label='All reviewers',
             aria_label='Filter by reviewer',
             hidden_attrs='name="qa"') }}
-        </label>
+        </div>
         {% endif %}
-        <label class="flex w-full max-w-44 flex-col gap-1 text-sm">
-            <span>Case type</span>
+        <div class="flex w-full max-w-44 flex-col gap-1 text-sm">
+            <label for="rf-case-type-button">Case type</label>
             {{ dd.dropdown('rf-case-type',
             items=filters.case_types,
             selected=filters.case_type or '',
             any_label='All types',
             aria_label='Filter by case type',
             hidden_attrs='name="case_type"') }}
-        </label>
+        </div>
         <label class="flex w-full max-w-48 flex-col gap-1 text-sm">
             <span>Case #</span>
             <input type="search" name="case_number" value="{{ filters.case_number }}"
@@ -84,18 +84,19 @@
     {% if rows %}
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
-            <div class="max-w-full overflow-x-auto">
+            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-labelledby="reviews-table-caption">
                 <table class="table table-sm">
+                    <caption id="reviews-table-caption" class="sr-only">{{ title }} results</caption>
                     <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Agent</th>
-                        <th>Reviewed by</th>
-                        <th>Case type</th>
-                        <th>Case #</th>
-                        <th>Score</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Agent</th>
+                        <th scope="col">Reviewed by</th>
+                        <th scope="col">Case type</th>
+                        <th scope="col">Case #</th>
+                        <th scope="col">Score</th>
                         {% if perspective == 'reviewer' %}
-                        <th>Actions</th>
+                        <th scope="col">Actions</th>
                         {% endif %}
                     </tr>
                     </thead>
@@ -103,7 +104,7 @@
                     {% for row in rows %}
                     <tr>
                         <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
-                        <th class="font-medium">{{ row.agent_name }}</th>
+                        <th scope="row" class="font-medium">{{ row.agent_name }}</th>
                         <td>
                             {% if row.status == 'pending' %}
                             <span class="whitespace-nowrap">Delegated by {{ row.creator_name }}</span>

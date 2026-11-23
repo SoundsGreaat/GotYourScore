@@ -1,12 +1,12 @@
 {# Shared daisyUI v5 popover-API dropdown: trigger button + popover menu
-   + hidden input.
+   + hidden input. The popover contains a filter for long lists.
 
    Keyboard support (typeahead, ArrowUp/Down, Enter) is added globally to
-   every [popover].dropdown.menu by app/static/js/dropdowns.js.
+   every .gys-picker by app/static/js/dropdowns.js.
 
    Required:
-     id           id prefix — derives "<id>-button", "<id>-menu", the
-                  "<id>" hidden input and the "--<id>-anchor" CSS anchor.
+     id           id prefix — derives "<id>-button", "<id>-picker", "<id>-menu",
+                  the "<id>" hidden input and the "--<id>-anchor" CSS anchor.
                   Must be unique per page; may contain "__ROW__"
                   placeholders for JS-cloned batch rows.
      items        option sources (ORM objects, enums or plain strings);
@@ -64,38 +64,47 @@
     {% set match = opts | selectattr('value', 'equalto', selected) | list %}
     {% set span_cls = ((display_sel[1:] ~ ' ') if display_sel else '') ~ 'pointer-events-none truncate' ~ ('' if match else ' text-base-content/70') %}
     {% set shown = match[0].label if match else (any_label if any_label else placeholder) %}
-    <button type="button" id="{{ id }}-button" popovertarget="{{ id }}-menu"
-            aria-haspopup="menu"
-            style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}
+    {% set searchable = opts | length + (1 if any_label else 0) >= 10 %}
+    {% set popup_role = 'dialog' if searchable else 'menu' %}
+    <button type="button" id="{{ id }}-button" popovertarget="{{ id }}-picker"
+            aria-haspopup="{{ popup_role }}" aria-expanded="false" aria-controls="{{ id }}-picker"
+            style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}{% if aria_label or display_sel %} aria-describedby="{{ id }}-display"{% endif %}
             class="{{ btn_cls }}">
         {% if display_sel %}
-            <span class="{{ span_cls }}">{{ shown }}</span>
+            <span id="{{ id }}-display" class="pointer-events-none min-w-0 truncate"><span class="{{ span_cls }}">{{ shown }}</span></span>
         {% else %}
             <span id="{{ id }}-display" class="{{ span_cls }}">{{ shown }}</span>
         {% endif %}
     </button>
-    <ul id="{{ id }}-menu" popover style="position-anchor:{{ anchor }}"
-        class="dropdown menu menu-sm {{ menu_w }} flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
+    <div id="{{ id }}-picker" popover role="{{ popup_role }}" aria-labelledby="{{ id }}-button"
+         style="position-anchor:{{ anchor }}" class="gys-picker {{ menu_w }}">
+        <div class="gys-picker-search"{% if not searchable %} hidden{% endif %}>
+            <input type="search" class="input input-sm w-full" placeholder="Search options…" aria-label="Search options" autocomplete="off" />
+            <p class="gys-picker-status" role="status"></p>
+        </div>
+        <ul id="{{ id }}-menu" class="gys-picker-options" role="{{ 'menu' if searchable else 'group' }}" aria-label="Options">
         {%- if any_label %}
-            <li>
-                <button type="button" data-opt-value="" data-opt-label="{{ any_label }}"
-                        class="{{ 'active menu-active' if not selected else '' }}"
+            <li role="none">
+                <button type="button" role="menuitemradio" tabindex="-1"
+                        data-opt-value="" data-opt-label="{{ any_label }}"
+                        aria-checked="{{ 'false' if selected else 'true' }}"
                         onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', this)">
                     {{ any_label }}
                 </button>
             </li>
         {% endif -%}
         {%- for opt in opts %}
-            <li>
-                <button type="button"
+            <li role="none">
+                <button type="button" role="menuitemradio" tabindex="-1"
                         data-opt-value="{{ opt.value }}" data-opt-label="{{ opt.label }}"
                         {{ (opt_data ~ '="' ~ opt.value ~ '"') if opt_data else '' }}
-                        class="{{ 'active menu-active' if opt.value|string == selected|string else '' }}"
+                        aria-checked="{{ 'true' if opt.value|string == selected|string else 'false' }}"
                         onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', this)">
                     {{ opt.label }}
                 </button>
             </li>
         {% endfor -%}
-    </ul>
+        </ul>
+    </div>
     <input type="hidden" id="{{ id }}" value="{{ selected }}"{% if hidden_attrs %} {{ hidden_attrs | safe }}{% endif %}>
 {%- endmacro %}
