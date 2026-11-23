@@ -27,7 +27,7 @@
             <div class="flex-none">
                 <div class="flex items-center gap-2">
                     <span class="hidden text-sm sm:inline-flex">{{ current_user.name or current_user.nickname }}</span>
-                    <span class="badge badge-primary hidden sm:inline-flex">{{ current_user.roles | map(attribute='value') | join(', ') }}</span>
+                    <span class="gys-role-badge hidden sm:inline-flex">{{ current_user.roles | map(attribute='value') | join(' · ') }}</span>
 
                     <!-- text-neutral-content keeps the thumb visible on the navbar;
                          text-neutral keeps the icons visible on the light thumb. -->
@@ -56,9 +56,9 @@
             <!-- Action is category-aware and wired in js/dashboard.js:
                   QA Score -> review drawer, Bad Feedback -> the Bad
                   Feedback creator modal (New Bad Feedback). -->
-            <button type="button" id="new-review-btn" class="btn btn-primary">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            <button type="button" id="new-review-btn" class="btn gys-create-action">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 16 16" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-width="1.5" d="M8 3.5v9m4.5-4.5h-9" />
                 </svg>
                 <span id="new-review-label">New Review</span>
             </button>

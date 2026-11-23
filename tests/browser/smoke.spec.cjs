@@ -55,7 +55,14 @@ test("an authenticated dashboard loads the requested DB-backed HTMX partial", as
   expect((await page.goto(`${base}/#qa-tracker/bad-feedback`)).status()).toBe(200);
   expect((await tracker).status()).toBe(200);
   await expect(page.locator("#view-container #bad-feedback-view")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Import from Excel" })).toBeVisible();
+  const create = page.getByRole("button", { name: "New Bad Feedback", exact: true });
+  const importExcel = page.getByRole("button", { name: "Import from Excel" });
+  await expect(create).toHaveCSS("height", "36px");
+  await expect(importExcel).toBeVisible();
+  await expect(importExcel).not.toHaveCSS(
+    "background-color", await create.evaluate((el) => getComputedStyle(el).backgroundColor)
+  );
+  await expect(page.locator(".gys-role-badge")).toHaveText(/^(QA · Admin|Admin · QA)$/);
   expect(await page.evaluate(() => [
     typeof window.Quill, typeof window.DOMPurify?.sanitize, typeof window.Sortable,
   ])).toEqual(["function", "function", "function"]);
