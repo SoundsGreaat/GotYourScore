@@ -60,3 +60,7 @@
     </div>
 </fieldset>
 {%- endmacro %}
+{% macro scorecard_status(template) %}
+<span class="badge badge-sm gys-scorecard-status {{ 'badge-success badge-soft' if template.is_active else 'badge-ghost' }}"
+      data-template-status="{{ template.id }}">{{ 'Active' if template.is_active else 'Inactive' }}</span>
+{% endmacro %}

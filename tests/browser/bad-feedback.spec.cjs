@@ -137,3 +137,30 @@ test("Bad Feedback editor cards share the new picker behavior", async ({ page })
   await type.click();
   await expect(picker.getByRole("menuitemradio", { name: "Sales" })).toBeChecked();
 });
+
+test("Bad Feedback agent cards resize the open dialog and keep focus on removal", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/#qa-tracker/bad-feedback`);
+  await page.getByRole("button", { name: "New Bad Feedback" }).click();
+  const dialog = page.getByRole("dialog");
+  const add = dialog.getByRole("button", { name: "+ Add agent", exact: true });
+  const container = dialog.locator(".js-bf-agents");
+  await expect(add).toBeVisible();
+  const heights = await container.evaluate(async (el) => {
+    el.nextElementSibling.click();
+    const motion = el.getAnimations()[0];
+    const frames = motion?.effect.getKeyframes().map(({ height }) => parseFloat(height));
+    await motion?.finished;
+    return frames;
+  });
+  expect(heights[0]).toBe(0);
+  expect(heights[1]).toBeGreaterThan(0);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const remove = dialog.getByRole("button", { name: "Remove agent" });
+  await remove.focus();
+  await page.keyboard.press("Space");
+  await expect(remove).toHaveCount(0);
+  await expect(add).toBeFocused();
+  expect(await container.evaluate((el) => el.getAnimations().length)).toBe(0);
+});

@@ -286,10 +286,10 @@ async def create_template(
     return template
 
 
-async def toggle_template(
-    template_id: int, db_session: AsyncSession
+async def set_template_active(
+    template_id: int, active: bool, db_session: AsyncSession
 ) -> ScorecardTemplate:
-    """Flip a template's ``is_active`` flag (flushed, not committed).
+    """Set a template's ``is_active`` flag (flushed, not committed).
 
     Business semantic: ONE active template per case type. Turning a
     template ON demotes its active siblings of the same case type;
@@ -298,10 +298,9 @@ async def toggle_template(
     template = await db_session.get(ScorecardTemplate, template_id)
     if template is None:
         raise ValueError(f"Scorecard template {template_id} does not exist.")
-    turning_on = not template.is_active
-    if turning_on:
+    if active and not template.is_active:
         await _demote_sibling_actives(template.case_type, template.id, db_session)
-    template.is_active = turning_on
+    template.is_active = active
     await db_session.flush()
     return template
 

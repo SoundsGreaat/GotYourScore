@@ -4,6 +4,34 @@
  * names instead of re-declaring its own copy.
  */
 
+/* Resize an opted-in panel from its current rendered height, not from a
+ * loading placeholder. Return to natural sizing when the motion ends. */
+var gysResizeAnimations = new WeakMap();
+window.gysResizePanel = function (panel, update) {
+    var previous = gysResizeAnimations.get(panel);
+    var canAnimate = panel.animate && matchMedia('(prefers-reduced-motion: no-preference)').matches;
+    var start = canAnimate ? panel.getBoundingClientRect().height : 0;
+    previous?.cancel();
+    update();
+    if (!canAnimate || !panel.isConnected) return;
+
+    var end = panel.getBoundingClientRect().height;
+    if (Math.abs(start - end) < 1) return;
+    var css = getComputedStyle(panel);
+    var speed = css.getPropertyValue('--gys-speed').trim();
+    var animation = panel.animate([
+        {height: start + 'px', overflow: 'clip'},
+        {height: end + 'px', overflow: 'clip'},
+    ], {
+        duration: parseFloat(speed) * (speed.endsWith('ms') ? 1 : 1000),
+        easing: css.getPropertyValue('--gys-ease').trim(),
+    });
+    gysResizeAnimations.set(panel, animation);
+    animation.finished.then(function () {
+        if (gysResizeAnimations.get(panel) === animation) gysResizeAnimations.delete(panel);
+    }, function () { /* A newer update can interrupt this resize. */ });
+};
+
 /* Floating notifications: every transient note surfaces bottom-center
  * as translucent gradient glass (.gys-float-note in input.css). kind:
  * 'alert-success' for the mint look, anything else renders as

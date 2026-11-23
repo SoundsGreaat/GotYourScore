@@ -8,6 +8,11 @@
     translate: none;
 }
 
+/* Keep the previous rules' footprint while the next scorecard loads. */
+#manual-score-area[aria-busy="true"] {
+    opacity: 0.55;
+}
+
 /* Bad Feedback dialog: give the standard fade a slightly longer rise. */
 @media (prefers-reduced-motion: no-preference) {
     .js-bf-edit-modal > .modal-box {

@@ -4,19 +4,13 @@
     <div class="drawer-content"></div>
     <div class="drawer-side">
         <label for="review-drawer-toggle" aria-label="close drawer" class="drawer-overlay"></label>
-        <!-- h-full: if the aside outgrows drawer-side, scrolling moves
-             one level up and the sticky footer stops working. -->
         <aside class="gys-review-drawer-panel flex h-full w-[28rem] max-w-full flex-col bg-base-100">
-            <div class="flex items-center justify-between border-b border-base-300 p-4">
+            <div class="flex shrink-0 items-center justify-between border-b border-base-300 p-4">
                 <h2 id="review-drawer-title" class="text-lg font-semibold">New Review</h2>
                 <label for="review-drawer-toggle" class="btn btn-ghost btn-sm">Close</label>
             </div>
 
-            <!-- scrollbar-gutter:stable — case-type swaps must not shift
-                 the layout sideways. pb-0: sticky bottom-0 pins to the
-                 scrollport's padding edge; the h-4 spacer restores the
-                 resting gap below the footer. -->
-            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-4 [scrollbar-gutter:stable]">
+            <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 [scrollbar-gutter:stable]">
 
                 <fieldset class="fieldset">
                     <label class="label" for="review-agent-button">Agent</label>
@@ -66,10 +60,12 @@
                 <!-- Hidden for 'No Cases' reviews: an absence entry has no
                      ticket to reference. Id-less for settle reasons (see
                      assigned-qa-fieldset above). -->
-                <fieldset class="fieldset case-number-fieldset">
-                    <label class="label" for="case-number">Case number</label>
-                    <input id="case-number" type="text" class="input input-sm w-full" placeholder="123456" />
-                </fieldset>
+                <div class="flow-root js-case-number-panel !mb-0">
+                    <fieldset class="fieldset case-number-fieldset mb-4">
+                        <label class="label" for="case-number">Case number</label>
+                        <input id="case-number" type="text" class="input input-sm w-full" placeholder="123456" />
+                    </fieldset>
+                </div>
 
                 <fieldset class="fieldset">
                     <label class="label" for="case-type-button">Case type</label>
@@ -99,34 +95,35 @@
                     <!-- min-w-0: daisyUI v5 .fieldset is a grid, and without it the
                          auto track grows to the longest rule name (truncate never
                          kicks in), stretching the whole page horizontally. -->
-                    <div id="manual-score-area" class="min-w-0 rounded-box border border-base-300 bg-base-100 p-3 text-sm text-base-content/70 min-h-12">Loading…</div>
+                    <div class="relative min-h-12 min-w-0 rounded-box border border-base-300 bg-base-100"
+                         role="group" aria-label="Scorecard rules" tabindex="-1">
+                        <div id="manual-score-area" class="p-3 text-sm text-base-content/70"></div>
+                        <span class="pointer-events-none absolute inset-0 grid content-start justify-items-center pt-3 text-sm text-base-content/75" aria-hidden="true" hidden>
+                            <span class="rounded-field bg-base-200 px-2 py-0.5">Loading scorecard…</span>
+                        </span>
+                        <span class="sr-only" role="status"></span>
+                    </div>
                     <p class="text-xs text-base-content/60">Tick violations; lower the points for a partial deduction.</p>
                 </fieldset>
 
-                <div class="js-ai-score-result card hidden bg-base-200 shadow-sm">
-                    <div class="card-body p-4">
-                        <h3 class="card-title text-base">Score preview</h3>
-                        <div id="ai-score-content"></div>
+                <div class="flow-root">
+                    <div class="js-ai-score-result card hidden bg-base-200 shadow-sm">
+                        <div class="card-body p-4">
+                            <h3 class="card-title text-base">Score preview</h3>
+                            <div id="ai-score-content"></div>
+                        </div>
                     </div>
                 </div>
+            </div>
 
-                <!-- js-* classes, not ids: htmx's settle step copies
-                     attributes between same-id elements across swaps, so
-                     JS mutations (hidden/disabled) from a dead mount would
-                     leak into the fresh one (same reason the QA display
-                     spans above are id-less). -->
-
-                <!-- Sticky: pinned to the bottom while scrolling, rests
-                     below the scorecard at full scroll. -->
-                <div class="sticky bottom-0 -mx-4 space-y-4 border-t border-base-300 bg-base-100 px-4 py-3">
-                    <!-- Create mode only: parks the work-in-progress as a
-                         status='pending' draft in the QA's To-review queue.
-                         applyEntry hides it for edit/complete entries. -->
-                    <button class="js-save-later btn btn-ghost btn-block" type="button" disabled>Save For Later</button>
-                    <button class="js-save-changes btn btn-ghost btn-block hidden" type="button">Save Changes</button>
-                    <button class="js-save-review btn btn-primary btn-block" type="button" disabled>Save Review</button>
-                </div>
-                <div class="h-4"></div>
+            <!-- Keep the actions outside the scrollport so short or long
+                 scorecards cannot move the buttons. Use classes rather than
+                 IDs so HTMX settle cannot copy old hidden/disabled states. -->
+            <div class="shrink-0 space-y-4 border-t border-base-300 bg-base-100 px-4 py-3">
+                <!-- Save For Later is only available when creating a review. -->
+                <button class="js-save-later btn btn-ghost btn-block" type="button" disabled>Save For Later</button>
+                <button class="js-save-changes btn btn-ghost btn-block hidden" type="button">Save Changes</button>
+                <button class="js-save-review btn btn-primary btn-block" type="button" disabled>Save Review</button>
             </div>
         </aside>
     </div>
@@ -331,7 +328,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                         case_type: document.getElementById('case-type').value,
                         period: document.getElementById('review-period').value,
                         period_label: (document.querySelector('.js-review-period-display') || {}).textContent || '',
-                        deductions: collectDeductions()
+                        deductions: pendingDeductions || collectDeductions()
                     }));
                 }
             } catch (error) {
@@ -446,16 +443,25 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     saveLaterButton.dataset.labelHtml = saveLaterButton.innerHTML;
 
     function updateSaveState() {
-        var ready = !!document.getElementById('review-agent').value;
+        var ready = !rulesPending && !rulesFailed && !savingReview
+            && !!document.getElementById('review-agent').value;
         saveButton.disabled = !ready;
         saveLaterButton.disabled = !ready;
         saveChangesButton.disabled = !ready;
     }
     document.addEventListener('review-agent-change', updateSaveState, { signal: controller.signal });
     document.addEventListener('review-agent-change', saveDraft, { signal: controller.signal });
-    updateSaveState();
-
     var rulesArea = document.getElementById('manual-score-area');
+    var rulesPanel = rulesArea.parentElement;
+    var rulesOverlay = rulesArea.nextElementSibling;
+    var rulesStatus = rulesPanel.querySelector('[role="status"]');
+    var caseNumberPanel = document.querySelector('.js-case-number-panel');
+    var previewPanel = document.querySelector('.js-ai-score-result');
+    var previewContent = document.getElementById('ai-score-content');
+    var rulesPending = false;
+    var rulesFailed = false;
+    var savingReview = false;
+    updateSaveState();
 
     // Reentrancy guard: a monotonic token plus a per-request
     // AbortController ensure only the LATEST loadCaseRules call may
@@ -474,26 +480,48 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var multiplierExemptions = {};
     var multiplierExemptionsDirty = false;
 
+    function setRulesPending(pending) {
+        rulesPending = pending;
+        rulesArea.inert = pending;
+        rulesArea.setAttribute('aria-busy', String(pending));
+        rulesOverlay.hidden = !pending;
+        rulesStatus.textContent = pending ? 'Loading scorecard…'
+            : rulesFailed ? 'Could not load the scorecard.' : '';
+        // Keep the previous preview visible but inert until new results render.
+        if (pending) previewPanel.inert = true;
+        updateSaveState();
+    }
+
     async function loadCaseRules() {
         if (disposed) return;
-        var seq = ++rulesSeq;
         var value = document.getElementById('case-type').value;
-        if (!value || value === 'No Cases') {
+        if (value === loadedRulesType) return;
+        var seq = ++rulesSeq;
+        ++previewSeq;
+        window.clearTimeout(previewTimer);
+        if (rulesController) rulesController.abort();
+        loadedRulesType = null;
+        rulesFailed = false;
+        var noCases = value === 'No Cases';
+        window.gysResizePanel(caseNumberPanel, function () {
+            caseNumberPanel.firstElementChild.classList.toggle('hidden', noCases);
+        });
+        if (noCases) document.getElementById('case-number').value = '';
+        if (!value || noCases) {
             loadedRulesType = value || '';
             pendingDeductions = null;
-            document.querySelector('.case-number-fieldset').classList.toggle('hidden', value === 'No Cases');
-            if (value === 'No Cases') document.getElementById('case-number').value = '';
-            rulesArea.innerHTML = value === 'No Cases'
-                ? '<p class="text-sm text-base-content/60">The agent had no cases to review (vacation, day off, …). This empty review still counts toward the monthly quota — use the notes to record the reason.</p>'
-                : '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
+            window.gysResizePanel(rulesPanel, function () {
+                rulesArea.innerHTML = noCases
+                    ? '<p class="text-sm text-base-content/60">The agent had no cases to review (vacation, day off, …). This empty review still counts toward the monthly quota — use the notes to record the reason.</p>'
+                    : '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
+                setRulesPending(false);
+            });
             renderPreview(null);
             return;
         }
-        if (value === loadedRulesType) return;
-        document.querySelector('.case-number-fieldset').classList.remove('hidden');
-        rulesArea.innerHTML = '<span class="loading loading-spinner loading-sm"></span>';
-        if (rulesController) rulesController.abort();
+        setRulesPending(true);
         rulesController = new AbortController();
+        var html;
         try {
             var response = await fetch(
                 '/partials/case-rules?case_type=' + encodeURIComponent(value),
@@ -501,14 +529,22 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             );
             if (seq !== rulesSeq || disposed) return;
             if (!response.ok) throw new Error('Case rules request failed');
-            var html = await response.text();
+            html = await response.text();
             if (seq !== rulesSeq || disposed) return;
-            rulesArea.innerHTML = html;
             loadedRulesType = value;
         } catch (error) {
-            loadedRulesType = null;
             if (seq !== rulesSeq || disposed) return;
-            rulesArea.innerHTML = '<p class="text-sm text-base-content/60">No scorecard for this case type.</p>';
+            rulesFailed = true;
+            html = '<p class="text-sm text-base-content/60">Could not load the scorecard.</p>'
+                + '<button type="button" class="btn btn-ghost btn-sm mt-2" data-rules-retry>Retry scorecard</button>';
+        }
+        window.gysResizePanel(rulesPanel, function () {
+            rulesArea.innerHTML = html;
+            setRulesPending(false);
+        });
+        if (rulesFailed) {
+            renderPreview(null);
+            return;
         }
         if (pendingDeductions) {
             Object.entries(pendingDeductions).forEach(function (entry) {
@@ -528,6 +564,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     function collectDeductions() {
         var deductions = {};
+        if (rulesPending || rulesFailed) return deductions;
         rulesArea.querySelectorAll('input[data-error-name]:checked').forEach(function (box) {
             var deduction = box.closest('[data-rule-row]').querySelector('[data-deduction]');
             var penalty = Number(box.dataset.penalty);
@@ -694,6 +731,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     async function recalcScore() {
+        if (disposed || rulesPending || rulesFailed) return;
         var seq = ++previewSeq;
         var deductions = collectDeductions();
         var agentId = document.getElementById('review-agent').value;
@@ -719,9 +757,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             });
             if (!response.ok) throw new Error('Score preview failed');
             var data = await response.json();
-            if (seq === previewSeq) renderPreview(data);
+            if (!disposed && seq === previewSeq) renderPreview(data);
         } catch (error) {
-            if (seq === previewSeq) renderPreview(null);
+            if (!disposed && seq === previewSeq) renderPreview(null);
         }
     }
 
@@ -736,11 +774,14 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     function renderPreview(data) {
-        var panel = document.querySelector('.js-ai-score-result');
-        var content = document.getElementById('ai-score-content');
+        var panel = previewPanel;
+        var content = previewContent;
+        panel.inert = false;
         if (!data) {
-            panel.classList.add('hidden');
-        content.replaceChildren();
+            window.gysResizePanel(panel.parentElement, function () {
+                panel.classList.add('hidden');
+                content.replaceChildren();
+            });
             return;
         }
         // One ROW per repeated error: checkbox (waive the progression) +
@@ -766,13 +807,15 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     + '">×' + Number(entry[1].multiplier) + '</span></span>'
                     + '</label>';
             });
-        content.innerHTML =
-            '<p class="text-3xl font-bold text-primary">' + escapeHtml(String(data.final_score)) + '</p>' +
-            '<p class="mt-1 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(data.total_penalty)) + '</p>' +
-            (rows.length
-                ? '<div class="mt-2 flex flex-col items-stretch gap-1.5">' + rows.join('') + '</div>'
-                : '');
-        panel.classList.remove('hidden');
+        window.gysResizePanel(panel.parentElement, function () {
+            content.innerHTML =
+                '<p class="text-3xl font-bold text-primary">' + escapeHtml(String(data.final_score)) + '</p>' +
+                '<p class="mt-1 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(data.total_penalty)) + '</p>' +
+                (rows.length
+                    ? '<div class="mt-2 flex flex-col items-stretch gap-1.5">' + rows.join('') + '</div>'
+                    : '');
+            panel.classList.remove('hidden');
+        });
     }
 
     document.getElementById('ai-score-content').addEventListener('change', function (event) {
@@ -788,6 +831,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // A case-type switch starts a fresh scoring context: drop any
     // multiplier waives carried over from the previous type.
     document.addEventListener('case-type-change', function () {
+        pendingDeductions = null;
         multiplierExemptions = {};
         multiplierExemptionsDirty = false;
     }, { signal: controller.signal });
@@ -797,6 +841,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     document.addEventListener('review-agent-change', saveDraft, { signal: controller.signal });
     document.getElementById('case-number').addEventListener('input', saveDraft);
     document.getElementById('review-period').addEventListener('change', saveDraft);
+    rulesArea.addEventListener('click', function (event) {
+        if (event.target.closest('[data-rules-retry]')) {
+            rulesPanel.focus({preventScroll: true});
+            loadCaseRules();
+        }
+    }, { signal: controller.signal });
     rulesArea.addEventListener('change', function (event) {
         if (event.target.matches && event.target.matches('input[data-error-name]')) {
             // Enable the points input only while the violation is ticked.
@@ -904,11 +954,13 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     });
 
     scoreButton.addEventListener('click', async function () {
+        if (rulesPending || rulesFailed) return;
         if (notesAreEmpty()) {
             showToast('Notes are empty.');
             hideMenu(true);
             return;
         }
+        var currentRules = rulesSeq;
         setLoading(scoreButton, 'Scoring…', true);
         try {
             var response = await aiFetch('/api/ai/score', {
@@ -928,6 +980,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 throw new Error(extractErrorDetail(errorPayload, response.status));
             }
             var result = await response.json();
+            if (disposed || currentRules !== rulesSeq) return;
             var matched = 0;
             Object.entries(result.scorecard || {}).forEach(function (entry) {
                 if (Number(entry[1]) <= 0) return;
@@ -1067,6 +1120,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     });
 
     document.getElementById('score-notes-action').addEventListener('click', async function () {
+        if (rulesPending || rulesFailed) return;
         var button = this;
         setLoading(button, 'Drafting…', true);
         try {
@@ -1099,6 +1153,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     });
 
     async function saveExistingReview(completing) {
+        if (rulesPending || rulesFailed || savingReview) return;
         var deductions = collectDeductions();
         var payload = {
             case_type: document.getElementById('case-type').value,
@@ -1127,8 +1182,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         // else: pending metadata-only save (no raw_scorecard key at all),
         // so the row stays pending and quota-neutral.
 
+        savingReview = true;
         setLoading(saveButton, completing ? 'Completing…' : 'Saving…', true);
-        saveChangesButton.disabled = true;
+        updateSaveState();
         try {
             var response = await fetch('/api/reviews/' + drawerState.reviewId, {
                 method: 'PATCH',
@@ -1146,6 +1202,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         } catch (error) {
             showDrawerError(error.message || 'Unable to save the review.');
         } finally {
+            savingReview = false;
             setLoading(saveButton, completing ? 'Completing…' : 'Saving…', false);
             updateSaveState();
         }
@@ -1153,10 +1210,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     async function createReview(saveForLater) {
         var clickedButton = saveForLater ? saveLaterButton : saveButton;
-        if (!document.getElementById('review-agent').value) return;
+        if (rulesPending || rulesFailed || savingReview || !document.getElementById('review-agent').value) return;
+        savingReview = true;
         setLoading(clickedButton, 'Saving…', true);
-        saveLaterButton.disabled = true;
-        saveButton.disabled = true;
+        updateSaveState();
         try {
             var response = await fetch('/api/reviews', {
                 method: 'POST',
@@ -1200,6 +1257,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         } catch (error) {
             showToast(error.message || 'Unable to save review.');
         } finally {
+            savingReview = false;
             setLoading(clickedButton, '', false);
             updateSaveState();
         }

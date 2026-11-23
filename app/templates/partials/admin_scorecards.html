@@ -50,21 +50,18 @@ toggling one ON demotes its same-type siblings server-side. #}
                             <span class="block wrap-anywhere text-sm font-semibold">{{ t.name }}</span>
                             <span class="mt-1 flex flex-wrap items-center gap-1.5">
                                 <span class="badge badge-ghost badge-sm">{{ t.case_type.value }}</span>
-                                {% if t.is_active %}
-                                <span class="badge badge-success badge-soft badge-sm">Active</span>
-                                {% else %}
-                                <span class="badge badge-ghost badge-sm">Inactive</span>
-                                {% endif %}
+                                 {{ admin.scorecard_status(t) }}
                                 <span class="text-xs text-base-content/75">{{ t.item_count }} rules</span>
                             </span>
                         </button>
                         <label class="gys-admin-check flex shrink-0 items-center gap-1 sm:flex-col sm:justify-center"
                                title="{{ 'Deactivate template' if t.is_active else 'Activate template (demotes other active templates of this case type)' }}">
-                            <input type="checkbox" class="toggle toggle-sm toggle-success"
+                            <input type="checkbox" class="toggle toggle-sm toggle-success gys-scorecard-toggle{% if t.is_active %} gys-scorecard-toggle-on{% endif %}"
+                                    data-template-toggle
                                    {% if t.is_active %}checked{% endif %}
                                    aria-label="Active template: {{ t.name }}"
                                    hx-post="/admin/scorecards/{{ t.id }}/toggle"
-                                   hx-target="#admin-view" hx-swap="innerHTML"/>
+                                    hx-trigger="change" hx-swap="none" hx-sync="#template-list:queue all"/>
                         </label>
                     </div>
                 </div>

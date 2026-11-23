@@ -32,6 +32,63 @@
         if (event.target.id === 'users-search') filterUsers(event.target);
     });
 
+    var activityRevision = 0;
+    var activityStates = new Map();
+    var scorecardLoads = new WeakMap();
+    document.addEventListener('htmx:config:request', function (event) {
+        var ctx = event.detail.ctx;
+        var toggle = ctx.sourceElement;
+        if (toggle.matches('[data-template-toggle]')) {
+            // Capture the desired state before queuing; a sibling may
+            // already have changed the persisted state by the time it runs.
+            ctx.request.body.set('active', String(toggle.checked));
+            toggle.classList.toggle('gys-scorecard-toggle-on', toggle.checked);
+        } else if (ctx.request.method === 'GET') {
+            var path = new URL(ctx.request.action, document.baseURI).pathname;
+            if (path === '/admin/partials/scorecards' || path.startsWith('/admin/partials/scorecard-editor/')) {
+                scorecardLoads.set(ctx, activityRevision);
+            }
+        }
+    });
+
+    function syncScorecardActivity(states) {
+        panel.querySelectorAll('[data-template-status]').forEach(function (badge) {
+            var active = states[badge.dataset.templateStatus];
+            if (typeof active !== 'boolean') return;
+            var label = active ? 'Active' : 'Inactive';
+            if (badge.textContent !== label) badge.textContent = label;
+            badge.classList.toggle('badge-success', active);
+            badge.classList.toggle('badge-soft', active);
+            badge.classList.toggle('badge-ghost', !active);
+        });
+        panel.querySelectorAll('[data-template-toggle]').forEach(function (toggle) {
+            var active = states[toggle.closest('[data-template-card]').dataset.templateId];
+            if (typeof active !== 'boolean') return;
+            toggle.defaultChecked = active;
+            toggle.checked = active;
+            toggle.classList.toggle('gys-scorecard-toggle-on', active);
+            toggle.closest('label').title = active ? 'Deactivate template'
+                : 'Activate template (demotes other active templates of this case type)';
+        });
+    }
+
+    panel.addEventListener('scorecard-activity', function (event) {
+        var states = event.detail.states;
+        var revision = ++activityRevision;
+        Object.keys(states).forEach(function (id) {
+            activityStates.set(id, {active: states[id], revision: revision});
+        });
+        syncScorecardActivity(states);
+    });
+
+    panel.addEventListener('htmx:finally:request', function (event) {
+        var ctx = event.detail.ctx;
+        var toggle = ctx.sourceElement;
+        if (!toggle?.matches('[data-template-toggle]') || ctx.response?.status === 204) return;
+        toggle.checked = toggle.defaultChecked;
+        toggle.classList.toggle('gys-scorecard-toggle-on', toggle.checked);
+    });
+
     function moveNeighbor(item, direction) {
         var sibling = direction === 'up' ? item.previousElementSibling : item.nextElementSibling;
         var kind = item.hasAttribute('data-row') ? '[data-row]' : '[data-group]';
@@ -163,6 +220,16 @@
     });
     document.addEventListener('htmx:after:swap', function (event) {
         var ctx = event.detail.ctx;
+        var started = scorecardLoads.get(ctx);
+        if (started !== undefined && started < activityRevision) {
+            // An editor/list response can have been prepared before a
+            // toggle completed. Keep newer status on the replacement.
+            var states = {};
+            activityStates.forEach(function (state, id) {
+                if (state.revision > started) states[id] = state.active;
+            });
+            syncScorecardActivity(states);
+        }
         var selected = editorSwaps.get(ctx);
         if (selected && selected.isConnected) {
             editorSwaps.delete(ctx);
