@@ -865,33 +865,6 @@
                 0 0 12px 0 #0000;
         }
 
-        /* Master-detail cards (admin Scorecards). ALL behavior lives
-           here so --gys-speed/--gys-ease govern it like every other
-           transition; markup only carries `gys-card` (+ `card-selected`
-           on the row being edited). Press feedback is a background tint,
-           NOT a scale transform: scaling re-rasterizes the 1px border +
-           glow at fractional pixels, which makes the outline width
-           "breathe" on rounded corners while held down. Hover elevation
-           applies ONLY when idle — hover:/active: shadows would share
-           the same box-shadow property and override the selected glow.
-           Must stay ABOVE .card-selected so selection wins the cascade. */
-        .gys-card {
-            cursor: pointer;
-            border-color: var(--color-base-300);
-            box-shadow: var(--shadow-sm);
-            transition:
-                background-color var(--gys-speed) var(--gys-ease),
-                border-color var(--gys-speed) var(--gys-ease),
-                box-shadow var(--gys-speed) var(--gys-ease);
-        }
-        .gys-card:hover:not(.card-selected) {
-            border-color: color-mix(in oklab, var(--color-base-content) 20%, transparent);
-            box-shadow: var(--shadow-md);
-        }
-        .gys-card:active {
-            background-color: var(--color-base-200);
-        }
-
         /* ---- Scorecard rule-editor drag-and-drop (SortableJS class hooks).
            Class names are built by JS ("scorecard-grip-" + kind), but these
            state classes below are literal hooks — keep the names stable. */
@@ -908,17 +881,4 @@
             opacity: 0.95;
             cursor: grabbing;
             box-shadow: 0 10px 24px color-mix(in oklab, var(--color-base-content) 20%, transparent);
-        }
-
-        /* Selected card in master-detail lists (admin Scorecards).
-           A class instead of ring-* utilities: ring color variants for
-           theme colors proved unreliable under the CSS build, and a
-           bare ring-2 falls back to currentColor (an ugly dark ring).
-           Plain selector (NOT :where): it must out-rank .gys-card's
-           idle border/shadow at equal specificity via source order. */
-        .card-selected {
-            border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
-            box-shadow:
-                0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
-                0 0 12px color-mix(in oklab, var(--color-primary) 25%, transparent);
         }

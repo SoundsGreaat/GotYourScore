@@ -219,6 +219,9 @@ test("admin scorecard saves swap scripts and validation errors leave the editor 
 
   const editor = page.locator("#scorecard-editor");
   await expect(editor.getByRole("textbox", { name: "Template name" })).toHaveValue(template);
+  const selected = page.locator("[data-template-card]").filter({ hasText: template });
+  await expect(selected.locator("[data-template-open]")).toHaveAttribute("aria-current", "true");
+  await expect(selected).toHaveCSS("box-shadow", "none");
   await editor.getByRole("button", { name: "+ Add rule (new category)" }).click();
   await editor.locator("[data-display]").fill("CI rule");
   const save = editor.getByRole("button", { name: "Save rules" });
