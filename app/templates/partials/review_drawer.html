@@ -19,7 +19,7 @@
             <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pt-4 [scrollbar-gutter:stable]">
 
                 <fieldset class="fieldset">
-                    <label class="label" for="review-agent">Agent</label>
+                    <label class="label" for="review-agent-button">Agent</label>
                     {{ dd.dropdown('review-agent',
                         items=agents,
                         value_attr='id', label_attr='name',
@@ -34,7 +34,7 @@
                      stamps created_at to that period's last second and
                      enforces ITS quota. Hidden for edit/complete. -->
                 <fieldset class="fieldset js-period-fieldset">
-                    <label class="label" for="review-period">Reporting period</label>
+                    <label class="label" for="review-period-button">Reporting period</label>
                     {{ dd.dropdown('review-period',
                         items=period_options,
                         selected=period_value,
@@ -72,7 +72,7 @@
                 </fieldset>
 
                 <fieldset class="fieldset">
-                    <label class="label" for="case-type">Case type</label>
+                    <label class="label" for="case-type-button">Case type</label>
                     {{ dd.dropdown('case-type',
                         items=case_types,
                         value_attr='value', label_attr='value',
@@ -412,21 +412,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             var agentDisplay = document.querySelector('.js-review-agent-display');
             agentDisplay.textContent = draft.agent_name || '';
             agentDisplay.classList.remove('text-base-content/70');
-            document.querySelectorAll('#review-agent-menu button').forEach(function (btn) {
-                if (btn.textContent.trim() === draft.agent_name) btn.classList.add('active');
-            });
         }
         document.getElementById('case-number').value = draft.case_number || '';
         if (draft.case_type) {
             document.getElementById('case-type').value = draft.case_type;
             document.querySelector('.js-case-type-display').textContent = draft.case_type;
-            // menu-active drives the open-menu highlight — without
-            // clearing it the macro's default stays lit.
-            document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
-                var match = btn.textContent.trim() === draft.case_type;
-                btn.classList.toggle('active', match);
-                btn.classList.toggle('menu-active', match);
-            });
         }
         if (draft.period) {
             document.getElementById('review-period').value = draft.period;
@@ -435,11 +425,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 periodDisplay.textContent = draft.period_label || draft.period;
                 periodDisplay.classList.remove('text-base-content/70');
             }
-            document.querySelectorAll('#review-period-menu button').forEach(function (btn) {
-                var match = btn.textContent.trim() === (draft.period_label || '').trim();
-                btn.classList.toggle('active', match);
-                btn.classList.toggle('menu-active', match);
-            });
         }
         if (draft.deductions && typeof draft.deductions === 'object') pendingDeductions = draft.deductions;
     }
@@ -610,10 +595,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var agentDisplay = document.querySelector('.js-review-agent-display');
         agentDisplay.textContent = agentName;
         agentDisplay.classList.remove('text-base-content/70');
-        document.querySelectorAll('#review-agent-menu button').forEach(function (btn) {
-            btn.classList.toggle('active', btn === agentMenuButton);
-            btn.classList.toggle('menu-active', btn === agentMenuButton);
-        });
         // The reviewed Support agent is IMMUTABLE after creation — the
         // picker stays locked (and visually disabled) in edit/complete
         // mode; reassignment covers only the assigned QA.
@@ -631,10 +612,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var assignedQaDisplay = document.querySelector('.js-review-assigned-qa-display');
         assignedQaDisplay.textContent = assignedQaName;
         assignedQaDisplay.classList.remove('text-base-content/70');
-        document.querySelectorAll('#review-assigned-qa-menu button').forEach(function (btn) {
-            btn.classList.toggle('active', btn === assignedQaMenuButton);
-            btn.classList.toggle('menu-active', btn === assignedQaMenuButton);
-        });
 
         var caseNumberInput = document.getElementById('case-number');
         caseNumberInput.value = review.case_number || '';
@@ -659,14 +636,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             : (review.case_type && review.case_type.value) || 'Initial Fix';
         document.getElementById('case-type').value = caseType;
         document.querySelector('.js-case-type-display').textContent = caseType;
-        // Sync both highlight classes: the macro pre-highlights its
-        // 'Initial Fix' default, and menu-active is what an open
-        // menu actually shows.
-        document.querySelectorAll('#case-type-menu button').forEach(function (btn) {
-            var match = btn.textContent.trim() === caseType;
-            btn.classList.toggle('active', match);
-            btn.classList.toggle('menu-active', match);
-        });
         var caseTypeButton = document.getElementById('case-type-button');
         if (caseTypeButton) caseTypeButton.disabled = !drawerState.isPending && drawerState.mode === 'complete';
 

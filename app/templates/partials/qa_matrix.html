@@ -393,13 +393,6 @@
                 display.textContent = placeholder;
                 display.classList.add('text-base-content/70');
             }
-            var menu = document.getElementById(hiddenId + '-menu');
-            if (menu) {
-                menu.querySelectorAll('button').forEach(function (btn) {
-                    btn.classList.remove('active');
-                    btn.classList.remove('menu-active');
-                });
-            }
             if (window.qaMatrixScheduleBatchPreview) window.qaMatrixScheduleBatchPreview();
         };
     }
@@ -648,7 +641,6 @@
             case_type: 'All rows…'
         };
         var overrideSnapshots = {}; // field -> { rowHiddenId: {value, text} }
-        var overrideTexts = {};     // field -> picked display label
 
         function batchOverrideHidden(field) {
             var suffix = { assigned_qa_id: 'qa', support_agent_id: 'agent', case_type: 'case-type' }[field];
@@ -724,29 +716,21 @@
         // setDropdownValue is replaced by this hook), then fan the value
         // out over every row's column.
         window.qaMatrixOverrideChanged = function (field) {
-            return function (hiddenId, displayId, value, text, btnEl) {
-                // New-style macro calls pass only (…, btnEl): resolve the
-                // picked value/label from the option's dataset first so
-                // the override state below sees real values.
-                if (btnEl && value === undefined) {
-                    value = btnEl.dataset.optValue || '';
-                    text = btnEl.dataset.optLabel || '';
-                }
-                window.setDropdownValue(hiddenId, displayId, value, text, btnEl);
-                overrideTexts[field] = value ? (text || '') : '';
+            return function () {
+                window.setDropdownValue.apply(null, arguments);
+                var active = batchOverrideActive(field);
                 var rows = batchRows ? Array.prototype.slice.call(batchRows.querySelectorAll('.delegate-batch-row')) : [];
                 rows.forEach(function (row) {
-                    if (value) batchApplyFieldToRow(row, field);
+                    if (active) batchApplyFieldToRow(row, field);
                     else batchRestoreFieldRow(row, field);
                 });
-                if (!value && overrideSnapshots[field]) overrideSnapshots[field] = {};
+                if (!active && overrideSnapshots[field]) overrideSnapshots[field] = {};
                 updateBatchSummary();
             };
         };
 
         function resetBatchPane() {
             overrideSnapshots = {};
-            overrideTexts = {};
             OVERRIDE_FIELDS.forEach(function (field) {
                 var hidden = batchOverrideHidden(field);
                 if (hidden && window.qaMatrixClearDropdown) {

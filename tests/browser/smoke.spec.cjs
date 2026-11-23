@@ -95,6 +95,9 @@ test("sidebar and category swaps preserve the hash and open the matching editors
   await expect(page.locator("#review-drawer-toggle")).toBeChecked();
   await expect(page.locator("#case-type-button")).toHaveText("Service Request");
   await expect(page.locator("#case-type")).toHaveValue("Service Request");
+  await expect(page.locator("#case-type-button")).toHaveAccessibleDescription("Service Request");
+  await page.locator("#case-type-button").click();
+  await expect(page.locator("#case-type-menu").getByRole("menuitemradio", { name: "Service Request" })).toBeChecked();
   expect(failures).toEqual([]);
 });
 
@@ -151,7 +154,7 @@ test("review filters survive period changes and event-driven outer swaps", async
   expect(new URL((await filter).url()).searchParams.get("case_number")).toBe("CI-FILTER");
   await expect(page.getByRole("link", { name: "Reset filters" })).toBeVisible();
 
-  const periodMenu = page.locator('#reviews-period-menu button:not(.active)');
+  const periodMenu = page.locator('#reviews-period-menu button[aria-checked="false"]');
   await page.getByRole("button", { name: "Reporting period" }).click();
   const period = await periodMenu.first().getAttribute("data-opt-value");
   const change = nextResponse(page, "/partials/my-reviews");
@@ -283,6 +286,32 @@ test("browser back from Administration restores the dashboard view", async ({ pa
   expect(failures).toEqual([]);
 });
 
+test("cloned delegation row pickers restore their own choices when a bulk override is removed", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/#qa-tracker/qa-score`);
+  await page.getByRole("button", { name: "Delegate case", exact: true }).click();
+  const modal = page.locator("#delegate-case-modal");
+  const caseType = modal.getByRole("button", { name: "Case type", exact: true });
+  const picker = modal.locator(".gys-picker:popover-open");
+  const choose = (name) => picker.getByRole("menuitemradio", { name, exact: true }).click();
+  await caseType.first().click();
+  await choose("Service Request");
+  await expect(caseType).toHaveCount(2);
+
+  const override = modal.getByRole("button", { name: "Override case type for all rows" });
+  await override.click();
+  await choose("Initial Fix");
+  await expect(caseType.first()).toBeDisabled();
+  await expect(caseType.first()).toHaveText("Initial Fix");
+  await override.click();
+  await choose("— any —");
+  await expect(caseType.first()).toBeEnabled();
+  await expect(caseType.first()).toHaveText("Service Request");
+  await expect(caseType.nth(1)).toHaveText("Select case type…");
+  await caseType.first().click();
+  await expect(picker.getByRole("menuitemradio", { name: "Service Request" })).toBeChecked();
+});
+
 test("mobile dashboard menu is keyboard operable and does not leave the page inert", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 720 });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -370,7 +399,7 @@ test("Team Quotas does not overwrite the selected review period", async ({ page 
   await signIn(page);
   await page.goto(`${base}/#my-reviews/qa-score`);
   await page.getByRole("button", { name: "Reporting period" }).click();
-  const priorPeriod = page.locator("#reviews-period-menu button:not(.active)").first();
+  const priorPeriod = page.locator('#reviews-period-menu button[aria-checked="false"]').first();
   const period = await priorPeriod.getAttribute("data-opt-value");
   await priorPeriod.click();
   await expect(page).toHaveURL(`${base}/#my-reviews/qa-score@${period}`);

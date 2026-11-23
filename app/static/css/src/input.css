@@ -177,7 +177,7 @@
             --gys-speed: 0.2s;
             --gys-ease: cubic-bezier(0, 0, 0.2, 1);
             /* Surface sheens for the gradient system (see .alert /
-               [popover].dropdown.menu / .gys-accent-panel below). */
+               .gys-accent-panel below). */
             --gys-sheen-primary: linear-gradient(135deg,
                 color-mix(in oklab, var(--color-primary) 11%, transparent),
                 color-mix(in oklab, var(--color-primary) 2%, transparent));
@@ -499,16 +499,137 @@
            every callout and popup carries the same light as the accent
            panels. Primary tint reads best on neutral surfaces; white
            alpha is safe over COLORED fills (alert hues) where a mint
-           wash would turn muddy. Popover menus also get a touch of
-           extra side padding so they sit slightly wider than their
-           widest option instead of hugging it exactly. */
+           wash would turn muddy. */
         .alert {
             background-image: var(--gys-sheen-white);
         }
-        [popover].dropdown.menu {
-            background-image: var(--gys-sheen-primary);
+        .gys-picker {
+            --gys-picker-limit: calc(var(--gys-picker-viewport-width, 100dvw) - 16px);
+            --gys-picker-field: var(--gys-picker-trigger-width, 9.5rem);
+            position: fixed;
+            inline-size: var(--gys-picker-open-width, max-content);
+            min-inline-size: min(var(--gys-picker-field), var(--gys-picker-limit));
+            max-inline-size: min(max(9.5rem, calc(var(--gys-picker-field) + 1.5rem)), var(--gys-picker-limit));
+            max-block-size: min(13.5rem, calc(var(--gys-picker-viewport-height, 100dvh) - 16px), var(--gys-picker-available, 100dvh));
+            padding: 0.1875rem;
+            overflow: hidden;
+            border: 1px solid color-mix(in oklab, var(--color-base-content) 16%, var(--color-base-100));
+            border-radius: var(--radius-field);
+            background: var(--color-base-100);
+            color: var(--color-base-content);
+            font-size: var(--gys-picker-font-size, 0.75rem);
+            box-shadow: 0 3px 10px rgb(0 0 0 / 0.12);
+        }
+        .gys-picker:popover-open {
+            display: flex;
+            flex-direction: column;
+        }
+        @supports (position-area: block-end span-inline-end) {
+            .gys-picker {
+                inset: auto;
+                margin: 4px 0;
+                position-area: block-end span-inline-end;
+                position-try-fallbacks: flip-block, flip-inline, flip-block flip-inline;
+            }
+        }
+        .gys-picker.gys-picker-positioned {
+            position-area: none;
+            position-try-fallbacks: none;
+            inset: var(--gys-picker-top) auto auto var(--gys-picker-left);
+            margin: 0;
+        }
+        .gys-picker-search {
+            /* An empty search field must not widen an otherwise narrow list. */
+            contain: inline-size;
+            padding: 0.125rem 0.125rem 0.25rem;
+        }
+        .gys-picker-search .input {
+            min-inline-size: 0;
+            height: 1.75rem;
             padding-inline: 0.5rem;
-            min-width: 12rem;
+            background-color: var(--color-base-200);
+            font-size: inherit;
+        }
+        .gys-picker-search .input:focus {
+            box-shadow: none;
+        }
+        .gys-picker-status:not(:empty) {
+            padding: 0.5rem 0.375rem 0.125rem;
+            overflow-wrap: anywhere;
+        }
+        .gys-picker-options {
+            min-block-size: 0;
+            overflow: auto;
+            overscroll-behavior: contain;
+            scrollbar-width: thin;
+            padding: 0;
+            list-style: none;
+        }
+        .gys-picker-options > li > button {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 0.625rem;
+            align-items: center;
+            gap: 0.375rem;
+            inline-size: 100%;
+            min-block-size: 1.625rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: calc(var(--radius-field) - 2px);
+            text-align: start;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            font-size: inherit;
+            line-height: 1.3;
+            cursor: pointer;
+        }
+        .gys-picker-options > li > button::after {
+            content: "";
+            inline-size: 0.5625rem;
+            block-size: 0.3125rem;
+            rotate: -45deg;
+        }
+        .gys-picker-options > li > button[aria-checked="true"] {
+            background-color: color-mix(in oklab, var(--color-primary) 11%, var(--color-base-100));
+        }
+        .gys-picker-options > li > button[aria-checked="true"]::after {
+            border-inline-start: 2px solid currentColor;
+            border-block-end: 2px solid currentColor;
+        }
+        @media (hover: hover) {
+            .gys-picker-options > li > button:hover {
+                background-color: var(--color-base-200);
+            }
+        }
+        .gys-picker-options > li > button:focus-visible {
+            outline: 1px solid currentColor;
+            outline-offset: -1px;
+        }
+        @media (pointer: coarse) {
+            .gys-picker-options > li > button {
+                min-block-size: 2rem;
+            }
+            .gys-picker-search .input {
+                height: 2rem;
+            }
+        }
+        .js-bf-agent {
+            container-type: inline-size;
+        }
+        .gys-bf-agent-fields {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .gys-bf-agent-pick {
+            grid-column: 1 / -1;
+        }
+        @container (min-width: 26rem) {
+            .gys-bf-agent-fields {
+                grid-template-columns: minmax(0, 1fr) 7rem 8.5rem auto;
+            }
+            .gys-bf-agent-pick {
+                grid-column: auto;
+            }
         }
 
         /* Floating notifications: every transient note — toasts, alerts,
@@ -588,16 +709,6 @@
                 box-shadow, transform;
             transition-duration: var(--gys-speed);
             transition-timing-function: var(--gys-ease);
-        }
-
-        /* Dropdown menu options: their active/hover background used to
-            snap instantly (no transition at all), which read as
-            "faster" next to the smoothed fields. */
-        .dropdown.menu button {
-            transition:
-                background-color var(--gys-speed) var(--gys-ease),
-                color var(--gys-speed) var(--gys-ease),
-                border-color var(--gys-speed) var(--gys-ease);
         }
 
         /* Clickable badge chips (case/Pending/N-C chips in QA Score

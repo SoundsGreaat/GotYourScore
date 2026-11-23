@@ -12,7 +12,9 @@
 
     Single instance: the script tears down any previous mount before
     initializing; closing the dialog removes the whole partial root. -#}
+{% import "macros/dropdowns.html" as dd %}
 <div class="js-bf-editor-root" data-bf-open="{{ bf_id or '' }}">
+    <template class="js-bf-dropdown-template">{{ dd.dropdown('bf-card-picker') }}</template>
     <dialog class="modal js-bf-edit-modal">
         <div class="modal-box max-w-2xl">
             <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">&times;</button></form>
@@ -45,45 +47,44 @@
         return window.escapeHtml ? window.escapeHtml(s) : String(s == null ? '' : s);
     }
 
-    /* Popover-API dropdown markup, byte-compatible with the Jinja
-       macro (macros/dropdowns.html): trigger + popover menu + hidden
-       input. Built here because agent cards are JS-only. The global
-       keyboard typeahead from js/dropdowns.js attaches automatically —
-       it matches [popover].dropdown.menu by delegation. */
+    // Agent cards are JS-only, but use the same picker markup as server-rendered forms.
     var DD_SEQ = 0;
 
-    function buildDropdown(host, opts, picked, opts2) {
-        opts2 = opts2 || {};
+    function buildDropdown(host, opts, picked, config) {
         DD_SEQ += 1;
         var id = 'jsdd-' + DD_SEQ + '-' + Date.now();
         var match = opts.filter(function (o) { return o.value === picked; })[0];
-        var shown = match ? match.label : (opts2.any_label || opts2.placeholder || '');
+        var shown = match ? match.label : (config.placeholder || '');
 
-        var btn = document.createElement('button');
-        btn.type = 'button';
+        var fragment = root.querySelector('.js-bf-dropdown-template').content.cloneNode(true);
+        var btn = fragment.querySelector('button');
         btn.id = id + '-button';
-        btn.setAttribute('popovertarget', id + '-menu');
-        btn.setAttribute('aria-haspopup', 'menu');
-        btn.className = opts2.btn_cls || 'select select-sm w-full flex items-center';
+        btn.setAttribute('popovertarget', id + '-picker');
+        btn.setAttribute('aria-controls', id + '-picker');
+        btn.setAttribute('aria-label', config.label);
+        btn.setAttribute('aria-describedby', id + '-display');
         btn.style.anchorName = '--' + id + '-anchor';
-        var span = document.createElement('span');
+        var span = btn.firstElementChild;
         span.id = id + '-display';
-        span.className = 'pointer-events-none truncate' + (match ? '' : ' text-base-content/70');
+        span.classList.toggle('text-base-content/70', !match);
         span.textContent = shown;
-        btn.appendChild(span);
 
-        var menu = document.createElement('ul');
+        var picker = fragment.querySelector('.gys-picker');
+        picker.id = id + '-picker';
+        picker.setAttribute('aria-labelledby', btn.id);
+        picker.style.positionAnchor = '--' + id + '-anchor';
+        var menu = picker.querySelector('ul');
         menu.id = id + '-menu';
-        menu.setAttribute('popover', '');
-        menu.style.positionAnchor = '--' + id + '-anchor';
-        menu.className = 'dropdown menu menu-sm flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48';
         opts.forEach(function (opt) {
             var li = document.createElement('li');
+            li.setAttribute('role', 'none');
             var ob = document.createElement('button');
             ob.type = 'button';
+            ob.tabIndex = -1;
+            ob.setAttribute('role', 'menuitemradio');
             ob.setAttribute('data-opt-value', opt.value);
             ob.setAttribute('data-opt-label', opt.label);
-            ob.className = (opt.value === picked) ? 'active menu-active' : '';
+            ob.setAttribute('aria-checked', String(opt.value === picked));
             ob.textContent = opt.label;
             ob.addEventListener('click', function () {
                 window.setDropdownValue(id, '#' + id + '-display', ob);
@@ -92,29 +93,25 @@
             menu.appendChild(li);
         });
 
-        var hidden = document.createElement('input');
-        hidden.type = 'hidden';
+        var hidden = fragment.querySelector('input[type="hidden"]');
         hidden.id = id;
         hidden.value = picked == null ? '' : picked;
         hidden.setAttribute('data-dd-host', '');
-        host.appendChild(btn);
-        host.appendChild(menu);
-        host.appendChild(hidden);
+        host.appendChild(fragment);
+        window.gysSyncDropdown(btn);
         return hidden;
     }
 
     function agentCard(agent) {
         var host = document.createElement('div');
         host.className = 'js-bf-agent card mb-2 bg-base-200 p-2';
-        // One grid for the pickers: agent gets ALL leftover width, the
-        // kind/fault pickers stay compact, remove is icon-sized — no
-        // more mismatched fixed widths (~80% coverage) next to a
-        // full-width comment line.
+        // On narrow screens the agent picker gets the full first row.
         var row = document.createElement('div');
-        row.className = 'grid grid-cols-[minmax(0,1fr)_7rem_8.5rem_auto] items-center gap-2';
+        row.className = 'gys-bf-agent-fields';
         host.appendChild(row);
 
         var pickHost = document.createElement('div');
+        pickHost.className = 'gys-bf-agent-pick';
         row.appendChild(pickHost);
         // Placeholder ("Choose agent…") is DISPLAY-ONLY — not a menu
         // option, so it can never be (re)picked. The card's × removes it.
@@ -123,7 +120,7 @@
                 return {value: String(o.id), label: o.name};
             }),
             agent ? String(agent.user_id) : '',
-            {placeholder: 'Choose agent…'}
+            {label: 'Agent', placeholder: 'Choose agent…'}
         );
         pickHidden.setAttribute('data-bf-role', 'pick');
 
@@ -131,7 +128,8 @@
         row.appendChild(kindHost);
         var kindHidden = buildDropdown(kindHost,
             [{value: 'Support', label: 'Support'}, {value: 'Sales', label: 'Sales'}],
-            agent ? agent.kind : 'Support'
+            agent ? agent.kind : 'Support',
+            {label: 'Agent type'}
         );
         kindHidden.setAttribute('data-bf-role', 'kind');
 
@@ -143,13 +141,13 @@
                 return {value: f.value, label: f.label};
             }),
             agent && agent.fault ? agent.fault : '',
-            {placeholder: 'Fault…'}
+            {label: 'Fault', placeholder: 'Fault…'}
         );
         faultHidden.setAttribute('data-bf-role', 'fault');
 
         var remove = document.createElement('button');
         remove.type = 'button';
-        remove.className = 'btn btn-ghost btn-xs btn-circle text-error shrink-0';
+        remove.className = 'btn btn-ghost btn-xs btn-circle text-error';
         remove.innerHTML = '&times;';
         remove.setAttribute('aria-label', 'Remove agent');
         remove.addEventListener('click', function () {

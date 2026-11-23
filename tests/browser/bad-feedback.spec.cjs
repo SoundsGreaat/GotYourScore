@@ -59,8 +59,9 @@ test("delayed inspection is disabled in flight and cannot update a closed/reopen
 
 test("successful report remains visible until dismissed, then changed event swaps tracker", async ({ page }) => {
   await signIn(page);
+  const headers = Array.from({ length: 10 }, (_, index) => `Column ${index + 1}`).concat("Customer email");
   await page.route("**/api/bad-feedback/import/inspect", (route) =>
-    route.fulfill({ json: inspection() }));
+    route.fulfill({ json: inspection(headers) }));
   let release;
   const held = new Promise((resolve) => { release = resolve; });
   await page.route("**/api/bad-feedback/import", async (route) => {
@@ -73,6 +74,17 @@ test("successful report remains visible until dismissed, then changed event swap
     name: "report.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from("fixture"),
   });
   await dialog.getByRole("button", { name: "Analyze" }).click();
+  await expect(dialog.locator(".js-bf-step-map")).toBeVisible();
+  const mapping = dialog.locator("#bf-map-customer_info-button");
+  const picker = dialog.locator("#bf-map-customer_info-picker");
+  await mapping.press("Enter");
+  const search = picker.getByRole("searchbox");
+  await search.fill("email");
+  await search.press("Enter");
+  await expect(dialog.locator("#bf-map-customer_info")).toHaveValue("Customer email");
+  await mapping.click();
+  await expect(picker.getByRole("menuitemradio", { name: "Customer email" })).toBeChecked();
+  await page.keyboard.press("Escape");
   await expect(dialog.locator(".js-bf-step-map")).toBeVisible();
   await dialog.getByRole("button", { name: "Import", exact: true }).click();
   try {
@@ -104,4 +116,24 @@ test("successful report remains visible until dismissed, then changed event swap
   expect((await refresh).status()).toBe(200);
   await expect(page.locator("#bad-feedback-view")).toBeVisible();
   await expect(page.getByRole("button", { name: "Import from Excel" })).toBeVisible();
+});
+
+test("Bad Feedback editor cards share the new picker behavior", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await signIn(page);
+  await page.goto(`${base}/#qa-tracker/bad-feedback`);
+  await page.getByRole("button", { name: "New Bad Feedback" }).click();
+  const editor = page.locator(".js-bf-edit-modal");
+  await editor.getByRole("button", { name: "+ Add agent", exact: true }).click();
+  const agent = editor.getByRole("button", { name: "Agent", exact: true }).first();
+  expect((await agent.boundingBox()).width).toBeGreaterThan(100);
+  const type = editor.getByRole("button", { name: "Agent type" }).first();
+  await type.click();
+  const picker = editor.locator(".gys-picker:popover-open");
+  await expect(picker.getByRole("menuitemradio", { name: "Support" })).toBeChecked();
+  await expect(picker.getByRole("searchbox")).toHaveCount(0);
+  await picker.getByRole("menuitemradio", { name: "Sales" }).click();
+  await expect(type).toHaveText("Sales");
+  await type.click();
+  await expect(picker.getByRole("menuitemradio", { name: "Sales" })).toBeChecked();
 });

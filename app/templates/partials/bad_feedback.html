@@ -171,25 +171,25 @@
             <div class="js-bf-step-map hidden">
                 <div class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                     {% for key, label in field_labels.items() %}
-                    <label class="flex flex-col gap-1 text-sm">
-                        <span>{{ label }}</span>
+                     <div class="flex min-w-0 flex-col gap-1 text-sm">
+                         <label for="bf-map-{{ key }}-button">{{ label }}</label>
                         {{ dd.dropdown('bf-map-' ~ key,
                         items=[{'value': '', 'label': 'Not imported'}],
                         selected='',
                         aria_label='Column for ' ~ label,
                         hidden_attrs='data-bf-map="' ~ key ~ '"') }}
-                    </label>
+                     </div>
                     {% endfor %}
                 </div>
                 <div class="mb-3 flex items-end gap-2">
-                    <label class="flex w-full max-w-56 flex-col gap-1 text-sm">
-                        <span>Assign imported records to QA</span>
+                     <div class="flex w-full max-w-56 flex-col gap-1 text-sm">
+                         <label for="bf-import-assignee-button">Assign imported records to QA</label>
                         {{ dd.dropdown('bf-import-assignee',
                         items=qa_options,
                         value_attr='id', label_attr='name',
                         any_label='Unassigned — shared queue',
                         aria_label='Assign imported records to QA') }}
-                    </label>
+                     </div>
                 </div>
                 <div class="mb-3 rounded-box border border-base-300 p-3">
                     <div class="mb-2 flex items-center justify-between gap-2">
@@ -358,7 +358,8 @@
                         li.setAttribute('role', 'none');
                         var btn = document.createElement('button');
                         btn.type = 'button';
-                        btn.setAttribute('role', 'menuitem');
+                        btn.setAttribute('role', 'menuitemradio');
+                        btn.setAttribute('aria-checked', 'false');
                         btn.tabIndex = -1;
                         btn.setAttribute('data-opt-value', opt.v);
                         btn.setAttribute('data-opt-label', opt.l);
