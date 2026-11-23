@@ -17,7 +17,7 @@ async function mountPicker(page, options, { atEdge = false, forceFallback = fals
       <div id="choice-picker" popover class="gys-picker" role="menu"
         aria-labelledby="choice-button" style="position-anchor:--choice">
         <div class="gys-picker-search" hidden>
-          <input type="search" aria-label="Search options">
+          <input type="search" class="input input-sm w-full" aria-label="Search options">
           <p class="gys-picker-status" role="status"></p>
         </div>
         <ul id="choice-menu" class="gys-picker-options" role="group" aria-label="Options">${choices}</ul>
@@ -90,6 +90,8 @@ test("long pickers filter without changing the form until an option is selected"
   await expect(picker).toHaveRole("dialog");
   const search = picker.getByRole("searchbox");
   await expect(search).toBeFocused();
+  await expect.poll(() => search.evaluate((el) => getComputedStyle(el).boxShadow))
+    .toMatch(/0px 0px 0px 3px/);
   const fontSize = await trigger.evaluate((el) => getComputedStyle(el).fontSize);
   await expect(search).toHaveCSS("font-size", fontSize);
   await expect(picker.getByRole("menuitemradio").first()).toHaveCSS("font-size", fontSize);
