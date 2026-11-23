@@ -69,6 +69,89 @@ test("an authenticated dashboard loads the requested DB-backed HTMX partial", as
   expect(failures).toEqual([]);
 });
 
+test("Refund Check is the third tracker and drafts stay in its own queue", async ({ page }) => {
+  const failures = watchPage(page);
+  const marker = `Refund browser ${randomUUID()}`;
+  await signIn(page);
+  await page.goto(`${base}/#qa-tracker/bad-feedback`);
+  await expect(page.locator("#bad-feedback-view")).toBeVisible();
+  const refundTab = page.getByRole("tab", { name: "Refund Check", exact: true });
+  await expect(refundTab.locator("..").getByRole("tab")).toHaveText([
+    "QA Score", "Bad Feedback", "Refund Check",
+  ]);
+
+  const refundTracker = nextResponse(page, "/partials/refund-check");
+  await refundTab.click();
+  expect((await refundTracker).status()).toBe(200);
+  await expect(refundTab).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(/#qa-tracker\/refund-check(?:@\d{4}-\d{2})?$/);
+  await page.getByRole("button", { name: "New Refund Check", exact: true }).click();
+  const dialog = page.getByRole("dialog").filter({
+    has: page.getByRole("heading", { name: "New Refund Check", exact: true }),
+  });
+  await dialog.getByLabel("Source", { exact: true }).fill(marker);
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/refund-check", async (route) => {
+    if (route.request().method() === "POST") await held;
+    await route.continue();
+  });
+  const creation = nextResponse(page, "/api/refund-check", "POST");
+  const saveLater = dialog.getByRole("button", { name: "Save For Later" });
+  await saveLater.click();
+  try {
+    await expect(saveLater).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+  } finally {
+    release();
+  }
+  const response = await creation;
+  expect(response.status()).toBe(201);
+  const { id } = await response.json();
+  try {
+    await expect(dialog).not.toBeVisible();
+    await expect(page.getByRole("row").filter({ hasText: marker })).toBeVisible();
+
+    const queue = nextResponse(page, "/partials/to-review");
+    await page.getByRole("link", { name: /To review/ }).click();
+    expect(new URL((await queue).url()).searchParams.get("cat")).toBe("refund-check");
+    await expect(page.getByRole("row").filter({ hasText: marker })).toBeVisible();
+    await page.getByRole("tab", { name: "Bad Feedback", exact: true }).click();
+    await expect(page).toHaveURL(/#to-review\/bad-feedback$/);
+    await expect(page.getByRole("row").filter({ hasText: marker })).toHaveCount(0);
+    expect(failures).toEqual([]);
+  } finally {
+    await page.request.delete(`${base}/api/refund-check/${id}`);
+  }
+});
+
+test("admins can add and archive a Refund Check field without changing Bad Feedback", async ({ page }) => {
+  const failures = watchPage(page);
+  const label = `Refund reason ${randomUUID()}`;
+  await signIn(page);
+  await page.goto(`${base}/admin#case-fields`);
+  const refund = page.getByRole("region", { name: "Refund Check", exact: true });
+  const feedback = page.getByRole("region", { name: "Bad Feedback", exact: true });
+  const add = refund.getByRole("form", { name: "Add Refund Check field" });
+  await add.getByLabel("Label").fill(label);
+  await add.getByLabel("Type").selectOption("textarea");
+  const created = nextResponse(page, "/admin/case-fields/refund-check/create", "POST");
+  await add.getByRole("button", { name: "Add field" }).click();
+  expect((await created).status()).toBe(200);
+  await expect(feedback.getByRole("form", { name: `Edit ${label}` })).toHaveCount(0);
+  const edit = refund.getByRole("form", { name: `Edit ${label}` });
+  await expect(edit.getByLabel("Type")).toHaveValue("textarea");
+  const archived = nextResponse(page, /\/admin\/case-fields\/refund-check\/\d+\/archive$/, "POST");
+  await refund.getByRole("button", { name: `Archive ${label}` }).click();
+  expect((await archived).status()).toBe(200);
+  await expect(edit).toHaveCount(0);
+  await refund.locator("summary").click();
+  await expect(refund.getByRole("button", { name: `Restore ${label}`, exact: true })).toBeVisible();
+  expect(failures).toEqual([]);
+});
+
 test("sidebar and category swaps preserve the hash and open the matching editors", async ({ page }) => {
   const failures = watchPage(page);
   await signIn(page);
@@ -560,16 +643,16 @@ test("admin tabs scroll on mobile and select only after a successful swap", asyn
   await page.goto(`${base}/admin`);
   await expect(page.locator("#admin-prompts-root")).toBeVisible();
   const prompts = page.getByRole("tab", { name: "Prompts" });
-  const users = page.getByRole("tab", { name: "Deleted Bad Feedback" });
+  const recovery = page.getByRole("tab", { name: "Deleted Refund Checks" });
   await prompts.focus();
   await page.keyboard.press("End");
-  await expect(users).toBeFocused();
+  await expect(recovery).toBeFocused();
   await expect(prompts).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("tabpanel", { name: "Prompts" })).toBeVisible();
   await expect.poll(() => page.getByRole("tablist").evaluate((track) => track.scrollLeft)).toBeGreaterThan(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 
-  await page.route("**/admin/partials/deleted-bad-feedback", (route) => route.fulfill({
+  await page.route("**/admin/partials/deleted-refund-check", (route) => route.fulfill({
     status: 503,
     json: { detail: "Temporarily unavailable." },
   }), { times: 1 });
@@ -578,8 +661,8 @@ test("admin tabs scroll on mobile and select only after a successful swap", asyn
   await expect(page.getByRole("tabpanel", { name: "Prompts" })).toBeVisible();
   await expect(page).toHaveURL(`${base}/admin`);
   await page.keyboard.press("Space");
-  await expect(page.getByRole("tabpanel", { name: "Deleted Bad Feedback" })).toBeVisible();
-  await expect(page).toHaveURL(`${base}/admin#deleted-bad-feedback`);
+  await expect(page.getByRole("tabpanel", { name: "Deleted Refund Checks" })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/admin#deleted-refund-check`);
 });
 
 test("admin section tabs follow the layout's keyboard direction and restore deep links", async ({ page }) => {
