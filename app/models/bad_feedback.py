@@ -28,8 +28,10 @@ from sqlalchemy import (
     String,
     Text,
     func,
+    text,
 )
 from sqlalchemy import Enum as SAEnum
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -59,6 +61,14 @@ class BadFeedback(Base):
     customer_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Related ticket/case reference; often missing.
     related_case: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Custom values use stable TrackerField keys. The original columns
+    # stay authoritative for the default fields and legacy API clients.
+    field_values_data: Mapped[dict[str, str | None]] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::jsonb"),
+    )
     # QA's cross-agent summary (list-level, not per-agent).
     qa_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -123,6 +133,25 @@ class BadFeedback(Base):
         lazy="selectin",
         order_by="BadFeedbackAgent.id",
     )
+
+    @property
+    def field_values(self) -> dict[str, str | None]:
+        """Canonical case fields plus custom values, all string/null."""
+        values: dict[str, str | None] = {
+            "fb_date": self.fb_date.isoformat() if self.fb_date else None,
+            "customer_info": self.customer_info,
+            "source": self.source,
+            "customer_feedback": self.customer_feedback,
+            "related_case": self.related_case,
+        }
+        values.update(
+            {
+                key: value
+                for key, value in (self.field_values_data or {}).items()
+                if key not in values
+            }
+        )
+        return values
 
 
 class BadFeedbackAgent(Base):

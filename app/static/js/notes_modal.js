@@ -68,15 +68,12 @@
                 editButton.dataset.reviewId =
                     button.getAttribute('data-edit-id') || id;
                 editButton.dataset.reviewMode = mode;
-                // data-notes-kind="bf" routes the Edit button to the
-                // Bad Feedback editor instead of the review drawer.
+                // Tracker kind routes the Edit button to its shared tracker editor.
                 editButton.dataset.notesKind =
                     button.getAttribute('data-notes-kind') || '';
                 var editLabel = modal.querySelector('.js-notes-edit-label');
                 if (editLabel) {
-                    editLabel.textContent =
-                        editButton.dataset.notesKind === 'bf'
-                            ? 'Edit record' : 'Edit review';
+                    editLabel.textContent = editButton.dataset.notesKind ? 'Edit record' : 'Edit review';
                 }
                 editButton.classList.remove('hidden');
             } else {
@@ -91,9 +88,10 @@
         if (!button || !button.dataset.reviewId) return;
         var openModal = button.closest('.js-notes-modal[open]');
         if (openModal) openModal.close();
-        if (button.dataset.notesKind === 'bf') {
-            if (typeof window.openBadFeedbackEditor === 'function') {
-                window.openBadFeedbackEditor(button.dataset.reviewId);
+        var tracker = button.dataset.notesKind === 'bf' ? 'bad-feedback' : button.dataset.notesKind;
+        if (tracker === 'bad-feedback' || tracker === 'refund-check') {
+            if (typeof window.openTrackerEditor === 'function') {
+                window.openTrackerEditor(tracker, button.dataset.reviewId);
             }
             return;
         }

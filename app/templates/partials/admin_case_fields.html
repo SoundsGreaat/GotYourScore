@@ -1,0 +1,10 @@
+{% import "macros/admin.html" as admin %}
+<div id="admin-case-fields-root" class="space-y-4">
+    {{ admin.page_heading("Case fields", "Manage Bad Feedback and Refund Check fields separately. Archiving keeps the values already saved.") }}
+    <p class="text-sm text-base-content/75">Use “Show in My Reviews” to share a field with people listed on the record. Renaming a field does not change its key.</p>
+    {% for tracker in trackers %}
+        {% with tracker_label=tracker_labels[tracker], tracker_fields=fields[tracker] %}
+            {% include "partials/admin_case_fields_tracker.html" %}
+        {% endwith %}
+    {% endfor %}
+</div>

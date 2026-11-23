@@ -20,7 +20,7 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import (
@@ -30,6 +30,7 @@ from fastapi.responses import (
 )
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import and_, extract, func, or_, select
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
@@ -39,13 +40,22 @@ from app.models import (
     CaseTypeEnum,
     FaultEnum,
     QAAssignment,
+    RefundCheck,
+    RefundCheckAgent,
     Review,
     ReviewStatusEnum,
     RoleEnum,
+    TrackerField,
     User,
     UserRole,
 )
-from app.services import bad_feedback_import, quota_service, reporting_period, scorecard_service
+from app.services import (
+    bad_feedback_import,
+    quota_service,
+    reporting_period,
+    scorecard_service,
+    tracker_fields,
+)
 
 router = APIRouter(tags=["pages"])
 
@@ -70,11 +80,18 @@ def _period_range_label(start: datetime, end_exclusive: datetime) -> str:
     )
 
 
-# Tracker categories (the global QA Score / Bad Feedback selector on the
-# dashboard). Every category-aware partial reads ?cat= and renders the
-# matching flavor; unknown values silently fall back to "qa-score" so a
-# stale bookmark never 500s. Refund Check joins here once it exists.
-CATEGORIES: tuple[str, ...] = ("qa-score", "bad-feedback")
+_CASE_TRACKERS = {
+    "bad-feedback": (BadFeedback, BadFeedbackAgent, "Bad Feedback"),
+    "refund-check": (RefundCheck, RefundCheckAgent, "Refund Check"),
+}
+_CaseRecord = BadFeedback | RefundCheck
+CATEGORIES: tuple[str, ...] = ("qa-score", *_CASE_TRACKERS)
+
+
+class _TrackerContext(TypedDict):
+    tracker: str
+    tracker_label: str
+    tracker_fields: list[TrackerField]
 
 
 def _resolve_category(params) -> str:
@@ -83,17 +100,15 @@ def _resolve_category(params) -> str:
     return cat if cat in CATEGORIES else "qa-score"
 
 
-# Bad Feedback views group by plain CALENDAR month of completed_at (the
-# QA Score views use reporting periods; BF completion dates don't need
-# the 26th→25th split). Pending records are month-less — they stay
-# visible in EVERY month (they are the to-do pile).
+# Case trackers group by calendar month of completed_at, not by QA Score
+# reporting periods. Pending records stay visible in every month.
 _MONTH_NAMES = (
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
 )
 
 
-def _bf_month_value(params) -> str:
+def _tracker_month_value(params) -> str:
     """The selected ?month=YYYY-MM (default: the current month)."""
     value = params.get("month") or ""
     match = re.fullmatch(r"(\d{4})-(\d{2})", value or "")
@@ -103,18 +118,23 @@ def _bf_month_value(params) -> str:
     return value
 
 
-async def _bf_month_options(db: AsyncSession) -> list[dict[str, str]]:
+async def _tracker_month_options(
+    db: AsyncSession,
+    record_model: type[_CaseRecord],
+    *filters: ColumnElement[bool],
+) -> list[dict[str, str]]:
     """Month selector options: every month with completed records (newest
     first) plus the current month, labeled "September 2026"."""
     rows = (
         await db.execute(
             select(
-                extract("year", BadFeedback.completed_at),
-                extract("month", BadFeedback.completed_at),
+                extract("year", record_model.completed_at),
+                extract("month", record_model.completed_at),
             )
             .where(
-                BadFeedback.completed_at.is_not(None),
-                BadFeedback.deleted_at.is_(None),
+                record_model.completed_at.is_not(None),
+                record_model.deleted_at.is_(None),
+                *filters,
             )
             .distinct()
         )
@@ -139,19 +159,29 @@ async def _bf_month_options(db: AsyncSession) -> list[dict[str, str]]:
     ]
 
 
-def _bf_completed_in_month(month_value: str):
-    """SQL condition matching COMPLETED records finished in the month, or
-    None when the value is malformed (no filter at all then)."""
-    match = re.fullmatch(r"(\d{4})-(\d{2})", month_value or "")
-    if not match:
-        return None
-    year, month = int(match.group(1)), int(match.group(2))
-    if not 1 <= month <= 12:
-        return None
-    return and_(
-        extract("year", BadFeedback.completed_at) == year,
-        extract("month", BadFeedback.completed_at) == month,
+def _tracker_month_filter(
+    record_model: type[_CaseRecord], month_value: str, status_filter: str | None = None
+):
+    pending = record_model.status == ReviewStatusEnum.PENDING
+    if status_filter == ReviewStatusEnum.PENDING.value:
+        return pending
+    year, month = map(int, month_value.split("-"))
+    completed = and_(
+        record_model.status == ReviewStatusEnum.COMPLETED,
+        extract("year", record_model.completed_at) == year,
+        extract("month", record_model.completed_at) == month,
     )
+    if status_filter == ReviewStatusEnum.COMPLETED.value:
+        return completed
+    return or_(pending, completed)
+
+
+async def _tracker_context(db: AsyncSession, tracker: str) -> _TrackerContext:
+    return {
+        "tracker": tracker,
+        "tracker_label": _CASE_TRACKERS[tracker][2],
+        "tracker_fields": await tracker_fields.list_fields(db, tracker),
+    }
 
 
 # Reporting-period switcher wire format: the CLOSING month as
@@ -468,14 +498,11 @@ async def _render_reviews_view(
     if scope == "all" and not is_reviewer(auth):
         return _forbidden()
 
-    # Category selector: Bad Feedback flavor replaces the QA-score table
-    # for both scopes ("my" = records I'm listed as an agent on — the
-    # support-facing view; "all" = the full tracker list, reviewer-only
-    # and already guarded above).
-    if _resolve_category(request.query_params) == "bad-feedback":
+    tracker = _resolve_category(request.query_params)
+    if tracker in _CASE_TRACKERS:
         if scope == "all":
-            return await _render_bad_feedback(request, auth, db)
-        return await _render_my_bad_feedback(request, auth, db)
+            return await _render_case_tracker(request, db, tracker)
+        return await _render_my_tracker_records(request, auth, db, tracker)
 
     performed_by_me = auth.has_role(
         RoleEnum.QA, RoleEnum.SUPERVISOR, RoleEnum.ADMIN
@@ -637,84 +664,53 @@ async def _render_reviews_view(
     )
 
 
-async def _render_bad_feedback(
+async def _render_case_tracker(
     request: Request,
-    auth: PageUser,
     db: AsyncSession,
+    tracker: str,
 ) -> Response:
-    """Render the Bad Feedback tracker list (QA Score category's sibling).
-
-    Shared by THREE entries: the legacy /partials/bad-feedback tab, the
-    QA Tracker sidebar link with cat=bad-feedback, and All Reviews'
-    Bad Feedback flavor — same content everywhere: every non-deleted
-    record (newest first) with agent cards, the status filter, the
-    import modal, and the picker contexts for the editor. Reviewer-only
-    (callers guard before invoking).
-    """
+    """Render the same reviewer-only tracker in QA Tracker and All Reviews."""
+    record_model, _, _ = _CASE_TRACKERS[tracker]
     status_filter = request.query_params.get("status")
-    month_value = _bf_month_value(request.query_params)
-    completed_in_month = _bf_completed_in_month(month_value)
+    month_value = _tracker_month_value(request.query_params)
     stmt = (
-        select(BadFeedback)
-        .where(BadFeedback.deleted_at.is_(None))
-        .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
+        select(record_model)
+        .where(
+            record_model.deleted_at.is_(None),
+            _tracker_month_filter(record_model, month_value, status_filter),
+        )
+        .order_by(record_model.created_at.desc(), record_model.id.desc())
         .limit(200)
     )
-    if status_filter == ReviewStatusEnum.PENDING.value:
-        stmt = stmt.where(BadFeedback.status == ReviewStatusEnum.PENDING)
-    elif status_filter == ReviewStatusEnum.COMPLETED.value:
-        # Completed records respect the month selector (completion date).
-        if completed_in_month is not None:
-            stmt = stmt.where(
-                BadFeedback.status == ReviewStatusEnum.COMPLETED,
-                completed_in_month,
-            )
-        else:
-            stmt = stmt.where(BadFeedback.status == ReviewStatusEnum.COMPLETED)
-    elif completed_in_month is not None:
-        # No status filter: every pending record (month-less to-do work)
-        # plus the completed ones finished in the selected month.
-        stmt = stmt.where(
-            or_(
-                BadFeedback.status == ReviewStatusEnum.PENDING,
-                and_(
-                    BadFeedback.status == ReviewStatusEnum.COMPLETED,
-                    completed_in_month,
-                ),
-            )
-        )
-    feedbacks = list((await db.execute(stmt)).scalars().unique().all())
+    records = (await db.execute(stmt)).scalars().unique().all()
     qas = await _qas(db)
     agents = await _frontline_agents(db)
     agent_options = [{"id": user.id, "name": user.nickname} for user in agents]
     qa_options = [{"id": qa.id, "name": qa.nickname} for qa in qas]
 
-    def label(user_id: int | None) -> str | None:
-        return next(
-            (o["name"] for o in qa_options if o["id"] == user_id), None
-        )
-
-    rows = []
-    for fb in feedbacks:
-        rows.append(
-            {
-                "record": fb,
-                "assigned_qa_name": label(fb.assigned_qa_id),
-                "qa_name": label(fb.qa_id),
-            }
-        )
+    qa_names = {qa.id: qa.nickname for qa in qas}
+    rows = [
+        {
+            "record": record,
+            "assigned_qa_name": qa_names.get(record.assigned_qa_id),
+            "qa_name": qa_names.get(record.qa_id),
+        }
+        for record in records
+    ]
+    context = await _tracker_context(db, tracker)
 
     return templates.TemplateResponse(
         request=request,
         name="partials/bad_feedback.html",
         context={
+            **context,
             "rows": rows,
             "status_filter": status_filter,
             "month_value": month_value,
-            "month_options": await _bf_month_options(db),
+            "month_options": await _tracker_month_options(db, record_model),
             "qa_options": qa_options,
             "agent_options": agent_options,
-            "field_labels": bad_feedback_import.FIELD_LABELS,
+            "field_labels": bad_feedback_import.import_field_labels(context["tracker_fields"]),
             "fault_values": [
                 {"value": f.value, "label": f.value} for f in FaultEnum
             ],
@@ -722,63 +718,43 @@ async def _render_bad_feedback(
     )
 
 
-async def _render_my_bad_feedback(
+async def _render_my_tracker_records(
     request: Request,
     auth: PageUser,
     db: AsyncSession,
+    tracker: str,
 ) -> Response:
-    """Render the personal Bad Feedback view (My Reviews' BF flavor).
-
-    Shows BOTH directions like the QA-score flavor does: records where
-    the CALLER is listed as an agent (feedback ABOUT them — the
-    support-facing view) and records the caller COMPLETED as the QA
-    (feedback authored BY them). Deliberately READ-ONLY: editing stays
-    a QA+ action in the tracker list. The month selector groups by
-    completion date (pending records always stay visible); Support-only
-    users reach this through My Reviews, no reviewer gate.
-    """
-    redirect = _htmx_redirect_if_needed(auth, request)
-    if redirect is not None:
-        return redirect
-
-    month_value = _bf_month_value(request.query_params)
-    completed_in_month = _bf_completed_in_month(month_value)
+    """Read-only view for listed frontline agents and the finishing QA."""
+    record_model, agent_model, _ = _CASE_TRACKERS[tracker]
+    month_value = _tracker_month_value(request.query_params)
+    visibility = or_(
+        record_model.qa_id == auth.id,
+        record_model.agents.any(agent_model.user_id == auth.id),
+    )
     stmt = (
-        select(BadFeedback)
-        .outerjoin(
-            BadFeedbackAgent,
-            BadFeedbackAgent.feedback_id == BadFeedback.id,
-        )
+        select(record_model)
         .where(
-            or_(
-                BadFeedback.qa_id == auth.id,
-                BadFeedbackAgent.user_id == auth.id,
-            ),
-            BadFeedback.deleted_at.is_(None),
+            visibility,
+            record_model.deleted_at.is_(None),
+            _tracker_month_filter(record_model, month_value),
         )
-        .order_by(BadFeedback.created_at.desc(), BadFeedback.id.desc())
+        .order_by(record_model.created_at.desc(), record_model.id.desc())
         .limit(200)
     )
-    if completed_in_month is not None:
-        stmt = stmt.where(
-            or_(
-                BadFeedback.status == ReviewStatusEnum.PENDING,
-                and_(
-                    BadFeedback.status == ReviewStatusEnum.COMPLETED,
-                    completed_in_month,
-                ),
-            )
-        )
     records = list((await db.execute(stmt)).scalars().unique().all())
+    context = await _tracker_context(db, tracker)
+    personal_fields = [
+        field for field in context["tracker_fields"] if field.show_in_my_reviews
+    ]
 
     rows = [
         {
             "record": fb,
             "entries": [
                 {
+                    "id": a.id,
                     "kind": a.kind,
                     "fault": a.fault,
-                    "user_id": a.user_id,
                     "qa_comment": a.qa_comment,
                 }
                 for a in fb.agents
@@ -792,9 +768,11 @@ async def _render_my_bad_feedback(
         request=request,
         name="partials/my_bad_feedback.html",
         context={
+            **context,
+            "tracker_fields": personal_fields,
             "rows": rows,
             "month_value": month_value,
-            "month_options": await _bf_month_options(db),
+            "month_options": await _tracker_month_options(db, record_model, visibility),
         },
     )
 
@@ -824,8 +802,7 @@ async def partial_to_review(
     (``qa_id`` first, ``created_by`` fallback).
 
     ``?cat=`` (the global tracker selector) scopes the queue to ONE
-    category: "qa-score" lists only delegated QA-score reviews,
-    "bad-feedback" only Bad Feedback handoffs (default "qa-score").
+    category: delegated QA Score reviews (default), Bad Feedback, or Refund Check.
     """
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
@@ -861,34 +838,24 @@ async def partial_to_review(
             ).scalars().all()
         )
 
-    # Bad Feedback pending rows join the same queue semantics: assigned
-    # to the caller, or sitting unassigned for any QA to grab. Only
-    # queried on the bad-feedback flavor of the queue.
-    bf_open_filters = (
-        BadFeedback.status == ReviewStatusEnum.PENDING,
-        BadFeedback.deleted_at.is_(None),
-    )
-    bf_assigned: list[BadFeedback] = []
-    bf_shared: list[BadFeedback] = []
-    if cat == "bad-feedback":
-        bf_assigned = list(
-            (
-                await db.execute(
-                    select(BadFeedback)
-                    .where(BadFeedback.assigned_qa_id == auth.id, *bf_open_filters)
-                    .order_by(BadFeedback.created_at.desc())
-                )
-            ).scalars().unique().all()
+    tracker_records: list[_CaseRecord] = []
+    tracker_context: dict[str, object] = {}
+    if cat in _CASE_TRACKERS:
+        record_model, _, _ = _CASE_TRACKERS[cat]
+        result = await db.execute(
+            select(record_model)
+            .where(
+                record_model.status == ReviewStatusEnum.PENDING,
+                record_model.deleted_at.is_(None),
+                or_(
+                    record_model.assigned_qa_id == auth.id,
+                    record_model.assigned_qa_id.is_(None),
+                ),
+            )
+            .order_by(record_model.created_at.desc(), record_model.id.desc())
         )
-        bf_shared = list(
-            (
-                await db.execute(
-                    select(BadFeedback)
-                    .where(BadFeedback.assigned_qa_id.is_(None), *bf_open_filters)
-                    .order_by(BadFeedback.created_at.desc())
-                )
-            ).scalars().unique().all()
-        )
+        tracker_records = list(result.scalars().unique().all())
+        tracker_context = {**await _tracker_context(db, cat)}
 
     reviews = assigned_reviews + shared_reviews
     nicknames = await _nickname_map(
@@ -903,9 +870,7 @@ async def partial_to_review(
                 review.assigned_qa_id,
             )
         }
-        # Bad Feedback assignees ride the same map: the to-review BF
-        # queue shows an Assigned QA badge like the QA Score one.
-        | {fb.assigned_qa_id for fb in bf_assigned + bf_shared},
+        | {record.assigned_qa_id for record in tracker_records},
     )
 
     def _row(review: Review, unassigned: bool) -> dict[str, object]:
@@ -930,42 +895,37 @@ async def partial_to_review(
         _row(review, True) for review in shared_reviews
     ]
 
-    # Bad Feedback rows carry their own agent cards; labels resolve via
-    # the eager-joined user relationship (name, falling back to the
-    # email-localpart nickname).
-    def _bf_label(user: User | None) -> str:
+    def agent_label(user: User | None) -> str:
         if user is None:
             return "Unknown"
         return user.name or user.nickname
 
-    def _bf_row(fb: BadFeedback, unassigned: bool) -> dict[str, object]:
+    def tracker_row(fb: _CaseRecord) -> dict[str, object]:
         return {
             "id": fb.id,
-            "fb": fb,
-            "created_at": fb.created_at,
+            "record": fb,
             "agents": [
                 {
-                    "label": _bf_label(a.user),
+                    "id": a.id,
+                    "label": agent_label(a.user),
                     "kind": a.kind.value,
-                    "user_id": a.user_id,
                     "qa_comment": a.qa_comment,
                 }
                 for a in fb.agents
             ],
-            "source": fb.source,
-            "related_case": fb.related_case,
             "assigned_qa_name": nicknames.get(fb.assigned_qa_id),
-            "unassigned": unassigned,
+            "unassigned": fb.assigned_qa_id is None,
         }
-
-    bf_rows = [_bf_row(fb, False) for fb in bf_assigned] + [
-        _bf_row(fb, True) for fb in bf_shared
-    ]
 
     return templates.TemplateResponse(
         request=request,
         name="partials/to_review.html",
-        context={"rows": rows, "bf_rows": bf_rows, "cat": cat},
+        context={
+            **tracker_context,
+            "rows": rows,
+            "bf_rows": [tracker_row(record) for record in tracker_records],
+            "cat": cat,
+        },
     )
 
 
@@ -1169,11 +1129,9 @@ async def partial_qa_matrix(
     if not is_reviewer(auth):
         return _forbidden()
 
-    # Category selector: cat=bad-feedback turns the QA Tracker view
-    # into the Bad Feedback tracker list (same content as the legacy
-    # bad-feedback endpoint).
-    if _resolve_category(request.query_params) == "bad-feedback":
-        return await _render_bad_feedback(request, auth, db)
+    tracker = _resolve_category(request.query_params)
+    if tracker in _CASE_TRACKERS:
+        return await _render_case_tracker(request, db, tracker)
 
     period_start, period_end, closing_year, closing_month, period_value = (
         _resolve_period(request.query_params)
@@ -1401,6 +1359,11 @@ async def partial_review_drawer(
 
 
 @router.get(
+    "/partials/refund-check-editor",
+    name="partial_refund_check_editor",
+    include_in_schema=False,
+)
+@router.get(
     "/partials/bad-feedback-editor",
     name="partial_bad_feedback_editor",
     summary="Bad Feedback editor partial",
@@ -1412,13 +1375,13 @@ async def partial_bad_feedback_editor(
     db: Annotated[AsyncSession, Depends(get_db)],
     id: int | None = Query(None),
 ) -> Response:
-    """Render the Bad Feedback editor modal (HTMX partial, on demand).
+    """Render the shared tracker editor modal on demand.
 
     Mounted into #bf-editor-container by JS when any Pending chip /
     edit pencil is clicked — the same drawer pattern as the review
     drawer, so the editor opens from ANY view (the list tab, To-review).
     Reviewer-only. Without ``id`` it mounts in CREATE mode (the navbar
-    New Review button on the Bad Feedback category): same fields, the
+    New Review button on a tracker category): same fields, the
     record itself is fetched client-side by the partial's script
     (data-bf-open) only in edit mode.
     """
@@ -1428,11 +1391,20 @@ async def partial_bad_feedback_editor(
     if not is_reviewer(auth):
         return _forbidden()
 
+    tracker = (
+        "refund-check" if request.url.path.endswith("/refund-check-editor") else "bad-feedback"
+    )
     agents = await _frontline_agents(db)
+    context = await _tracker_context(db, tracker)
     return templates.TemplateResponse(
         request=request,
         name="partials/bad_feedback_editor.html",
         context={
+            **context,
+            "field_value_limits": {
+                field.key: tracker_fields.field_value_limit(field.key)
+                for field in context["tracker_fields"]
+            },
             "bf_id": id,
             "agent_options": [
                 {"id": user.id, "name": user.nickname} for user in agents
@@ -1489,7 +1461,7 @@ async def partial_case_rules(
 
 
 async def _frontline_agents(db: AsyncSession) -> list[User]:
-    """Active users holding SUPPORT or SALES (Bad Feedback targets)."""
+    """Active users holding SUPPORT or SALES (case tracker targets)."""
     result = await db.execute(
         select(User)
         .join(UserRole, User.id == UserRole.user_id)
@@ -1503,6 +1475,11 @@ async def _frontline_agents(db: AsyncSession) -> list[User]:
 
 
 @router.get(
+    "/partials/refund-check",
+    name="partial_refund_check",
+    include_in_schema=False,
+)
+@router.get(
     "/partials/bad-feedback",
     name="partial_bad_feedback",
     summary="Bad Feedback partial",
@@ -1513,17 +1490,12 @@ async def partial_bad_feedback(
     auth: PageUser,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> Response:
-    """Render the 'Bad Feedback' tracker tab (HTMX partial).
-
-    Reviewer-only like the other aggregate views. Kept as its own
-    endpoint because the list partial self-refetches and the dashboard
-    hash-restore targets it directly; the rendering is shared with the
-    qa-matrix / all-reviews category flavors (see _render_bad_feedback).
-    """
+    """Render a tracker directly for dashboard swaps and self-refetches."""
     redirect = _htmx_redirect_if_needed(auth, request)
     if redirect is not None:
         return redirect
     if not is_reviewer(auth):
         return _forbidden()
 
-    return await _render_bad_feedback(request, auth, db)
+    tracker = "refund-check" if request.url.path.endswith("/refund-check") else "bad-feedback"
+    return await _render_case_tracker(request, db, tracker)

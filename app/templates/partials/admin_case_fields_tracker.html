@@ -1,0 +1,148 @@
+{% import "macros/admin.html" as admin %}
+{% import "macros/dropdowns.html" as dd %}
+{% import "macros/icons.html" as icons %}
+{% set scope = 'case-fields-' ~ tracker %}
+{% set url = '/admin/case-fields/' ~ tracker %}
+{% set types = [
+    {'value': 'text', 'label': 'Text'},
+    {'value': 'textarea', 'label': 'Long text'},
+    {'value': 'date', 'label': 'Date'}
+] %}
+{% set type_labels = {'text': 'Text', 'textarea': 'Long text', 'date': 'Date'} %}
+
+{% macro field_inputs(prefix, field=none) %}
+    <div class="grid gap-3 sm:grid-cols-2">
+        <div class="grid min-w-0 gap-1">
+            <label for="{{ prefix }}-label" class="text-sm font-medium">Label</label>
+            <input id="{{ prefix }}-label" name="label" type="text"
+                   maxlength="{{ max_field_label_length }}" value="{{ field.label if field else '' }}"
+                   class="input gys-admin-field w-full" required>
+        </div>
+        <div class="grid min-w-0 gap-1">
+            <label for="{{ prefix }}-type-button" class="text-sm font-medium">Type</label>
+            {{ dd.dropdown(prefix ~ '-type',
+                items=types[-1:] if field and field.key == tracker_fields.date_key else types,
+                selected=field.field_type if field else 'text',
+                btn_cls='select gys-admin-field flex w-full items-center',
+                aria_label='Type', hidden_attrs='name="field_type"') }}
+        </div>
+    </div>
+    <label class="gys-admin-check flex min-h-8 items-center gap-2 text-sm" for="{{ prefix }}-personal">
+        <input id="{{ prefix }}-personal" class="checkbox checkbox-sm checkbox-primary"
+               name="show_in_my_reviews" type="checkbox" value="true"
+               {% if field and field.show_in_my_reviews %}checked{% endif %}>
+        <span>Show in My Reviews</span>
+    </label>
+{% endmacro %}
+
+<section id="{{ scope }}" data-case-field-tracker
+         {% if saved %}data-case-field-saved="{{ saved }}"{% endif %}
+         {% if changed_field_id %}data-case-field-changed="{{ changed_field_id }}"{% endif %}
+         hx-sync:inherited="#{{ scope }}:drop"
+         class="gys-admin-surface min-w-0" aria-labelledby="{{ scope }}-title">
+    <header class="border-b border-base-300 p-4">
+        <div class="flex flex-wrap items-center gap-2">
+            <h3 id="{{ scope }}-title" class="text-base font-semibold">{{ tracker_label }}</h3>
+            <span class="badge badge-ghost badge-sm">{{ tracker_fields.active|length }} active</span>
+        </div>
+        <p class="mt-1 text-sm text-base-content/75">Drag a handle or use the arrows to reorder the fields.</p>
+    </header>
+    <div class="space-y-3 p-3 sm:p-4" data-case-field-content>
+        <details id="{{ scope }}-add" class="gys-admin-disclosure rounded-field bg-base-200">
+            <summary id="{{ scope }}-add-summary" data-case-default-focus
+                     class="flex items-center justify-between gap-3 rounded-field px-3 py-2 text-sm font-semibold">
+                Add field
+                {{ admin.chevron() }}
+            </summary>
+            <form method="post" action="{{ url }}/create" hx-post="{{ url }}/create"
+                  hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="create"
+                  aria-label="Add {{ tracker_label }} field" class="space-y-3 border-t border-base-300 p-3">
+                {{ field_inputs(scope ~ '-new') }}
+                <button type="submit" id="{{ scope }}-add-submit" class="btn btn-primary btn-sm">Add field</button>
+            </form>
+        </details>
+
+        <p id="{{ scope }}-move-status" data-admin-move-status role="status" class="sr-only"></p>
+        <ul id="{{ scope }}-list" data-case-field-list data-reorder-url="{{ url }}/reorder"
+            aria-label="{{ tracker_label }} active fields" class="divide-y divide-base-300">
+            {% for field in tracker_fields.active %}
+            {% set key = scope ~ '-' ~ field.id %}
+            <li id="{{ key }}-row" data-row data-case-field-row data-case-field-id="{{ field.id }}" class="relative py-2">
+                <div class="absolute start-0 top-2 z-10 flex h-12 items-center">
+                    {{ admin.sort_grip('rule') }}
+                </div>
+                <details id="{{ key }}-details" class="group gys-admin-disclosure min-w-0">
+                    <summary id="{{ key }}-summary" data-case-row-focus
+                             aria-labelledby="{{ key }}-action {{ key }}-name"
+                             class="relative flex min-h-12 items-start justify-between gap-2 rounded-field py-1.5 ps-10 pe-15 pointer-coarse:ps-14 pointer-coarse:pe-27 max-[26rem]:pointer-coarse:px-3 max-[26rem]:pointer-coarse:pt-12 sm:items-center">
+                        <span id="{{ key }}-action" class="sr-only">Edit</span>
+                        <span class="grid min-w-0 grow items-center justify-items-start gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto] max-[26rem]:pointer-coarse:grid-cols-[minmax(0,1fr)_auto]">
+                            <span class="min-w-0">
+                                <span id="{{ key }}-name" data-case-field-name class="block wrap-anywhere text-sm font-semibold">{{ field.label }}</span>
+                                <code class="block wrap-anywhere text-xs text-base-content/75">{{ field.key }}</code>
+                            </span>
+                            <span class="badge badge-ghost badge-sm max-w-full">{{ type_labels[field.field_type] }}</span>
+                        </span>
+                        <span class="flex min-h-9 shrink-0 items-center gap-1.5 border-s border-base-300 ps-2 text-xs font-medium text-base-content/75 sm:min-w-16 max-[26rem]:pointer-coarse:absolute max-[26rem]:pointer-coarse:end-27 max-[26rem]:pointer-coarse:top-1.5 max-[26rem]:pointer-coarse:min-w-16" aria-hidden="true">
+                            <span class="group-open:hidden">{{ icons.edit() }}</span>
+                            <span class="hidden sm:inline max-[26rem]:pointer-coarse:inline group-open:hidden">Edit</span>
+                            <span class="hidden group-open:inline">{{ icons.x() }}</span>
+                            <span class="hidden sm:group-open:inline max-[26rem]:pointer-coarse:group-open:inline">Close</span>
+                        </span>
+                    </summary>
+                    <form method="post" action="{{ url }}/{{ field.id }}/update" hx-post="{{ url }}/{{ field.id }}/update"
+                          hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="update"
+                          aria-labelledby="{{ key }}-action {{ key }}-name"
+                          class="mt-1 space-y-3 rounded-field bg-base-200 p-3">
+                        {{ field_inputs(key, field) }}
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <button type="submit" id="{{ key }}-save" class="btn gys-btn-secondary btn-sm">Save changes</button>
+                            <button type="submit" form="{{ key }}-archive" id="{{ key }}-archive-submit"
+                                    class="btn btn-outline btn-error btn-sm"
+                                    aria-label="Archive {{ field.label }}">Archive</button>
+                        </div>
+                    </form>
+                    <form id="{{ key }}-archive" method="post" action="{{ url }}/{{ field.id }}/archive"
+                          hx-post="{{ url }}/{{ field.id }}/archive" hx-target="#{{ scope }}" hx-swap="outerMorph"
+                          data-case-field-action="archive"></form>
+                </details>
+                <div class="absolute end-0 top-2 z-10 flex h-12 items-center"
+                     role="group" aria-label="Reorder {{ field.label }}">
+                    {{ admin.move_controls(field.label) }}
+                </div>
+            </li>
+            {% endfor %}
+        </ul>
+        {% if not tracker_fields.active %}
+        <p class="p-4 text-center text-sm text-base-content/75">No active fields.</p>
+        {% endif %}
+
+        {% set archived = tracker_fields.archived %}
+        <details id="{{ scope }}-archive" class="gys-admin-disclosure rounded-field bg-base-200">
+            <summary id="{{ scope }}-archive-summary" class="flex items-center justify-between gap-3 rounded-field px-3 py-2 text-sm font-semibold">
+                <span class="flex items-center gap-2">Archived fields <span class="badge badge-ghost badge-sm">{{ archived|length }}</span></span>
+                {{ admin.chevron() }}
+            </summary>
+            {% if archived %}
+            <ul id="{{ scope }}-archived-list" class="divide-y divide-base-300 border-t border-base-300 px-3">
+                {% for field in archived %}
+                {% set key = scope ~ '-' ~ field.id %}
+                <li id="{{ key }}-archived" data-case-field-row class="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <div class="min-w-0">
+                        <span class="block wrap-anywhere text-sm font-semibold">{{ field.label }}</span>
+                        <code class="block wrap-anywhere text-xs text-base-content/75">{{ field.key }}</code>
+                    </div>
+                    <form method="post" action="{{ url }}/{{ field.id }}/restore" hx-post="{{ url }}/{{ field.id }}/restore"
+                          hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="restore">
+                        <button type="submit" id="{{ key }}-restore" data-case-row-focus class="btn gys-btn-secondary btn-sm"
+                                aria-label="Restore {{ field.label }}">Restore</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="border-t border-base-300 p-3 text-sm text-base-content/75">No archived fields.</p>
+            {% endif %}
+        </details>
+    </div>
+</section>

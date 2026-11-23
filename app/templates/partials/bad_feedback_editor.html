@@ -13,13 +13,20 @@
     Single instance: the script tears down any previous mount before
     initializing; closing the dialog removes the whole partial root. -#}
 {% import "macros/dropdowns.html" as dd %}
-<div class="js-bf-editor-root" data-bf-open="{{ bf_id or '' }}">
+{% set tracker = tracker or 'bad-feedback' %}
+{% set tracker_label = tracker_label or 'Bad Feedback' %}
+{% set tracker_fields_json = [] %}
+{% for field in tracker_fields %}
+    {% set _ = tracker_fields_json.append({'key': field.key, 'label': field.label, 'field_type': field.field_type, 'max_length': field_value_limits[field.key]}) %}
+{% endfor %}
+<div class="js-bf-editor-root" data-bf-open="{{ bf_id or '' }}" data-tracker="{{ tracker }}">
     <template class="js-bf-dropdown-template">{{ dd.dropdown('bf-card-picker') }}</template>
-    <dialog class="modal js-bf-edit-modal">
+    <dialog class="modal js-bf-edit-modal" aria-labelledby="tracker-editor-title">
         <div class="modal-box max-w-2xl">
-            <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">&times;</button></form>
-            <h3 class="js-bf-edit-title mb-4 text-lg font-bold">Edit Bad Feedback</h3>
-            <div class="js-bf-edit-body"><!-- filled by JS --></div>
+            <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2" aria-label="Close editor">&times;</button></form>
+            <h3 id="tracker-editor-title" class="js-bf-edit-title mb-4 text-lg font-bold">{{ 'Edit' if bf_id else 'New' }} {{ tracker_label }}</h3>
+            <form class="js-bf-edit-body" method="post" action="/api/{{ tracker }}"
+                  aria-labelledby="tracker-editor-title"><!-- filled by JS --></form>
         </div>
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
@@ -27,25 +34,27 @@
 
 <script>
 (function () {
-    var root = document.querySelector('.js-bf-editor-root');
+    var root = document.querySelector('.js-bf-editor-root[data-tracker="{{ tracker }}"]');
     if (!root) return;
 
     // Single instance: kill the previous mount's listeners first.
-    if (typeof window._bfEditorDispose === 'function') {
-        try { window._bfEditorDispose(); } catch (error) { /* best effort */ }
+    if (typeof window._trackerEditorDispose === 'function') {
+        try { window._trackerEditorDispose(); } catch (error) { /* best effort */ }
     }
-    window._bfEditorDispose = null;
+    window._trackerEditorDispose = null;
 
     var editModal = root.querySelector('.js-bf-edit-modal');
     var section = root;
     var showToast = window.gysToast;
+    var disposed = false;
+    var submitting = false;
 
     var agentOptions = {{ agent_options | tojson }};
     var faultValues = {{ fault_values | tojson }};
-
-    function esc(s) {
-        return window.escapeHtml ? window.escapeHtml(s) : String(s == null ? '' : s);
-    }
+    var tracker = {{ tracker | tojson }};
+    var trackerLabel = {{ tracker_label | tojson }};
+    var trackerFields = {{ tracker_fields_json | tojson }};
+    var eventName = tracker === 'bad-feedback' ? 'bad-feedback-changed' : 'refund-check-changed';
 
     // Agent cards are JS-only, but use the same picker markup as server-rendered forms.
     var DD_SEQ = 0;
@@ -210,25 +219,55 @@
        callers. Returns the body node. */
     function buildBody(values) {
         var body = section.querySelector('.js-bf-edit-body');
-        body.innerHTML =
-            '<div class="grid grid-cols-1 gap-3 sm:grid-cols-2">' +
-            '<label class="flex flex-col gap-1 text-sm"><span>Date</span><input type="date" id="bf-edit-date" class="input input-sm w-full" value="' + esc(values.fb_date) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm"><span>Source</span><input type="text" id="bf-edit-source" class="input input-sm w-full" value="' + esc(values.source) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer info</span><input type="text" id="bf-edit-customer" class="input input-sm w-full" value="' + esc(values.customer_info) + '"/></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Customer feedback</span><textarea id="bf-edit-feedback" class="textarea textarea-sm w-full">' + esc(values.customer_feedback) + '</textarea></label>' +
-            '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm w-full" value="' + esc(values.related_case) + '"/></label>' +
-            '</div>' +
-            '<p class="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-base-content/60">Agents — Fault & comment per agent</p>' +
-            '<div class="js-bf-agents flow-root"></div>' +
-            '<button type="button" class="btn btn-ghost btn-sm js-bf-agent-add">+ Add agent</button>';
+        body.replaceChildren();
+        var grid = document.createElement('div');
+        grid.className = 'grid grid-cols-1 gap-3 sm:grid-cols-2';
+        var fieldValues = values.field_values || {};
+        trackerFields.forEach(function (field, index) {
+            var id = tracker + '-field-' + index;
+            var label = document.createElement('label');
+            label.className = 'flex flex-col gap-1 text-sm';
+            if (field.field_type === 'textarea' || field.key === 'customer_info' || field.key === 'related_case') {
+                label.classList.add('sm:col-span-2');
+            }
+            label.htmlFor = id;
+            label.textContent = field.label;
+            var control = document.createElement(field.field_type === 'textarea' ? 'textarea' : 'input');
+            control.id = id;
+            control.name = 'field_values[' + field.key + ']';
+            control.dataset.fieldKey = field.key;
+            control.className = (field.field_type === 'textarea' ? 'textarea' : 'input') + ' input-sm w-full';
+            if (field.field_type !== 'textarea') control.type = field.field_type === 'date' ? 'date' : 'text';
+            if (field.field_type !== 'date') {
+                control.maxLength = field.max_length;
+            }
+            var value = fieldValues[field.key];
+            control.value = value == null ? '' : String(value);
+            control.dataset.initialValue = control.value;
+            label.appendChild(control);
+            grid.appendChild(label);
+        });
+        body.appendChild(grid);
+        var agentHeading = document.createElement('p');
+        agentHeading.className = 'mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-base-content/60';
+        agentHeading.textContent = 'Agents — Fault & comment per agent';
+        body.appendChild(agentHeading);
+        var agents = document.createElement('div');
+        agents.className = 'js-bf-agents flow-root';
+        body.appendChild(agents);
+        var addAgent = document.createElement('button');
+        addAgent.type = 'button';
+        addAgent.className = 'btn btn-ghost btn-sm js-bf-agent-add';
+        addAgent.textContent = '+ Add agent';
+        body.appendChild(addAgent);
 
         // agentCard() returns a DOM node — append, don't stringify.
-        var agentsHost = body.querySelector('.js-bf-agents');
+        var agentsHost = agents;
         (values.agents || []).forEach(function (agent) {
             agentsHost.appendChild(agentCard(agent));
         });
 
-        body.querySelector('.js-bf-agent-add').addEventListener('click', function () {
+        addAgent.addEventListener('click', function () {
             window.gysResizePanel(agentsHost, function () {
                 agentsHost.appendChild(agentCard(null));
             });
@@ -247,16 +286,19 @@
     }
 
     function renderEdit(fb) {
-        section.querySelector('.js-bf-edit-title').textContent = 'Edit Bad Feedback';
+        section.querySelector('.js-bf-edit-title').textContent = 'Edit ' + trackerLabel;
         var body = buildBody(fb);
         var footer = renderFooter(body,
             fb.status === 'pending'
                 ? '<button type="button" class="btn btn-success btn-sm js-bf-complete">Mark completed</button>'
                 : '<span class="badge badge-soft badge-success badge-sm">Completed</span>',
             '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
-            '<button type="button" class="btn btn-primary btn-sm js-bf-save">Save</button>');
+            '<button type="submit" class="btn btn-primary btn-sm js-bf-save">Save</button>');
         footer.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
-        footer.querySelector('.js-bf-save').addEventListener('click', function () { saveEdit(fb.id); });
+        body.addEventListener('submit', function (event) {
+            event.preventDefault();
+            saveEdit(fb.id);
+        });
         var completeBtn = footer.querySelector('.js-bf-complete');
         if (completeBtn) completeBtn.addEventListener('click', function () { completeEdit(fb.id); });
     }
@@ -265,82 +307,96 @@
        the record as Pending (joins the to-review queue), "Save" creates
        it completed in one request (POST ?complete flag). */
     function renderCreator() {
-        section.querySelector('.js-bf-edit-title').textContent = 'New Bad Feedback';
+        section.querySelector('.js-bf-edit-title').textContent = 'New ' + trackerLabel;
         var body = buildBody({ agents: [] });
         var footer = renderFooter(body, '',
             '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
             '<button type="button" class="btn btn-outline btn-sm js-bf-save-later">Save For Later</button>' +
-            '<button type="button" class="btn btn-primary btn-sm js-bf-save">Save</button>');
+            '<button type="submit" class="btn btn-primary btn-sm js-bf-save">Save</button>');
         footer.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
-        footer.querySelector('.js-bf-save-later').addEventListener('click', function () { createFeedback(false); });
-        footer.querySelector('.js-bf-save').addEventListener('click', function () { createFeedback(true); });
+        footer.querySelector('.js-bf-save-later').addEventListener('click', function () {
+            if (body.reportValidity()) createFeedback(false);
+        });
+        body.addEventListener('submit', function (event) {
+            event.preventDefault();
+            createFeedback(true);
+        });
     }
 
     function readForm() {
-        return {
-            fb_date: document.getElementById('bf-edit-date').value || null,
-            source: document.getElementById('bf-edit-source').value || null,
-            customer_info: document.getElementById('bf-edit-customer').value || null,
-            customer_feedback: document.getElementById('bf-edit-feedback').value || null,
-            related_case: document.getElementById('bf-edit-case').value || null
-        };
+        var fieldValues = {};
+        section.querySelectorAll('[data-field-key]').forEach(function (control) {
+            if (control.value !== control.dataset.initialValue) {
+                fieldValues[control.dataset.fieldKey] = control.value || null;
+            }
+        });
+        return {field_values: fieldValues};
+    }
+
+    async function submitMutation(url, options, message, fallback) {
+        if (submitting || disposed) return;
+        submitting = true;
+        var buttons = section.querySelectorAll('.js-bf-save, .js-bf-save-later, .js-bf-complete');
+        buttons.forEach(function (button) { button.disabled = true; });
+        try {
+            var response = await fetch(url, options);
+            if (!response.ok) {
+                var error = await response.json();
+                throw new Error(typeof error.detail === 'string' ? error.detail : fallback);
+            }
+            if (root.isConnected && !disposed) {
+                showToast(message, 'alert-success');
+                editModal.close();
+            }
+            document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
+        } catch (error) {
+            if (root.isConnected && !disposed) showToast(error.message || fallback);
+        } finally {
+            submitting = false;
+            buttons.forEach(function (button) { button.disabled = false; });
+        }
     }
 
     function saveEdit(id) {
         var agents = collectAgents();
         if (agents === null) return;
         var payload = Object.assign(readForm(), { agents: agents });
-        fetch('/api/bad-feedback/' + id, {
+        submitMutation('/api/' + tracker + '/' + id, {
             method: 'PATCH', credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        })
-            .then(function (response) {
-                if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
-                showToast('Saved.', 'alert-success');
-                editModal.close();
-                document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
-            })
-            .catch(function (error) { showToast(error.message || 'Unable to save.'); });
+        }, 'Saved.', 'Unable to save.');
     }
 
     function createFeedback(complete) {
         var agents = collectAgents();
         if (agents === null) return;
         var payload = Object.assign(readForm(), { agents: agents, complete: complete });
-        fetch('/api/bad-feedback', {
+        submitMutation('/api/' + tracker, {
             method: 'POST', credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        })
-            .then(function (response) {
-                if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Save failed'); });
-                showToast(complete ? 'Saved.' : 'Saved for later.', 'alert-success');
-                editModal.close();
-                document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
-            })
-            .catch(function (error) { showToast(error.message || 'Unable to save.'); });
+        }, complete ? 'Saved.' : 'Saved for later.', 'Unable to save.');
     }
 
     function completeEdit(id) {
-        fetch('/api/bad-feedback/' + id + '/complete', {method: 'POST', credentials: 'same-origin'})
-            .then(function (response) {
-                if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Complete failed'); });
-                showToast('Marked completed.', 'alert-success');
-                editModal.close();
-                document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
-            })
-            .catch(function (error) { showToast(error.message || 'Unable to complete.'); });
+        submitMutation('/api/' + tracker + '/' + id + '/complete', {
+            method: 'POST', credentials: 'same-origin',
+        }, 'Marked completed.', 'Unable to complete.');
     }
 
     function openFor(id) {
-        fetch('/api/bad-feedback/' + id, {credentials: 'same-origin'})
+        fetch('/api/' + tracker + '/' + id, {credentials: 'same-origin'})
             .then(function (response) {
                 if (!response.ok) throw new Error('Load failed');
                 return response.json();
             })
-            .then(function (fb) { renderEdit(fb); editModal.showModal(); })
-            .catch(function () { showToast('Unable to load the record.'); });
+            .then(function (fb) {
+                if (disposed || !root.isConnected) return;
+                renderEdit(fb);
+                if (!editModal.open) editModal.showModal();
+            })
+            .catch(function () { if (root.isConnected) showToast('Unable to load the record.'); });
     }
 
     // Closing (any means) unmounts the whole partial — clean slate for
@@ -357,7 +413,8 @@
         });
     }
     function onClose() {
-        window._bfEditorDispose = null;
+        disposed = true;
+        window._trackerEditorDispose = null;
         destroyEditors();
         var reduced = window.matchMedia
             && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -375,7 +432,8 @@
     }
     editModal.addEventListener('close', onClose);
 
-    window._bfEditorDispose = function () {
+    window._trackerEditorDispose = function () {
+        disposed = true;
         editModal.removeEventListener('close', onClose);
         destroyEditors();
         if (editModal.open) editModal.close();
