@@ -82,6 +82,30 @@ class ApplicationTests(unittest.TestCase):
         self.client.portal.call(soft_delete)
         self.assert_status(self.client.get("/auth/me", headers=headers), 401)
 
+    def test_admin_can_edit_own_other_roles_without_losing_admin(self):
+        user = self.client.portal.call(create_user, RoleEnum.ADMIN, RoleEnum.SUPPORT)
+        headers = {**self.session(user), "HX-Request": "true"}
+        url = f"/admin/users/{user.id}/roles"
+        partial = self.assert_status(self.client.get("/admin/partials/users", headers=headers), 200)
+        self.assertRegex(partial.text, r'value="Admin"[^>]*\bchecked\s+disabled\b')
+
+        page = self.assert_status(
+            self.client.post(url, data={"roles": ["QA", "Support"]}, headers=headers), 200
+        )
+        self.assertIn("Roles updated", page.text)
+        me = self.assert_status(self.client.get("/auth/me", headers=headers), 200).json()
+        self.assertCountEqual(me["roles"], ["Admin", "QA", "Support"])
+
+        # Unchecking all editable roles sends no roles at all.
+        self.assert_status(self.client.post(url, headers=headers), 200)
+        me = self.assert_status(self.client.get("/auth/me", headers=headers), 200).json()
+        self.assertEqual(me["roles"], ["Admin"])
+
+        self.assert_status(self.client.post(url, data={"roles": "Unknown"}, headers=headers), 400)
+        self.assert_status(
+            self.client.post(f"/admin/users/{self.support.id}/roles", headers=headers), 400
+        )
+
     def test_review_delegation_completion_and_quota(self):
         async def scorecard():
             async with async_session_factory() as db:

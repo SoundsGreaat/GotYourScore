@@ -7,10 +7,10 @@
    filters per-user cards; each card holds its own role form so
    hx-include stays scoped to that user's checkboxes, plus a Delete
    button that soft-deletes (deleted_at). The own-row Admin checkbox
-   is disabled (disabled fields are never submitted; the server still
-   enforces the rule). Validation failures return HTTP 400 JSON whose
-   detail the GLOBAL htmx error net (common.js) toasts. Every mutation
-   re-renders this whole partial. #}
+   is disabled and omitted from submission; the server preserves the
+   role when other roles are saved. Validation failures return HTTP 400
+   JSON whose detail the GLOBAL htmx error net (common.js) toasts.
+   Every mutation re-renders this whole partial. #}
 <div id="users-root" class="space-y-4">
     {% if status %}<script>window.gysToast && window.gysToast({{ status | tojson }}, 'alert-success');</script>{% endif %}
 
@@ -67,7 +67,7 @@
                     <label class="flex cursor-pointer items-center gap-1.5 text-xs">
                         <input type="checkbox" name="roles" value="{{ r }}" class="checkbox checkbox-sm"
                                {{ 'checked' if r in row.roles | map(attribute='value') | list }}
-                               {{ 'disabled title="You cannot revoke your own Admin access."' if row.u.id == current_user_id and r == 'Admin' }} />
+                               {% if row.u.id == current_user_id and r == 'Admin' %}disabled title="You cannot revoke your own Admin access."{% endif %} />
                         <span>{{ r }}</span>
                     </label>
                     {% endfor %}
