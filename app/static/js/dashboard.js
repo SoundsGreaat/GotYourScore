@@ -37,6 +37,8 @@
     var sidebar = document.getElementById('dashboard-sidebar');
     var dashboardContent = document.getElementById('dashboard-content');
     var desktop = window.matchMedia('(min-width: 64rem)');
+    var menuOpening = 0;
+    var menuRequests = new WeakMap();
 
     function closeMenu(focusTarget) {
         if (!drawerToggle.checked) return;
@@ -49,6 +51,7 @@
     sidebar.inert = !desktop.matches;
     menuButton.addEventListener('click', function () {
         if (desktop.matches) return;
+        menuOpening++;
         drawerToggle.checked = true;
         menuButton.setAttribute('aria-expanded', 'true');
         sidebar.inert = false;
@@ -283,8 +286,8 @@
             + (state.period ? '@' + state.period : ''));
         setActive(view, category);
         if (sidebarLink) {
-            if (drawerToggle.checked) closeMenu(heading);
-            else if (document.activeElement === elt) heading.focus({preventScroll: true});
+            if (drawerToggle.checked && menuRequests.get(ctx) === menuOpening) closeMenu(heading);
+            else if (desktop.matches && document.activeElement === elt) heading.focus({preventScroll: true});
         }
     });
 
@@ -297,6 +300,7 @@
             elt === container ||
             elt.matches('aside a[data-view][hx-target="#view-container"]');
         if (!isViewSwitch) return;
+        if (elt !== container && drawerToggle.checked) menuRequests.set(ctx, menuOpening);
         pendingViewRequest = ctx;
         var request = ctx.request;
         var query = new URL(request.action, document.baseURI).searchParams;

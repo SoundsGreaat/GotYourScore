@@ -288,7 +288,11 @@ test("mobile dashboard menu is keyboard operable and does not leave the page ine
   await page.emulateMedia({ reducedMotion: "reduce" });
   await signIn(page);
   await page.goto(`${base}/#qa-tracker/qa-score`);
-  await expect(page.getByRole("tab", { name: "QA Score" })).toHaveAttribute("aria-selected", "true");
+  const quotas = page.getByRole("region", { name: "Agent review quotas" });
+  await expect(quotas.getByRole("columnheader", { name: "Completed cases" })).toBeVisible();
+  await quotas.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => quotas.evaluate((region) => region.scrollLeft)).toBeGreaterThan(0);
   const opener = page.getByRole("button", { name: "Open menu" });
   await opener.focus();
   await page.keyboard.press("Enter");
@@ -303,6 +307,35 @@ test("mobile dashboard menu is keyboard operable and does not leave the page ine
   await expect(page.getByRole("heading", { level: 1, name: "My Reviews" })).toBeFocused();
   await expect(opener).toHaveAttribute("aria-expanded", "false");
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+});
+
+test("a delayed dashboard response does not dismiss a newly reopened mobile menu", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 720 });
+  await signIn(page);
+  await page.goto(`${base}/#qa-tracker/bad-feedback`);
+  await expect(page.locator("#bad-feedback-view")).toBeVisible();
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await page.route("**/partials/my-reviews?*", async (route) => {
+    await held;
+    await route.continue();
+  });
+  const opener = page.getByRole("button", { name: "Open menu" });
+  const close = page.getByRole("button", { name: "Close menu" });
+  await opener.click();
+  const request = page.waitForRequest("**/partials/my-reviews?*");
+  await page.getByRole("link", { name: "My Reviews" }).click();
+  await request;
+  try {
+    await page.keyboard.press("Escape");
+    await expect(opener).toBeFocused();
+    await opener.press("Enter");
+    await expect(close).toBeFocused();
+  } finally {
+    release();
+  }
+  await expect(page).toHaveURL(`${base}/#my-reviews/bad-feedback`);
+  await expect(close).toBeFocused();
 });
 
 test("admin tabs scroll on mobile and select only after a successful swap", async ({ page }) => {
@@ -347,4 +380,36 @@ test("Team Quotas does not overwrite the selected review period", async ({ page 
   await page.getByRole("link", { name: "My Reviews" }).click();
   expect(new URL((await nextReviews).url()).searchParams.get("period")).toBe(period);
   await expect(page).toHaveURL(`${base}/#my-reviews/qa-score@${period}`);
+});
+
+test("theme follows the system, preserves an override and syncs open tabs", async ({ page, context }) => {
+  await signIn(page);
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  await page.goto(base);
+  const toggle = page.getByRole("checkbox", { name: "Dark mode" });
+  const scheme = page.locator('meta[name="color-scheme"]');
+  await expect(toggle).not.toBeChecked();
+  await expect(scheme).toHaveAttribute("content", "light dark");
+  const other = await context.newPage();
+  await other.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  await other.goto(base);
+
+  await page.locator("label.toggle").click();
+  await expect(scheme).toHaveAttribute("content", "dark");
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+  await expect(other.getByRole("checkbox", { name: "Dark mode" })).toBeChecked();
+  await page.reload();
+  await expect(toggle).toBeChecked();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(scheme).toHaveAttribute("content", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(toggle).toBeChecked();
+
+  await toggle.press("Space");
+  await expect(scheme).toHaveAttribute("content", "light dark");
+  await expect(other.getByRole("checkbox", { name: "Dark mode" })).not.toBeChecked();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(toggle).toBeChecked();
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  expect(await page.evaluate(() => localStorage.getItem("theme"))).toBeNull();
 });

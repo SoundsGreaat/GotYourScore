@@ -49,7 +49,10 @@ test("delayed inspection is disabled in flight and cannot update a closed/reopen
   await expect(dialog).toBeVisible();
   const staleResponse = page.waitForResponse("**/api/bad-feedback/import/inspect");
   release();
-  await staleResponse;
+  await (await staleResponse).finished();
+  await page.evaluate(() => new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  }));
   await expect(dialog.locator(".js-bf-step-map")).toBeHidden();
   await expect(dialog.getByRole("button", { name: "Analyze" })).toBeDisabled();
 });
