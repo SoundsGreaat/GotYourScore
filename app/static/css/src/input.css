@@ -558,12 +558,40 @@
             overflow-wrap: anywhere;
         }
         .gys-picker-options {
+            --gys-picker-scroll-thumb: color-mix(in oklab, var(--color-base-content) 60%, var(--color-base-100));
+            --gys-picker-scroll-track: transparent;
             min-block-size: 0;
             overflow: auto;
             overscroll-behavior: contain;
+            scrollbar-color: var(--gys-picker-scroll-thumb) var(--gys-picker-scroll-track);
             scrollbar-width: thin;
             padding: 0;
             list-style: none;
+        }
+        @supports not (scrollbar-color: auto) {
+            @media (forced-colors: none) {
+                .gys-picker-options {
+                    scrollbar-width: auto;
+                }
+                .gys-picker-options::-webkit-scrollbar {
+                    width: 0.5rem;
+                    height: 0.5rem;
+                }
+                .gys-picker-options::-webkit-scrollbar-track {
+                    background-color: var(--gys-picker-scroll-track);
+                }
+                .gys-picker-options::-webkit-scrollbar-thumb {
+                    border: 2px solid transparent;
+                    border-radius: 999px;
+                    background: var(--gys-picker-scroll-thumb) padding-box;
+                }
+            }
+        }
+        @media (forced-colors: active) {
+            .gys-picker-options {
+                scrollbar-color: auto;
+                scrollbar-width: auto;
+            }
         }
         .gys-picker-options > li > button {
             display: grid;
