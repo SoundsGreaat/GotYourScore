@@ -743,6 +743,40 @@
             transition-timing-function: var(--gys-ease);
         }
 
+        /* Keep the solid accent for primary actions; toolbar and
+           repeated row actions sit on a neutral surface. */
+        .btn-primary, .gys-btn-secondary {
+            box-shadow: none;
+            text-shadow: none;
+        }
+        .gys-btn-secondary:where(:enabled) {
+            background-color: var(--color-base-100);
+            border-color: color-mix(in oklab, var(--color-base-content) 55%, var(--color-base-100));
+        }
+        @media (hover: hover) {
+            .gys-btn-secondary:where(:enabled:hover) {
+                background-color: color-mix(in oklab, var(--color-primary) 12%, var(--color-base-100));
+            }
+        }
+        .gys-btn-secondary:where(:enabled:active) {
+            background-color: color-mix(in oklab, var(--color-primary) 20%, var(--color-base-100));
+        }
+        .btn-primary:focus-visible, .gys-btn-secondary:focus-visible {
+            outline: 2px solid var(--color-base-content);
+            outline-offset: 2px;
+            box-shadow: none;
+        }
+
+        .gys-role-badge {
+            border-radius: 0.375rem;
+            background-color: color-mix(in oklab, var(--color-neutral-content) 12%, var(--color-neutral));
+            color: color-mix(in oklab, var(--color-neutral-content) 85%, var(--color-neutral));
+            padding: 0.125rem 0.5rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
         /* Clickable badge chips (case/Pending/N-C chips in QA Score
             tables, agent + status badges in Bad Feedback): ONE class
             carries the pointer affordance + hover feedback that used
