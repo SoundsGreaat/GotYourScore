@@ -413,6 +413,9 @@ class ReviewRead(BaseModel):
     final_score: int | None = None
     status: ReviewStatusEnum = ReviewStatusEnum.COMPLETED
     assigned_qa_id: int | None = None
+    # Resolved on GET for the pending drawer when the assignee is not in
+    # the list of selectable QAs (for example, a draft saved by an admin).
+    assigned_qa_name: str | None = None
     created_by: int | None = None
     deleted_at: datetime | None = None
     created_at: datetime

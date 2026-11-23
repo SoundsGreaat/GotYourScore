@@ -29,10 +29,6 @@
                   Id-less spans survive htmx's settle step untouched.
      hidden_attrs extra attributes for the hidden input
                   ('name="agent"', 'data-field="case_type"', ...)
-     opt_data     attribute mirrored from each option's value onto its
-                  button (e.g. 'data-agent-id' — the review drawer looks
-                  options up via [data-agent-id="..."]). The leading
-                  "any" option gets it too, with an empty value.
       js_fn        picker function invoked on click; defaults to the
                    shared window.setDropdownValue in dropdowns.js.
                    Called as js_fn(id, display_ref, optionButtonEl);
@@ -46,7 +42,7 @@
                   selected='', any_label='', placeholder='',
                   btn_cls='select select-sm w-full flex items-center',
                   aria_label='', display_sel='', hidden_attrs='',
-                  opt_data='', js_fn='setDropdownValue') -%}
+                  js_fn='setDropdownValue') -%}
     {% set anchor = '--' ~ id ~ '-anchor' %}
     {% set disp_ref = display_sel if display_sel else '#' ~ id ~ '-display' %}
     {# Jinja has no comprehension syntax, so option dicts are built in a
@@ -97,7 +93,6 @@
             <li role="none">
                 <button type="button" role="menuitemradio" tabindex="-1"
                         data-opt-value="{{ opt.value }}" data-opt-label="{{ opt.label }}"
-                        {{ (opt_data ~ '="' ~ opt.value ~ '"') if opt_data else '' }}
                         aria-checked="{{ 'true' if opt.value|string == selected|string else 'false' }}"
                         onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', this)">
                     {{ opt.label }}
