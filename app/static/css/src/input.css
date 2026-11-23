@@ -21,6 +21,7 @@
    so it wins the cascade; lives in its own file because every Quill
    editor instance (drawer + comment_editor.js) styles from one source. */
 @import "./quill-editor.css";
+@import "./admin.css";
 
 @source "../../../templates";
 @source "../../../static/js";

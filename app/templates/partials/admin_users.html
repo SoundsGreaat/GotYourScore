@@ -1,116 +1,96 @@
-{# Merged Users & roles partial (swapped into #admin-view).
-   Context: rows=[{u: User, name: str, roles: [RoleEnum]}] sorted by
-   display name, current_user_id=int, role_choices=[str values],
-   default_role=str, status=str|None. Top: the add-user form creates
-   placeholder accounts (nickname only — users.name stays NULL until
-   the person's first Google login). Below: a client-side search box
-   filters per-user cards; each card holds its own role form so
-   hx-include stays scoped to that user's checkboxes, plus a Delete
-   button that soft-deletes (deleted_at). The own-row Admin checkbox
-   is disabled and omitted from submission; the server preserves the
-   role when other roles are saved. Validation failures return HTTP 400
-   JSON whose detail the GLOBAL htmx error net (common.js) toasts.
-   Every mutation re-renders this whole partial. #}
+{# Account changes re-render this partial; admin.js restores the local search. #}
+{% import "macros/admin.html" as admin %}
 <div id="users-root" class="space-y-4">
     {% if status %}<script>window.gysToast && window.gysToast({{ status | tojson }}, 'alert-success');</script>{% endif %}
 
-    <div class="card rounded-box bg-base-100 shadow-sm">
-        <div class="card-body gap-3 p-3 sm:p-4">
-            <h2 class="card-title text-base">Add user</h2>
-            <form hx-post="/admin/users/create" hx-target="#admin-view" hx-swap="innerHTML"
-                  class="flex flex-wrap items-center gap-x-4 gap-y-2">
-                <label class="input input-sm w-full sm:w-56 items-center">
-                    <input type="text" name="nickname" maxlength="50" required placeholder="Nickname"
-                           aria-label="Nickname" class="grow bg-transparent outline-none" />
-                </label>
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-2" role="group" aria-label="Roles">
-                    {% for r in role_choices %}
-                    <label class="flex cursor-pointer items-center gap-1.5 text-xs">
-                        <input type="checkbox" name="roles" value="{{ r }}" class="checkbox checkbox-sm checkbox-primary"
-                               {{ 'checked' if r == default_role }} />
-                        <span>{{ r }}</span>
-                    </label>
-                    {% endfor %}
-                </div>
-                <button type="submit" class="btn btn-primary btn-sm ml-auto">Add user</button>
-            </form>
-        </div>
-    </div>
+    {{ admin.page_heading("Users and roles", "Manage access for active accounts. Restore removed accounts in Deleted Users.") }}
 
-    <label class="input input-sm w-full sm:w-72 items-center gap-2">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-base-content/50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
-        </svg>
-        <input id="users-search" type="search" class="grow bg-transparent outline-none"
-               placeholder="Search name or email…" aria-label="Search users by name or email" />
-    </label>
-
-    <div id="users-list" class="space-y-3">
-        {% for row in rows %}
-        <div class="card rounded-box bg-base-100 shadow-sm">
-            <div class="card-body flex-col gap-3 p-3 sm:p-4 sm:flex-row sm:items-center">
-                <div class="min-w-0 shrink-0 sm:w-56">
-                    <p class="flex items-center gap-1.5 font-medium">
-                        <span class="truncate">{{ row.u.nickname }}</span>
-                        {% if row.u.id == current_user_id %}
-                        <span class="badge badge-ghost badge-sm">(you)</span>
-                        {% endif %}
-                    </p>
-                    <p class="truncate text-xs text-base-content/60">{{ row.u.email }}</p>
-                    {% if row.name %}
-                    <p class="truncate text-xs text-base-content/60">{{ row.name }}</p>
-                    {% endif %}
-                </div>
-                <form hx-post="/admin/users/{{ row.u.id }}/roles" hx-target="#admin-view" hx-swap="innerHTML"
-                      class="flex flex-1 flex-wrap items-center gap-x-4 gap-y-2">
-                    {% for r in role_choices %}
-                    <label class="flex cursor-pointer items-center gap-1.5 text-xs">
-                        <input type="checkbox" name="roles" value="{{ r }}" class="checkbox checkbox-sm"
-                               {{ 'checked' if r in row.roles | map(attribute='value') | list }}
-                               {% if row.u.id == current_user_id and r == 'Admin' %}disabled title="You cannot revoke your own Admin access."{% endif %} />
-                        <span>{{ r }}</span>
-                    </label>
-                    {% endfor %}
-                    <div class="ml-auto flex items-center gap-2">
-                        <button type="submit" class="btn btn-sm">Save</button>
-                        <button type="button" class="btn btn-outline btn-error btn-xs"
-                                hx-post="/admin/users/{{ row.u.id }}/delete"
-                                hx-target="#admin-view" hx-swap="innerHTML"
-                                hx-confirm="Delete {{ row.name or row.u.nickname }}? Their past reviews stay intact.">Delete</button>
-                    </div>
-                </form>
+    <details class="gys-admin-disclosure gys-admin-surface">
+        <summary id="add-user-summary" class="flex items-center justify-between gap-3 rounded-box px-4 py-3 text-sm font-semibold">
+            Add user
+            {{ admin.chevron() }}
+        </summary>
+        <form method="post" action="/admin/users/create" hx-post="/admin/users/create" hx-target="#admin-view"
+              hx-swap="innerHTML" aria-labelledby="add-user-summary" class="space-y-3 border-t border-base-300 p-4">
+            <div class="grid gap-1">
+                <label for="new-user-nickname" class="text-sm font-medium">Nickname <span class="text-xs text-base-content/75">(required)</span></label>
+                <input id="new-user-nickname" type="text" name="nickname" maxlength="50" required
+                       aria-describedby="new-user-help" class="input gys-admin-field w-full sm:max-w-xs">
+                <p id="new-user-help" class="text-sm text-base-content/75">Use the part of their work email before the @. The account is linked on their first Google sign-in.</p>
             </div>
+            {{ admin.role_choices(role_choices, [default_role]) }}
+            <button type="submit" class="btn btn-primary btn-sm">Add user</button>
+        </form>
+    </details>
+
+    <section class="gys-admin-surface" aria-labelledby="user-directory-title">
+        <div class="flex flex-wrap items-end justify-between gap-3 border-b border-base-300 p-4">
+            <div>
+                <h3 id="user-directory-title" class="text-base font-semibold">Active accounts</h3>
+                <p id="users-count" role="status" class="mt-0.5 text-sm text-base-content/75">{{ rows|length }} {{ 'account' if rows|length == 1 else 'accounts' }}</p>
+            </div>
+            {% if rows %}
+            <search class="grid w-full gap-1 sm:w-72">
+                <label for="users-search" class="text-sm font-medium">Search by name or email</label>
+                <input id="users-search" type="search" autocomplete="off" spellcheck="false"
+                       class="input gys-admin-field w-full" aria-controls="users-list">
+            </search>
+            {% endif %}
         </div>
-        {% endfor %}
-    </div>
 
-    {% if not rows %}
-    <div class="rounded-box border border-dashed border-base-300 p-6 text-center text-sm text-base-content/70">
-        No users yet
-    </div>
-    {% endif %}
-
-    <div id="users-empty" class="hidden rounded-box border border-dashed border-base-300 p-6 text-center text-sm text-base-content/70">
-        No users match your search.
-    </div>
+        {% if rows %}
+        <ul id="users-list" class="divide-y divide-base-300">
+            {% for row in rows %}
+            {% set user_id = row.u.id %}
+            {% set own_account = user_id == current_user_id %}
+            {% set roles = row.roles | map(attribute='value') | list %}
+            <li data-user-match="{{ row.u.nickname }} {{ row.name or '' }} {{ row.u.email }}">
+                <details class="gys-admin-disclosure">
+                    <summary id="user-{{ user_id }}-summary"
+                             class="gys-admin-user-summary flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
+                             aria-labelledby="user-{{ user_id }}-action user-{{ user_id }}-name">
+                        <span class="min-w-0 grow basis-48">
+                            <span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                <span id="user-{{ user_id }}-name" class="wrap-anywhere text-sm font-semibold">{{ row.u.nickname }}</span>
+                                {% if own_account %}<span class="badge badge-ghost badge-sm">You</span>{% endif %}
+                            </span>
+                            <span class="block wrap-anywhere text-xs text-base-content/75">{{ row.u.email }}</span>
+                            {% if row.name and row.name != row.u.nickname %}
+                            <span class="block wrap-anywhere text-xs text-base-content/75">{{ row.name }}</span>
+                            {% endif %}
+                        </span>
+                        <span class="flex min-w-0 flex-wrap gap-1">
+                            {% for role in roles %}<span class="badge badge-ghost badge-sm">{{ role }}</span>{% endfor %}
+                        </span>
+                        <span class="ms-auto flex items-center gap-1.5 text-xs font-medium text-base-content/75">
+                            <span id="user-{{ user_id }}-action">Edit roles</span>
+                            {{ admin.chevron() }}
+                        </span>
+                    </summary>
+                    <form method="post" action="/admin/users/{{ user_id }}/roles" hx-post="/admin/users/{{ user_id }}/roles"
+                          hx-target="#admin-view" hx-swap="innerHTML" aria-labelledby="user-{{ user_id }}-action user-{{ user_id }}-name"
+                          class="space-y-3 border-t border-base-300 bg-base-200 p-4">
+                        {{ admin.role_choices(role_choices, roles, own_account) }}
+                        {% if own_account %}
+                        <p class="text-xs text-base-content/75">You can edit your other roles, but your Admin access stays on.</p>
+                        {% endif %}
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <button type="submit" class="btn gys-btn-secondary btn-sm">Save roles</button>
+                            {% if not own_account %}
+                            <button type="button" class="btn btn-outline btn-error btn-sm"
+                                    hx-post="/admin/users/{{ user_id }}/delete"
+                                    hx-target="#admin-view" hx-swap="innerHTML"
+                                    hx-confirm="Delete {{ row.name or row.u.nickname }}? Their past reviews stay intact.">Delete user</button>
+                            {% endif %}
+                        </div>
+                    </form>
+                </details>
+            </li>
+            {% endfor %}
+        </ul>
+        <p id="users-empty" hidden class="p-6 text-center text-sm text-base-content/75">No accounts match your search.</p>
+        {% else %}
+        <p class="p-6 text-center text-sm text-base-content/75">No active accounts yet.</p>
+        {% endif %}
+    </section>
 </div>
-
-<script>
-    if (!window.__adminUsersSearchInit) {
-        window.__adminUsersSearchInit = true;
-        document.addEventListener('input', function (event) {
-            if (event.target.id !== 'users-search') return;
-            var query = event.target.value.trim().toLowerCase();
-            var list = document.getElementById('users-list');
-            if (!list) return;
-            var visible = 0;
-            Array.prototype.forEach.call(list.children, function (card) {
-                var show = !query || card.textContent.toLowerCase().indexOf(query) !== -1;
-                card.classList.toggle('hidden', !show);
-                if (show) visible += 1;
-            });
-            var empty = document.getElementById('users-empty');
-            if (empty) empty.classList.toggle('hidden', visible > 0);
-        });
-    }
-</script>

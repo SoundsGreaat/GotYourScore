@@ -1,15 +1,9 @@
 {# Deleted Bad Feedback partial, swapped into #admin-view. #}
-<div id="admin-deleted-bad-feedback-root" class="space-y-4">
-    <div class="card rounded-box bg-base-100 shadow-sm">
-        <div class="card-body min-w-0 p-3 sm:p-4">
-            <h2 class="card-title text-base">
-                Deleted Bad Feedback
-                <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
-            </h2>
-            {% if rows %}
-            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-labelledby="deleted-feedback-caption">
+{% import "macros/admin.html" as admin %}
+<div id="admin-deleted-bad-feedback-root">
+    {% call admin.recovery_panel("deleted-feedback", "Deleted Bad Feedback", "Restore a record to return it to the Bad Feedback tracker.", rows|length, "No deleted Bad Feedback.") %}
                 <table class="table table-sm">
-                    <caption id="deleted-feedback-caption" class="sr-only">Deleted Bad Feedback records</caption>
+                    <caption class="sr-only">Deleted Bad Feedback records</caption>
                     <thead>
                         <tr>
                             <th scope="col">Deleted</th>
@@ -31,7 +25,8 @@
                             <td>{{ row.source or '—' }}</td>
                             <td>{{ row.status.value }}</td>
                             <td>
-                                <button type="button" class="btn btn-outline btn-success btn-xs"
+                                <button type="button" class="btn gys-btn-secondary btn-sm"
+                                        aria-label="Restore Bad Feedback{% if row.agent_names %} for {{ row.agent_names|join(', ') }}{% endif %}"
                                         hx-post="/admin/bad-feedback/{{ row.id }}/restore"
                                         hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
                             </td>
@@ -39,12 +34,5 @@
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-            {% else %}
-            <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-                No deleted Bad Feedback
-            </div>
-            {% endif %}
-        </div>
-    </div>
+    {% endcall %}
 </div>

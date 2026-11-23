@@ -4,66 +4,67 @@ case_types=[CaseTypeEnum], selected_id=int|None.
 Master-detail: template cards on the LEFT, the rule editor on the
 RIGHT. The editor column lazy-fetches the editor partial for
 selected_id so the list context never needs editor variables.
-Clicking a card swaps the editor AND highlights the card instantly
-client-side (no list re-render), so selection never flickers or
-scrolls away. Exactly ONE template per case type can be active:
+ Clicking a template swaps the editor without re-rendering the list.
+ Exactly ONE template per case type can be active:
 toggling one ON demotes its same-type siblings server-side. #}
 {% import "macros/dropdowns.html" as dd %}
-<div id="scorecards-root">
+{% import "macros/admin.html" as admin %}
+<div id="scorecards-root" class="space-y-4">
+    {{ admin.page_heading("Scorecards", "Choose a template to edit its rules. Each case type can have one active template.") }}
 
-    <div class="flex flex-col gap-4 lg:flex-row lg:items-start">
-        <div class="w-full shrink-0 space-y-3 lg:w-80 xl:w-96">
-            <div class="card rounded-box border border-base-300 bg-base-100 shadow-sm">
+    <div class="gys-admin-scorecards">
+        <div class="min-w-0 space-y-3">
+            <section class="card gys-admin-surface" aria-labelledby="new-template-title">
                 <div class="card-body gap-3 p-3 sm:p-4">
-                    <h2 class="card-title text-base">New template</h2>
-                    <form hx-post="/admin/scorecards/create" hx-target="#admin-view" hx-swap="innerHTML"
+                    <h3 id="new-template-title" class="text-sm font-semibold">New template</h3>
+                    <form method="post" action="/admin/scorecards/create" hx-post="/admin/scorecards/create"
+                          hx-target="#admin-view" hx-swap="innerHTML" aria-labelledby="new-template-title"
                           class="flex flex-col gap-2">
-                        <input name="name" required maxlength="200" placeholder="Template name"
-                               class="input input-sm w-full" aria-label="Template name"/>
-                        <div class="w-full">
+                        <label for="new-template-name" class="text-sm font-medium">Template name</label>
+                        <input id="new-template-name" name="name" required maxlength="200" class="input gys-admin-field w-full">
+                        <div class="grid gap-1">
+                            <label for="new-case-button" class="text-sm font-medium">Case type</label>
                             {{ dd.dropdown('new-case',
                             items=case_types,
                             value_attr='value', label_attr='value',
+                            aria_label='Case type',
                             selected=case_types[0].value,
                             hidden_attrs='name="case_type"') }}
                         </div>
-                        <button type="submit" class="btn btn-primary btn-sm shrink-0">Create</button>
+                        <button type="submit" class="btn btn-primary btn-sm self-start">Create</button>
                     </form>
                 </div>
-            </div>
+            </section>
 
+            <h3 class="px-1 text-sm font-semibold">Templates</h3>
             <div class="space-y-2" id="template-list">
                 {% for t in templates %}
-                <!-- Behavior lives in .gys-card (input.css); markup only
-                     marks the selected row via card-selected. -->
-                <div class="js-template-card card gys-card rounded-box border bg-base-100
+                <div class="card gys-admin-template
                             {{ 'card-selected' if t.id == selected_id }}"
                      data-template-card data-template-id="{{ t.id }}">
                     <div class="card-body flex-col gap-2 p-3 sm:flex-row sm:items-center">
-                        <!-- The whole name zone is one button: the card itself is clickable.
-                             .focus-halo = project-wide keyboard-focus glow (input.css). -->
-                        <button type="button" class="focus-halo min-w-0 flex-1 rounded-box text-left"
+                        <button type="button" class="focus-halo min-w-0 flex-1 rounded-field text-start"
+                                data-template-open {% if t.id == selected_id %}aria-current="true"{% endif %}
                                 hx-get="/admin/partials/scorecard-editor/{{ t.id }}"
                                 hx-target="#scorecard-editor" hx-swap="innerHTML">
-                            <p class="truncate font-medium">{{ t.name }}</p>
-                            <div class="mt-1 flex flex-wrap items-center gap-1.5">
+                            <span class="block wrap-anywhere text-sm font-semibold">{{ t.name }}</span>
+                            <span class="mt-1 flex flex-wrap items-center gap-1.5">
                                 <span class="badge badge-ghost badge-sm">{{ t.case_type.value }}</span>
                                 {% if t.is_active %}
                                 <span class="badge badge-success badge-soft badge-sm">Active</span>
                                 {% else %}
                                 <span class="badge badge-ghost badge-sm">Inactive</span>
                                 {% endif %}
-                                <span class="text-xs text-base-content/60">{{ t.item_count }} rules</span>
-                            </div>
+                                <span class="text-xs text-base-content/75">{{ t.item_count }} rules</span>
+                            </span>
                         </button>
-                        <label class="flex shrink-0 items-center gap-1 sm:flex-col"
+                        <label class="gys-admin-check flex shrink-0 items-center gap-1 sm:flex-col sm:justify-center"
                                title="{{ 'Deactivate template' if t.is_active else 'Activate template (demotes other active templates of this case type)' }}">
                             <input type="checkbox" class="toggle toggle-sm toggle-success"
                                    {% if t.is_active %}checked{% endif %}
-                                   aria-label="Toggle template active"
+                                   aria-label="Active template: {{ t.name }}"
                                    hx-post="/admin/scorecards/{{ t.id }}/toggle"
                                    hx-target="#admin-view" hx-swap="innerHTML"/>
-                            <span class="text-[10px] uppercase tracking-wide text-base-content/50">on</span>
                         </label>
                     </div>
                 </div>
@@ -81,28 +82,11 @@ toggling one ON demotes its same-type siblings server-side. #}
                 <div hx-get="/admin/partials/scorecard-editor/{{ selected_id }}" hx-trigger="load"
                      hx-swap="innerHTML"></div>
                 {% else %}
-                <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-                    Select a template on the left to edit its rules.
+                <div class="gys-admin-surface p-6 text-center text-sm text-base-content/75">
+                    Select a template to edit its rules.
                 </div>
                 {% endif %}
             </div>
         </div>
     </div>
 </div>
-
-<script>
-    // Instant selection highlight without a list re-render: clicking any
-    // part of a template card moves the "editing" styling to it. The
-    // editor swap itself is driven by each card's own hx-get attributes.
-    if (!window.__adminScorecardsInit) {
-        window.__adminScorecardsInit = true;
-        document.addEventListener("click", function (event) {
-            var card = event.target.closest("[data-template-card]");
-            if (!card || !document.getElementById("template-list")) return;
-            document.querySelectorAll("[data-template-card]").forEach(function (node) {
-                node.classList.remove("card-selected");
-            });
-            card.classList.add("card-selected");
-        });
-    }
-</script>

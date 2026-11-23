@@ -7,37 +7,42 @@
    falls back to the built-in default prompt). History rows truncate
    their preview instead of widening the card, so no horizontal
    scrollbar ever appears. #}
+{% import "macros/admin.html" as admin %}
 <div id="admin-prompts-root" class="space-y-4">
     {% if saved %}<script>window.gysToast && window.gysToast('Saved as the active version.', 'alert-success');</script>{% endif %}
 
+    {{ admin.page_heading("System prompts", "Edit the instructions used by the AI. Saving creates a new active version.") }}
     {% for slot in slots %}
     {% set active_v = slot.versions | selectattr('id', 'equalto', slot.active_id) | list | first %}
-    <div class="card rounded-box border border-base-300 bg-base-100 shadow-sm">
+    <section class="card gys-admin-surface" aria-labelledby="prompt-{{ slot.key }}-title">
         <div class="card-body min-w-0 gap-3 p-4 sm:p-5">
-            <div class="flex flex-wrap items-center gap-2">
-                <h2 class="card-title text-base">{{ slot.title }}</h2>
-                <span class="badge badge-soft badge-sm font-mono">{{ slot.key }}</span>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 id="prompt-{{ slot.key }}-title" class="text-base font-semibold">{{ slot.title }}</h3>
                 {% if active_v %}
                 <span class="badge badge-success badge-soft badge-sm">Custom prompt active</span>
                 {% else %}
                 <span class="badge badge-ghost badge-sm">Built-in default in use</span>
                 {% endif %}
             </div>
-            <p class="text-xs text-base-content/60">{{ slot.description }}</p>
+            <p class="text-sm text-base-content/75">{{ slot.description }}</p>
 
-            <form hx-post="/admin/prompts" hx-target="#admin-view" hx-swap="innerHTML" class="flex flex-col gap-2">
+            <form method="post" action="/admin/prompts" hx-post="/admin/prompts" hx-target="#admin-view" hx-swap="innerHTML"
+                  aria-labelledby="prompt-{{ slot.key }}-title" class="flex flex-col gap-2">
                 <input type="hidden" name="key" value="{{ slot.key }}" />
-                <textarea name="content" required spellcheck="false" aria-label="Prompt content"
-                          placeholder="Empty — the built-in default is used until you save a version."
-                          class="textarea h-64 w-full font-mono text-xs leading-relaxed">{{ active_v.content if active_v else '' }}</textarea>
+                <label for="prompt-{{ slot.key }}" class="text-sm font-medium">Prompt content</label>
+                <textarea id="prompt-{{ slot.key }}" name="content" required spellcheck="false" rows="7"
+                          placeholder="Enter a custom prompt"
+                          class="textarea gys-admin-field w-full min-w-0 resize-y font-mono text-sm leading-relaxed">{{ active_v.content if active_v else '' }}</textarea>
                 <button type="submit" class="btn btn-primary btn-sm self-start">Save as active version</button>
             </form>
 
-            <div class="flex items-center justify-between gap-2 border-t border-base-300 pt-3">
-                <p class="text-xs font-semibold text-base-content/70">History</p>
-                <span class="badge badge-ghost badge-sm">{{ slot.versions | length }} versions</span>
-            </div>
-            {% if slot.versions %}
+            <details class="gys-admin-disclosure border-t border-base-300">
+                <summary class="flex items-center gap-2 rounded-field py-2 text-sm font-medium">
+                    Version history
+                    <span class="badge badge-ghost badge-sm">{{ slot.versions | length }}</span>
+                    <span class="ms-auto">{{ admin.chevron() }}</span>
+                </summary>
+                {% if slot.versions %}
             <ul class="divide-y divide-base-300 rounded-box border border-base-300">
                 {% for v in slot.versions %}
                 <li class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 {{ 'bg-success/5' if slot.active_id == v.id }}">
@@ -47,7 +52,14 @@
                     {% else %}
                     <span class="badge badge-ghost badge-sm">v{{ slot.versions | length - loop.index0 }}</span>
                     {% endif %}
-                    <span class="min-w-0 flex-1 truncate font-mono text-xs text-base-content/70" title="{{ v.content }}">{{ v.content | truncate(90) }}</span>
+                    <details class="gys-admin-disclosure min-w-0 grow basis-48">
+                        <summary class="flex items-center gap-2 rounded-field text-xs font-medium">
+                            <span class="min-w-0 grow truncate font-mono">{{ v.content | truncate(90) }}</span>
+                            <span class="sr-only">Read full prompt</span>
+                            {{ admin.chevron() }}
+                        </summary>
+                        <pre class="mt-2 whitespace-pre-wrap wrap-anywhere rounded-field bg-base-200 p-3 text-xs">{{ v.content }}</pre>
+                    </details>
                     <span class="flex shrink-0 items-center gap-1">
                         {% if slot.active_id != v.id %}
                         <button type="button" class="btn btn-ghost btn-xs"
@@ -56,18 +68,17 @@
                         {% endif %}
                         <button type="button" class="btn btn-outline btn-error btn-xs"
                                 hx-post="/admin/prompts/{{ v.id }}/delete"
-                                hx-confirm="Delete this prompt version?"
+                                hx-confirm="{{ 'Delete the active version and use the built-in default?' if slot.active_id == v.id else 'Delete this prompt version?' }}"
                                 hx-target="#admin-view" hx-swap="innerHTML">Delete</button>
                     </span>
                 </li>
                 {% endfor %}
             </ul>
             {% else %}
-            <div class="rounded-box border border-dashed border-base-300 p-4 text-center text-xs text-base-content/60">
-                No stored versions yet — the built-in default prompt is used.
-            </div>
-            {% endif %}
+                <p class="pb-2 text-sm text-base-content/75">No stored versions yet — the built-in default prompt is used.</p>
+                {% endif %}
+            </details>
         </div>
-    </div>
+    </section>
     {% endfor %}
 </div>
