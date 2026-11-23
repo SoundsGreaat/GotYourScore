@@ -141,6 +141,18 @@ test("Case Fields reuses admin pickers and keeps the tab and other edits on save
   await otherDraft.fill("Other tracker draft");
   await refund.locator("[data-case-default-focus]").click();
   const add = refund.getByRole("form", { name: "Add Refund Check field" });
+  const addLabel = add.getByLabel("Label");
+  const type = add.getByRole("button", { name: "Type" });
+  const [labelBox, typeBox] = await Promise.all([addLabel.boundingBox(), type.boundingBox()]);
+  expect(typeBox.height).toBe(labelBox.height);
+  expect(typeBox.y).toBe(labelBox.y);
+  const dateRow = refund.getByRole("listitem").filter({
+    has: page.getByRole("group", { name: "Reorder Date", exact: true }),
+  });
+  const reorderBox = await dateRow.getByRole("group", { name: "Reorder Date", exact: true }).boundingBox();
+  const summaryBox = await dateRow.locator("summary").getByText("Date", { exact: true }).first().boundingBox();
+  expect(reorderBox.x + reorderBox.width).toBeLessThan(summaryBox.x);
+  await expect(dateRow.locator("summary").getByText("Edit", { exact: true }).last()).toBeVisible();
   await add.getByLabel("Label").fill(label);
   await add.getByRole("button", { name: "Type" }).click();
   await add.getByRole("menuitemradio", { name: "Long text", exact: true }).click();
@@ -160,6 +172,11 @@ test("Case Fields reuses admin pickers and keeps the tab and other edits on save
   await refund.locator("summary").filter({ hasText: label }).click();
   const edit = refund.getByRole("form", { name: `Edit ${label}` });
   await expect(edit.getByRole("button", { name: "Type" })).toHaveText("Long text");
+  const [editLabel, editType] = await Promise.all([
+    edit.getByLabel("Label").boundingBox(), edit.getByRole("button", { name: "Type" }).boundingBox(),
+  ]);
+  expect(editType.height).toBe(editLabel.height);
+  expect(editType.y).toBe(editLabel.y);
   await edit.getByLabel("Label").fill(renamed);
   const save = nextResponse(page, /\/admin\/case-fields\/refund-check\/\d+\/update$/, "POST");
   await edit.getByRole("button", { name: "Save changes" }).click();

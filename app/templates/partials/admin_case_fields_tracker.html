@@ -1,5 +1,6 @@
 {% import "macros/admin.html" as admin %}
 {% import "macros/dropdowns.html" as dd %}
+{% import "macros/icons.html" as icons %}
 {% set scope = 'case-fields-' ~ tracker %}
 {% set url = '/admin/case-fields/' ~ tracker %}
 {% set types = [
@@ -10,18 +11,19 @@
 {% set type_labels = {'text': 'Text', 'textarea': 'Long text', 'date': 'Date'} %}
 
 {% macro field_inputs(prefix, field=none) %}
-    <div class="flex flex-wrap items-start gap-3">
-        <div class="grid min-w-0 flex-1 basis-48 gap-1">
+    <div class="grid gap-3 sm:grid-cols-2">
+        <div class="grid min-w-0 gap-1">
             <label for="{{ prefix }}-label" class="text-sm font-medium">Label</label>
             <input id="{{ prefix }}-label" name="label" type="text"
                    maxlength="{{ max_field_label_length }}" value="{{ field.label if field else '' }}"
                    class="input gys-admin-field w-full" required>
         </div>
-        <div class="grid min-w-0 grow basis-36 gap-1">
+        <div class="grid min-w-0 gap-1">
             <label for="{{ prefix }}-type-button" class="text-sm font-medium">Type</label>
             {{ dd.dropdown(prefix ~ '-type',
                 items=types[-1:] if field and field.key == 'fb_date' else types,
                 selected=field.field_type if field else 'text',
+                btn_cls='select gys-admin-field flex w-full items-center',
                 aria_label='Type', hidden_attrs='name="field_type"') }}
         </div>
     </div>
@@ -65,41 +67,47 @@
             aria-label="{{ tracker_label }} active fields" class="divide-y divide-base-300">
             {% for field in tracker_fields.active %}
             {% set key = scope ~ '-' ~ field.id %}
-            <li id="{{ key }}-row" data-row data-case-field-row data-case-field-id="{{ field.id }}" class="py-2">
-                <div class="flex min-w-0 items-start gap-1 sm:gap-2">
+            <li id="{{ key }}-row" data-row data-case-field-row data-case-field-id="{{ field.id }}" class="relative py-2">
+                <div class="absolute start-0 top-2 z-10 flex h-10 items-center rounded-field bg-base-200 ps-0.5 pe-1 pointer-coarse:h-12 max-[24rem]:pointer-coarse:static max-[24rem]:pointer-coarse:mb-1 max-[24rem]:pointer-coarse:w-fit"
+                     role="group" aria-label="Reorder {{ field.label }}">
                     {{ admin.sort_grip('rule') }}
-                    <details id="{{ key }}-details" class="gys-admin-disclosure min-w-0 flex-1">
-                        <summary id="{{ key }}-summary" data-case-row-focus
-                                 aria-labelledby="{{ key }}-action {{ key }}-name"
-                                 class="flex items-center justify-between gap-2 rounded-field px-2 py-1.5">
-                            <span id="{{ key }}-action" class="sr-only">Edit</span>
+                    {{ admin.move_controls(field.label) }}
+                </div>
+                <details id="{{ key }}-details" class="group gys-admin-disclosure min-w-0">
+                    <summary id="{{ key }}-summary" data-case-row-focus
+                             aria-labelledby="{{ key }}-action {{ key }}-name"
+                             class="flex min-h-10 items-center justify-between gap-2 rounded-field py-1.5 ps-28 pe-2 pointer-coarse:min-h-12 pointer-coarse:ps-40 max-[24rem]:pointer-coarse:ps-2">
+                        <span id="{{ key }}-action" class="sr-only">Edit</span>
+                        <span class="grid min-w-0 grow items-center justify-items-start gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto] max-[24rem]:pointer-coarse:grid-cols-[minmax(0,1fr)_auto]">
                             <span class="min-w-0">
                                 <span id="{{ key }}-name" data-case-field-name class="block wrap-anywhere text-sm font-semibold">{{ field.label }}</span>
                                 <code class="block wrap-anywhere text-xs text-base-content/75">{{ field.key }}</code>
                             </span>
-                            <span class="flex shrink-0 flex-wrap items-center gap-1">
-                                <span class="badge badge-ghost badge-sm">{{ type_labels[field.field_type] }}</span>
-                                {{ admin.chevron() }}
-                            </span>
-                        </summary>
-                        <form method="post" action="{{ url }}/{{ field.id }}/update" hx-post="{{ url }}/{{ field.id }}/update"
-                              hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="update"
-                              aria-labelledby="{{ key }}-action {{ key }}-name"
-                              class="mt-1 space-y-3 rounded-field bg-base-200 p-3">
-                            {{ field_inputs(key, field) }}
-                            <div class="flex flex-wrap items-center justify-between gap-2">
-                                <button type="submit" id="{{ key }}-save" class="btn gys-btn-secondary btn-sm">Save changes</button>
-                                <button type="submit" form="{{ key }}-archive" id="{{ key }}-archive-submit"
-                                        class="btn btn-outline btn-error btn-sm"
-                                        aria-label="Archive {{ field.label }}">Archive</button>
-                            </div>
-                        </form>
-                        <form id="{{ key }}-archive" method="post" action="{{ url }}/{{ field.id }}/archive"
-                              hx-post="{{ url }}/{{ field.id }}/archive" hx-target="#{{ scope }}" hx-swap="outerMorph"
-                              data-case-field-action="archive"></form>
-                    </details>
-                    {{ admin.move_controls(field.label) }}
-                </div>
+                            <span class="badge badge-ghost badge-sm max-w-full">{{ type_labels[field.field_type] }}</span>
+                        </span>
+                        <span class="flex shrink-0 items-center gap-1.5 border-s border-base-300 ps-2 text-xs font-medium text-base-content/75 sm:min-w-16" aria-hidden="true">
+                            <span class="group-open:hidden">{{ icons.edit() }}</span>
+                            <span class="hidden sm:inline group-open:hidden">Edit</span>
+                            <span class="hidden group-open:inline">{{ icons.x() }}</span>
+                            <span class="hidden sm:group-open:inline">Close</span>
+                        </span>
+                    </summary>
+                    <form method="post" action="{{ url }}/{{ field.id }}/update" hx-post="{{ url }}/{{ field.id }}/update"
+                          hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="update"
+                          aria-labelledby="{{ key }}-action {{ key }}-name"
+                          class="mt-1 space-y-3 rounded-field bg-base-200 p-3">
+                        {{ field_inputs(key, field) }}
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <button type="submit" id="{{ key }}-save" class="btn gys-btn-secondary btn-sm">Save changes</button>
+                            <button type="submit" form="{{ key }}-archive" id="{{ key }}-archive-submit"
+                                    class="btn btn-outline btn-error btn-sm"
+                                    aria-label="Archive {{ field.label }}">Archive</button>
+                        </div>
+                    </form>
+                    <form id="{{ key }}-archive" method="post" action="{{ url }}/{{ field.id }}/archive"
+                          hx-post="{{ url }}/{{ field.id }}/archive" hx-target="#{{ scope }}" hx-swap="outerMorph"
+                          data-case-field-action="archive"></form>
+                </details>
             </li>
             {% endfor %}
         </ul>
