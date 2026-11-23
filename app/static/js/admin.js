@@ -50,6 +50,55 @@
     // Rules can be added, deleted, moved by the drag handle or swapped.
     new MutationObserver(syncMoveButtons).observe(panel, {childList: true, subtree: true});
 
+    var reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    var moveAnimations = new WeakMap();
+
+    function motionOptions(element) {
+        var css = getComputedStyle(element);
+        var speed = css.getPropertyValue('--gys-speed').trim();
+        return {
+            duration: parseFloat(speed) * (speed.endsWith('ms') ? 1 : 1000),
+            easing: css.getPropertyValue('--gys-ease').trim(),
+        };
+    }
+
+    // Let details open/close natively before animating the measured box.
+    // Holding content-visibility open would leave closed controls tabbable.
+    var disclosureStarts = new WeakMap();
+    var disclosureAnimations = new WeakMap();
+    panel.addEventListener('click', function (event) {
+        var details = event.target.closest('.gys-admin-disclosure > summary')?.parentElement;
+        if (details && !reducedMotion.matches && typeof details.animate === 'function') {
+            disclosureStarts.set(details, details.getBoundingClientRect().height);
+        }
+    });
+    panel.addEventListener('toggle', function (event) {
+        var details = event.target;
+        if (!disclosureStarts.has(details)) return;
+        var start = disclosureStarts.get(details);
+        disclosureStarts.delete(details);
+        disclosureAnimations.get(details)?.cancel();
+        if (reducedMotion.matches) return;
+        var end = details.getBoundingClientRect().height;
+        if (start === end) return;
+        disclosureAnimations.set(details, details.animate([
+            {height: start + 'px', overflow: 'clip'},
+            {height: end + 'px', overflow: 'clip'}
+        ], motionOptions(details)));
+    }, true);
+
+    function animateReorder(startPositions) {
+        startPositions.forEach(function (start) {
+            var item = start.item;
+            var delta = start.top - (item.getBoundingClientRect().top + window.scrollY);
+            if (!delta) return;
+            moveAnimations.set(item, item.animate([
+                {translate: '0 ' + delta + 'px'},
+                {translate: '0 0'}
+            ], motionOptions(item)));
+        });
+    }
+
     var moveAnnouncement;
     panel.addEventListener('click', function (event) {
         var button = event.target.closest('[data-move]');
@@ -60,10 +109,19 @@
         if (!neighbor) return;
         var list = item.parentElement;
         var reference = direction === 'up' ? neighbor : neighbor.nextSibling;
+        var startPositions = [];
+        if (!reducedMotion.matches && typeof item.animate === 'function') {
+            startPositions = [item, neighbor].map(function (entry) {
+                var top = entry.getBoundingClientRect().top + window.scrollY;
+                moveAnimations.get(entry)?.cancel();
+                return {item: entry, top: top};
+            });
+        }
         if (typeof list.moveBefore === 'function') list.moveBefore(item, reference);
         else list.insertBefore(item, reference);
         item.scrollIntoView({block: 'nearest', inline: 'nearest'});
         button.focus({preventScroll: true});
+        animateReorder(startPositions);
 
         var isRule = item.hasAttribute('data-row');
         var label = isRule ? item.querySelector('[data-display]').value.trim() : item.querySelector('h4').textContent;

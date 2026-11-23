@@ -55,11 +55,17 @@
     background-color: color-mix(in oklab, var(--color-primary) 11%, var(--color-base-100));
 }
 
-.gys-admin-tabs button[aria-selected="true"]::after {
+.gys-admin-tabs button::after {
     content: "";
     position: absolute;
     inset: auto 0.75rem 0.125rem;
     border-block-end: 2px solid var(--admin-tab-accent);
+    opacity: 0;
+    pointer-events: none;
+}
+
+.gys-admin-tabs button[aria-selected="true"]::after {
+    opacity: 1;
 }
 
 @media (hover: hover) {
@@ -102,7 +108,7 @@
         padding-inline-start: 1rem;
         white-space: normal;
     }
-    .gys-admin-tabs button[aria-selected="true"]::after {
+    .gys-admin-tabs button::after {
         inset: 0.5rem auto 0.5rem 0.25rem;
         border-block-end: none;
         border-inline-start: 2px solid var(--admin-tab-accent);
@@ -142,6 +148,38 @@
 
 .gys-admin-disclosure[open] > summary .gys-admin-chevron {
     rotate: 180deg;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .gys-admin-tabs button,
+    .gys-admin-disclosure > summary,
+    .gys-admin-template {
+        transition:
+            background-color var(--gys-speed) var(--gys-ease),
+            color var(--gys-speed) var(--gys-ease),
+            border-color var(--gys-speed) var(--gys-ease);
+    }
+
+    .gys-admin-tabs button::after {
+        transition: opacity var(--gys-speed) var(--gys-ease);
+    }
+
+    .gys-admin-chevron {
+        transition: rotate var(--gys-speed) var(--gys-ease);
+    }
+
+    /* The new partial fades in without delaying the swap or moving focus. */
+    #admin-view > div[id],
+    #scorecard-editor > #editor-root {
+        transition: opacity var(--gys-speed) var(--gys-ease);
+    }
+
+    @starting-style {
+        #admin-view > div[id],
+        #scorecard-editor > #editor-root {
+            opacity: 0.55;
+        }
+    }
 }
 
 .gys-admin-table {

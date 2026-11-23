@@ -425,6 +425,50 @@ test("admin section tabs follow the layout's keyboard direction and restore deep
   await expect(tabs.getByRole("tab", { name: "Deleted Reviews" })).toBeFocused();
 });
 
+test("admin animates new panels and disclosures only when motion is allowed", async ({ page }) => {
+  await signIn(page);
+  await page.addInitScript(() => {
+    window.adminTransitions = [];
+    document.addEventListener("transitionrun", (event) => {
+      window.adminTransitions.push(`${event.target.id}:${event.pseudoElement}:${event.propertyName}`);
+    });
+  });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto(`${base}/admin#ai`);
+  await expect(page.locator("#admin-ai-root")).toBeVisible();
+  await page.getByRole("tab", { name: "Users", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.adminTransitions)).toContain("users-root::opacity");
+
+  const add = page.locator("#add-user-summary");
+  const form = page.getByRole("form", { name: "Add user" });
+  const transition = await add.evaluate(async (summary) => {
+    const details = summary.parentElement;
+    const started = new Promise((resolve) => details.addEventListener("toggle", () => {
+      resolve(details.getAnimations().some((item) => item.effect.getKeyframes()[0].height));
+    }, { once: true }));
+    summary.click();
+    return started;
+  });
+  expect(transition).toBe(true);
+  await expect(form).toBeVisible();
+  await add.focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(form).toBeHidden();
+  await expect(page.getByRole("searchbox")).toBeFocused();
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.getByRole("tab", { name: "Prompts", exact: true }).click();
+  const prompts = page.locator("#admin-prompts-root");
+  await expect(prompts).toHaveCSS("transition-duration", "0s");
+  const reduced = await prompts.locator("details.gys-admin-disclosure").first().evaluate(async (details) => {
+    const toggled = new Promise((resolve) => details.addEventListener("toggle", () => resolve(details.getAnimations().length), { once: true }));
+    details.querySelector("summary").click();
+    return toggled;
+  });
+  expect(reduced).toBe(0);
+});
+
 test("admin user directory keeps the search and focus after editing, deleting and restoring", async ({ page }) => {
   await signIn(page);
   await page.goto(`${base}/admin#users`);
