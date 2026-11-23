@@ -30,8 +30,58 @@
     if (!container) return;
 
     var newReviewBtn = document.getElementById('new-review-btn');
+    var newReviewLabel = document.getElementById('new-review-label');
+    var heading = document.getElementById('dashboard-heading');
+    var menuButton = document.getElementById('dashboard-menu-button');
+    var drawerToggle = document.getElementById('app-drawer');
+    var sidebar = document.getElementById('dashboard-sidebar');
+    var dashboardContent = document.getElementById('dashboard-content');
+    var desktop = window.matchMedia('(min-width: 64rem)');
+
+    function closeMenu(focusTarget) {
+        if (!drawerToggle.checked) return;
+        drawerToggle.checked = false;
+        menuButton.setAttribute('aria-expanded', 'false');
+        dashboardContent.inert = false;
+        sidebar.inert = !desktop.matches;
+        if (focusTarget) focusTarget.focus();
+    }
+    sidebar.inert = !desktop.matches;
+    menuButton.addEventListener('click', function () {
+        if (desktop.matches) return;
+        drawerToggle.checked = true;
+        menuButton.setAttribute('aria-expanded', 'true');
+        sidebar.inert = false;
+        sidebar.querySelector('button[data-dashboard-dismiss]').focus();
+        dashboardContent.inert = true;
+    });
+    sidebar.addEventListener('click', function (event) {
+        if (event.target.closest('[data-dashboard-dismiss]')) closeMenu(menuButton);
+    });
+    document.addEventListener('keydown', function (event) {
+        if (event.key === 'Escape' && drawerToggle.checked && !desktop.matches) {
+            event.preventDefault();
+            closeMenu(menuButton);
+        }
+    });
+    desktop.addEventListener('change', function () {
+        var wasInSidebar = sidebar.contains(document.activeElement);
+        closeMenu();
+        sidebar.inert = !desktop.matches;
+        if (wasInSidebar && !desktop.matches) menuButton.focus();
+        if (desktop.matches && document.activeElement === document.body && wasInSidebar) {
+            (sidebar.querySelector('nav a[aria-current]') || sidebar.querySelector('nav a')).focus();
+        }
+    });
 
     var CATEGORIES = ['qa-score', 'bad-feedback'];
+    var VIEW_LABELS = {
+        'qa-tracker': 'QA Tracker',
+        'my-reviews': 'My Reviews',
+        'all-reviews': 'All Reviews',
+        'to-review': 'To Review',
+        'team-quotas': 'Team Quotas'
+    };
     var links = Array.prototype.slice.call(
         document.querySelectorAll('aside a[data-view][hx-target="#view-container"]')
     );
@@ -105,14 +155,20 @@
         links.forEach(function (link) {
             var linkView = link.getAttribute('data-view');
             var linkCat = link.getAttribute('data-cat');
-            link.classList.toggle('menu-active',
-                linkView === view && (!linkCat || linkCat === category));
+            var current = linkView === view && (!linkCat || linkCat === category);
+            link.classList.toggle('menu-active', current);
+            if (current) link.setAttribute('aria-current', 'page');
+            else link.removeAttribute('aria-current');
         });
         tabs.forEach(function (btn) {
             var isTarget = btn.getAttribute('data-cat') === category;
             btn.classList.toggle('active', isTarget);
             btn.setAttribute('aria-selected', isTarget ? 'true' : 'false');
         });
+        heading.textContent = VIEW_LABELS[view];
+        if (newReviewLabel) {
+            newReviewLabel.textContent = category === 'bad-feedback' ? 'New Bad Feedback' : 'New Review';
+        }
         // The sliding underline is owned by js/tabs.js — nudge it, since
         // programmatic .active toggles never pass through its click
         // handler (reload-restore, sidebar-driven switches).
@@ -126,7 +182,7 @@
 
     // Which views does THIS user see? Sidebar links are the RBAC truth:
     // a hash naming a hidden view falls back to the server default.
-    var knownViews = {};
+    var knownViews = Object.create(null);
     links.forEach(function (link) {
         knownViews[link.getAttribute('data-view')] = true;
     });
@@ -226,6 +282,10 @@
         history.replaceState(null, '', '#' + view + '/' + category
             + (state.period ? '@' + state.period : ''));
         setActive(view, category);
+        if (sidebarLink) {
+            if (drawerToggle.checked) closeMenu(heading);
+            else if (document.activeElement === elt) heading.focus({preventScroll: true});
+        }
     });
 
     // Carry category and period into view switches unless the request

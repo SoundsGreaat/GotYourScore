@@ -1,9 +1,7 @@
 {% import "macros/icons.html" as icons %}
-<!-- data-period: the dashboard hash-sync reads it to mirror
-     #team-quotas@YYYY-MM into the location hash across swaps. The
-     view has NO period selector — the backend pins it to the CURRENT
-     reporting period and ignores any ?period= query param. -->
-<section data-period="{{ period_value }}" hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
+<!-- Team Quotas always shows the current period. Do not overwrite the
+     dashboard's selected reporting period when visiting this view. -->
+<section hx-get="/partials/team-quotas" hx-trigger="reviews-changed from:body" hx-sync="this:replace" hx-swap="outerHTML">
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">Team Quotas
             <span class="block text-xs font-normal text-base-content/60">Period progress across your assigned agents</span>

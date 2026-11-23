@@ -413,41 +413,54 @@
 
         /* Sliding-underline tab strip, shared by the dashboard tracker
            and the admin panel. Markup contract: container .gys-tabs
-           [data-tabs] with button[data-tab] children and a
+           [data-tabs] with tab buttons and a
            .gys-tabs-line span; behavior lives in js/tabs.js. JS
            positions .gys-tabs-line; transitions arm only once first
            placed (.gys-ready) so page load never slides the line in
-           from x=0. Disabled entries are future features — visibly
-           muted and unclickable. */
+           from x=0. */
         .gys-tabs {
+            --gys-tab-accent: color-mix(in oklab, var(--color-base-content) 62%, var(--color-primary));
             position: relative;
             display: flex;
-            gap: 26px;
-            padding: 0 2px 1px;
+            gap: clamp(0.75rem, 3vw, 1.625rem);
+            overflow-x: auto;
+            padding: 2px 2px 1px;
         }
         .gys-tabs button {
+            flex: none;
+            white-space: nowrap;
             border: none;
             background: transparent;
             padding: 10px 2px;
             font: inherit;
             font-size: 0.92rem;
-            cursor: pointer;
-            color: color-mix(in oklab, var(--color-base-content) 60%, transparent);
-        }
-        .gys-tabs button.active {
-            color: var(--color-primary);
             font-weight: 600;
+            cursor: pointer;
+            color: color-mix(in oklab, var(--color-base-content) 75%, transparent);
         }
-        .gys-tabs button[disabled] {
-            cursor: default;
-            opacity: 0.45;
+        .gys-tabs button[aria-selected="true"] {
+            color: var(--color-base-content);
+        }
+        .gys-tabs button:focus-visible {
+            outline: 2px solid currentColor;
+            outline-offset: -2px;
+            border-radius: 0.25rem;
         }
         .gys-tabs-line {
             position: absolute;
             bottom: 0;
-            height: 2px;
+            border-bottom: 2px solid var(--gys-tab-accent);
             border-radius: 2px;
-            background: var(--color-primary);
+            pointer-events: none;
+        }
+        @media (forced-colors: active) {
+            .gys-tabs-line {
+                border-color: Highlight;
+            }
+        }
+        #app-drawer:checked ~ #dashboard-sidebar {
+            /* Reveal immediately so the close button can receive focus on open. */
+            transition-delay: 0s;
         }
         @media (prefers-reduced-motion: no-preference) {
             .gys-tabs.gys-ready .gys-tabs-line {

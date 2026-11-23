@@ -73,19 +73,19 @@ test("sidebar and category swaps preserve the hash and open the matching editors
   expect(new URL((await reviews).url()).searchParams.get("cat")).toBe("bad-feedback");
   await expect(page).toHaveURL(`${base}/#my-reviews/bad-feedback`);
 
-  const newReview = page.getByRole("button", { name: "New Review", exact: true });
-  await newReview.click();
+  await page.getByRole("button", { name: "New Bad Feedback", exact: true }).click();
   await expect(page.getByRole("dialog").getByRole("heading", { name: "New Bad Feedback" })).toBeVisible();
   await page.keyboard.press("Escape");
 
   await page.getByRole("tab", { name: "QA Score" }).click();
   await expect(page.locator("#reviews-view")).toBeVisible();
   await expect(page).toHaveURL(/#my-reviews\/qa-score@\d{4}-\d{2}$/);
+  const newReview = page.getByRole("button", { name: "New Review", exact: true });
   await newReview.click();
   await expect(page.locator("#review-drawer-toggle")).toBeChecked();
   await expect(page.locator("#drawer-container .ql-editor")).toBeVisible();
   await page.locator("#case-type-button").click();
-  await page.locator("#case-type-menu").getByRole("button", { name: "Service Request" }).click();
+  await page.locator("#case-type-menu").getByText("Service Request", { exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(
     localStorage.getItem("gotyourscore:review-draft:new")
   )?.case_type)).toBe("Service Request");
@@ -281,4 +281,70 @@ test("browser back from Administration restores the dashboard view", async ({ pa
   await expect(page).toHaveURL(dashboard);
   await expect(page.locator("#bad-feedback-view")).toBeVisible();
   expect(failures).toEqual([]);
+});
+
+test("mobile dashboard menu is keyboard operable and does not leave the page inert", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await signIn(page);
+  await page.goto(`${base}/#qa-tracker/qa-score`);
+  await expect(page.getByRole("tab", { name: "QA Score" })).toHaveAttribute("aria-selected", "true");
+  const opener = page.getByRole("button", { name: "Open menu" });
+  await opener.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Close menu" })).toBeFocused();
+  await expect(page.locator("#dashboard-content")).toHaveAttribute("inert", "");
+  await page.keyboard.press("Escape");
+  await expect(opener).toBeFocused();
+  await expect(opener).toHaveAttribute("aria-expanded", "false");
+
+  await opener.press("Enter");
+  await page.getByRole("link", { name: "My Reviews" }).press("Enter");
+  await expect(page.getByRole("heading", { level: 1, name: "My Reviews" })).toBeFocused();
+  await expect(opener).toHaveAttribute("aria-expanded", "false");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+});
+
+test("admin tabs scroll on mobile and select only after a successful swap", async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 720 });
+  await signIn(page);
+  await page.goto(`${base}/admin`);
+  await expect(page.locator("#admin-prompts-root")).toBeVisible();
+  const prompts = page.getByRole("tab", { name: "Prompts" });
+  const users = page.getByRole("tab", { name: "Deleted Bad Feedback" });
+  await prompts.focus();
+  await page.keyboard.press("End");
+  await expect(users).toBeFocused();
+  await expect(prompts).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tabpanel", { name: "Prompts" })).toBeVisible();
+  await expect.poll(() => page.getByRole("tablist").evaluate((track) => track.scrollLeft)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+
+  await page.route("**/admin/partials/deleted-bad-feedback", (route) => route.fulfill({
+    status: 503,
+    json: { detail: "Temporarily unavailable." },
+  }), { times: 1 });
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("alert").filter({ hasText: "Temporarily unavailable." })).toBeVisible();
+  await expect(page.getByRole("tabpanel", { name: "Prompts" })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/admin`);
+  await page.keyboard.press("Space");
+  await expect(page.getByRole("tabpanel", { name: "Deleted Bad Feedback" })).toBeVisible();
+  await expect(page).toHaveURL(`${base}/admin#deleted-bad-feedback`);
+});
+
+test("Team Quotas does not overwrite the selected review period", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/#my-reviews/qa-score`);
+  await page.getByRole("button", { name: "Reporting period" }).click();
+  const priorPeriod = page.locator("#reviews-period-menu button:not(.active)").first();
+  const period = await priorPeriod.getAttribute("data-opt-value");
+  await priorPeriod.click();
+  await expect(page).toHaveURL(`${base}/#my-reviews/qa-score@${period}`);
+  await page.getByRole("link", { name: "Team Quotas" }).click();
+  await expect(page).toHaveURL(`${base}/#team-quotas/qa-score@${period}`);
+  const nextReviews = nextResponse(page, "/partials/my-reviews");
+  await page.getByRole("link", { name: "My Reviews" }).click();
+  expect(new URL((await nextReviews).url()).searchParams.get("period")).toBe(period);
+  await expect(page).toHaveURL(`${base}/#my-reviews/qa-score@${period}`);
 });
