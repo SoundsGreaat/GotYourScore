@@ -50,7 +50,7 @@
     {% if rows %}
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
-            <div class="max-w-full overflow-x-auto">
+            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-label="Bad Feedback records table">
                 <table class="table table-sm">
                     <thead>
                     <tr>
@@ -144,26 +144,27 @@
     {{ modals.notes_modal() }}
 
     <!-- ===== Import modal: upload → mapping → report ===== -->
-    <dialog class="modal js-bf-import-modal">
+    <dialog class="modal js-bf-import-modal" aria-labelledby="bf-import-title">
         <div class="modal-box max-w-2xl">
-            <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">✕</button></form>
-            <h3 class="mb-1 text-lg font-bold">Import Bad Feedback</h3>
+            <form method="dialog"><button aria-label="Close import" class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">✕</button></form>
+            <h3 id="bf-import-title" class="mb-1 pr-8 text-lg font-bold">Import Bad Feedback</h3>
             <p class="mb-4 text-sm text-base-content/70">
                 Upload an .xlsx file, confirm which column holds what, and the rows
                 become pending records. Uncheck rows you do not want to import.
                 Unknown agent names are created automatically.
             </p>
+            <p class="js-bf-import-error text-sm text-error" role="alert"></p>
 
             <!-- Step 1: upload -->
             <div class="js-bf-step-upload">
                 <label class="flex flex-col items-center gap-2 rounded-box border border-dashed border-base-300 p-6 text-center">
                     <span class="text-sm font-medium">Choose an .xlsx file</span>
-                    <input type="file" accept=".xlsx" class="file-input file-input-sm js-bf-file" />
+                    <input type="file" accept=".xlsx" class="file-input file-input-sm js-bf-file" autofocus />
                     <span class="text-xs text-base-content/60">First sheet, header row required · max 5 MB</span>
                 </label>
                 <div class="mt-4 flex justify-end">
                     <button type="button" class="btn btn-primary js-bf-inspect" disabled>Analyze</button>
-        </div>
+                </div>
             </div>
 
             <!-- Step 2: mapping -->
@@ -199,7 +200,7 @@
                         </label>
                     </div>
                     <p class="mb-2 text-xs text-base-content/60 js-bf-preview-note"></p>
-                    <div class="max-h-64 overflow-auto">
+                    <div class="max-h-64 overflow-auto" tabindex="0" role="region" aria-label="Import preview table">
                         <table class="table table-xs">
                             <thead class="js-bf-preview-head"></thead>
                             <tbody class="js-bf-preview"></tbody>
@@ -216,7 +217,7 @@
             <div class="js-bf-step-report hidden">
                 <div class="js-bf-report-body"></div>
                 <div class="mt-4 flex justify-end">
-                    <form method="dialog"><button class="btn btn-primary btn-sm">Done</button></form>
+                     <form method="dialog"><button class="btn btn-primary btn-sm js-bf-done">Done</button></form>
                 </div>
             </div>
         </div>
@@ -236,6 +237,11 @@
             var file = null;
             var inspectData = null;
             var importModal = section.querySelector('.js-bf-import-modal');
+            var analysisToken = 0;
+            var analyzing = false;
+            var committing = false;
+            var refreshOnClose = false;
+            var deleting = new Set();
 
             function step(name) {
                 ['upload', 'map', 'report'].forEach(function (s) {
@@ -244,26 +250,87 @@
             }
 
             /* ---------- import flow ---------- */
-            section.querySelector('.js-bf-file').addEventListener('change', function () {
-                file = this.files && this.files[0] ? this.files[0] : null;
-                section.querySelector('.js-bf-inspect').disabled = !file;
+            var fileInput = section.querySelector('.js-bf-file');
+            var inspectButton = section.querySelector('.js-bf-inspect');
+            var commitButton = section.querySelector('.js-bf-commit');
+            var backButton = section.querySelector('.js-bf-back');
+            var importError = importModal.querySelector('.js-bf-import-error');
+
+            function setImportError(message) {
+                importError.textContent = message || '';
+                importError.classList.toggle('mb-3', Boolean(message));
+            }
+
+            function setCommitPending(pending) {
+                committing = pending;
+                commitButton.disabled = pending;
+                commitButton.textContent = pending ? 'Importing…' : 'Import';
+                backButton.disabled = pending;
+                importModal.querySelectorAll('form[method="dialog"] button').forEach(function (button) {
+                    button.disabled = pending;
+                });
+            }
+
+            // Don't remove the dialog (and its draft or report) during a refresh.
+            function deferRefresh(event) {
+                if (!importModal.open || event.detail.ctx.target !== section) return;
+                event.preventDefault();
+                refreshOnClose = true;
+            }
+            section.addEventListener('htmx:before:request', deferRefresh);
+            section.addEventListener('htmx:before:swap', deferRefresh);
+            importModal.addEventListener('cancel', function (event) {
+                if (committing) event.preventDefault();
+            });
+            importModal.addEventListener('submit', function (event) {
+                if (committing && event.target.method === 'dialog') event.preventDefault();
             });
 
-            section.querySelector('.js-bf-inspect').addEventListener('click', function () {
-                if (!file) return;
+            fileInput.addEventListener('change', function () {
+                analysisToken++;
+                inspectData = null;
+                analyzing = false;
+                file = this.files && this.files[0] ? this.files[0] : null;
+                inspectButton.disabled = !file;
+                inspectButton.textContent = 'Analyze';
+                setImportError();
+                step('upload');
+            });
+
+            inspectButton.addEventListener('click', function () {
+                if (!file || analyzing || !importModal.open) return;
+                var analyzedFile = file;
+                var token = ++analysisToken;
+                analyzing = true;
+                inspectButton.disabled = true;
+                inspectButton.textContent = 'Analyzing…';
+                setImportError();
                 var form = new FormData();
-                form.append('file', file);
+                form.append('file', analyzedFile);
                 fetch('/api/bad-feedback/import/inspect', {method: 'POST', credentials: 'same-origin', body: form})
                     .then(function (response) {
                         if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Inspect failed'); });
                         return response.json();
                     })
                     .then(function (data) {
+                        if (token !== analysisToken || !importModal.open || file !== analyzedFile) return;
                         inspectData = data;
                         buildMapping(data);
                         step('map');
+                        backButton.focus();
                     })
-                    .catch(function (error) { showToast(error.message || 'Unable to analyze the file.'); });
+                    .catch(function (error) {
+                        if (token === analysisToken && importModal.open && file === analyzedFile) {
+                            setImportError(error.message || 'Unable to analyze the file.');
+                        }
+                    })
+                    .finally(function () {
+                        if (token === analysisToken) {
+                            analyzing = false;
+                            inspectButton.disabled = !file;
+                            inspectButton.textContent = 'Analyze';
+                        }
+                    });
             });
 
             function buildMapping(data) {
@@ -275,7 +342,7 @@
                     if (!holder) return;
                     var menu = document.getElementById(ddId + '-menu');
                     if (!menu) return;
-                    menu.innerHTML = '';
+                    menu.replaceChildren();
                     var options = [{v: '', l: 'Not imported'}].concat(
                         data.headers.map(function (h) { return {v: h, l: h}; })
                     );
@@ -288,8 +355,11 @@
                     var notImportedButton = null;
                     options.forEach(function (opt) {
                         var li = document.createElement('li');
+                        li.setAttribute('role', 'none');
                         var btn = document.createElement('button');
                         btn.type = 'button';
+                        btn.setAttribute('role', 'menuitem');
+                        btn.tabIndex = -1;
                         btn.setAttribute('data-opt-value', opt.v);
                         btn.setAttribute('data-opt-label', opt.l);
                         btn.textContent = opt.l;
@@ -306,18 +376,21 @@
                     );
                 });
                 var previewBody = importModal.querySelector('.js-bf-preview');
-                previewBody.innerHTML = '';
+                previewBody.replaceChildren();
                 var previewHead = importModal.querySelector('.js-bf-preview-head');
-                previewHead.innerHTML = '';
+                previewHead.replaceChildren();
                 var headerRow = document.createElement('tr');
                 var chooseHeader = document.createElement('th');
+                chooseHeader.scope = 'col';
                 chooseHeader.textContent = 'Import';
                 headerRow.appendChild(chooseHeader);
                 var rowHeader = document.createElement('th');
+                rowHeader.scope = 'col';
                 rowHeader.textContent = 'Row';
                 headerRow.appendChild(rowHeader);
                 data.headers.forEach(function (header) {
                     var th = document.createElement('th');
+                    th.scope = 'col';
                     th.textContent = header;
                     th.className = 'whitespace-nowrap';
                     headerRow.appendChild(th);
@@ -334,7 +407,8 @@
                     checkbox.setAttribute('aria-label', 'Import row ' + row.row_number);
                     selectCell.appendChild(checkbox);
                     tr.appendChild(selectCell);
-                    var numberCell = document.createElement('td');
+                    var numberCell = document.createElement('th');
+                    numberCell.scope = 'row';
                     numberCell.textContent = row.row_number;
                     numberCell.className = 'text-base-content/60';
                     tr.appendChild(numberCell);
@@ -353,11 +427,18 @@
                         : shown + ' of ' + data.total_rows + ' row(s) shown; rows after the import limit are skipped.';
                 var toggleAll = importModal.querySelector('.js-bf-toggle-all');
                 toggleAll.checked = true;
+                toggleAll.indeterminate = false;
             }
 
-            section.querySelector('.js-bf-back').addEventListener('click', function () { step('upload'); });
+            backButton.addEventListener('click', function () {
+                inspectData = null;
+                setImportError();
+                step('upload');
+                fileInput.focus();
+            });
 
-            section.querySelector('.js-bf-commit').addEventListener('click', function () {
+            commitButton.addEventListener('click', function () {
+                if (committing || !file || !inspectData || !importModal.open) return;
                 var mapping = {};
                 section.querySelectorAll('[data-bf-map]').forEach(function (hidden) {
                     mapping[hidden.getAttribute('data-bf-map')] = hidden.value || null;
@@ -374,55 +455,95 @@
                 if (assignee && assignee.value) {
                     form.append('assigned_qa_id', assignee.value);
                 }
-                var btn = this;
-                btn.disabled = true;
+                setImportError();
+                setCommitPending(true);
                 fetch('/api/bad-feedback/import', {method: 'POST', credentials: 'same-origin', body: form})
                     .then(function (response) {
                         if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Import failed'); });
                         return response.json();
                     })
                     .then(function (data) {
+                        if (!importModal.open || !importModal.isConnected) {
+                            document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                            return;
+                        }
+                        refreshOnClose = true;
                         renderReport(data);
                         step('report');
-                        document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                        setCommitPending(false);
+                        importModal.querySelector('.js-bf-done').focus();
                     })
-                    .catch(function (error) { showToast(error.message || 'Unable to import.'); })
-                    .finally(function () { btn.disabled = false; });
+                    .catch(function (error) { setImportError(error.message || 'Unable to import.'); })
+                    .finally(function () {
+                        setCommitPending(false);
+                        if (importModal.open && importError.textContent) commitButton.focus();
+                    });
             });
 
             function renderReport(data) {
                 var body = importModal.querySelector('.js-bf-report-body');
-                var html = '<div class="mb-3 alert alert-success py-2 text-sm">' + data.created_count + ' record(s) imported.';
-                if (data.skipped_count) html += ' ' + data.skipped_count + ' skipped.';
-                html += '</div>';
-                if (data.created_users.length) {
-                    html += '<p class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">New users created</p><ul class="mb-3 list-disc pl-5 text-sm">';
-                    data.created_users.forEach(function (u) { html += '<li>' + u.replace(/</g, '&lt;') + '</li>'; });
-                    html += '</ul>';
-                }
-                if (data.skipped.length) {
-                    html += '<p class="mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60">Skipped rows</p><ul class="list-disc pl-5 text-sm">';
-                    data.skipped.forEach(function (s) {
-                        html += '<li>Row ' + s.row_number + ': ' + s.reason.replace(/</g, '&lt;') + '</li>';
+                var summary = document.createElement('p');
+                summary.className = 'mb-3 alert alert-success py-2 text-sm';
+                summary.textContent = data.created_count + ' record(s) imported.'
+                    + (data.skipped_count ? ' ' + data.skipped_count + ' skipped.' : '');
+                body.replaceChildren(summary);
+
+                function addList(title, items) {
+                    if (!items.length) return;
+                    var label = document.createElement('p');
+                    label.className = 'mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60';
+                    label.textContent = title;
+                    var list = document.createElement('ul');
+                    list.className = 'mb-3 list-disc pl-5 text-sm';
+                    items.forEach(function (text) {
+                        var item = document.createElement('li');
+                        item.textContent = text;
+                        list.append(item);
                     });
-                    html += '</ul>';
+                    body.append(label, list);
                 }
-                body.innerHTML = html;
+                addList('New users created', data.created_users);
+                addList('Skipped rows', data.skipped.map(function (row) {
+                    return 'Row ' + row.row_number + ': ' + row.reason;
+                }));
             }
 
             section.querySelector('[data-bf-import]').addEventListener('click', function () {
+                analysisToken++;
                 file = null;
                 inspectData = null;
-                section.querySelector('.js-bf-file').value = '';
-                section.querySelector('.js-bf-inspect').disabled = true;
+                analyzing = false;
+                fileInput.value = '';
+                inspectButton.disabled = true;
+                inspectButton.textContent = 'Analyze';
+                setImportError();
+                window.setDropdownValue('bf-import-assignee', '#bf-import-assignee-display',
+                    importModal.querySelector('#bf-import-assignee-menu [data-opt-value=""]'));
                 step('upload');
                 importModal.showModal();
+            });
+
+            importModal.addEventListener('close', function () {
+                analysisToken++;
+                analyzing = false;
+                if (refreshOnClose) {
+                    refreshOnClose = false;
+                    document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
+                }
             });
 
             importModal.querySelector('.js-bf-toggle-all').addEventListener('change', function () {
                 importModal.querySelectorAll('.js-bf-import-row').forEach(function (checkbox) {
                     checkbox.checked = this.checked;
                 }, this);
+            });
+            importModal.addEventListener('change', function (event) {
+                if (!event.target.matches('.js-bf-import-row')) return;
+                var toggle = importModal.querySelector('.js-bf-toggle-all');
+                var checked = importModal.querySelector('.js-bf-import-row:checked');
+                var unchecked = importModal.querySelector('.js-bf-import-row:not(:checked)');
+                toggle.checked = !unchecked;
+                toggle.indeterminate = Boolean(checked && unchecked);
             });
 
             /* ---------- edit flow (on-demand editor partial) ---------- */
@@ -435,14 +556,21 @@
                 var deleteBtn = event.target.closest('[data-bf-delete]');
                 if (deleteBtn) {
                     var deleteId = deleteBtn.getAttribute('data-bf-delete');
+                    if (deleting.has(deleteId)) return;
                     if (!window.confirm('Delete this Bad Feedback record?')) return;
+                    deleting.add(deleteId);
+                    deleteBtn.disabled = true;
                     fetch('/api/bad-feedback/' + deleteId, {method: 'DELETE', credentials: 'same-origin'})
                         .then(function (response) {
                             if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
                             showToast('Record deleted.', 'alert-success');
                             document.body.dispatchEvent(new CustomEvent('bad-feedback-changed', {bubbles: true}));
                         })
-                        .catch(function (error) { showToast(error.message || 'Unable to delete record.'); });
+                        .catch(function (error) { showToast(error.message || 'Unable to delete record.'); })
+                        .finally(function () {
+                            deleting.delete(deleteId);
+                            if (deleteBtn.isConnected) deleteBtn.disabled = false;
+                        });
                 }
             });
 })();
