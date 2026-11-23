@@ -65,8 +65,8 @@
     {% set span_cls = ((display_sel[1:] ~ ' ') if display_sel else '') ~ 'pointer-events-none truncate' ~ ('' if match else ' text-base-content/70') %}
     {% set shown = match[0].label if match else (any_label if any_label else placeholder) %}
     <button type="button" id="{{ id }}-button" popovertarget="{{ id }}-menu"
-            aria-haspopup="menu"
-            style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% endif %}
+            aria-haspopup="menu" aria-expanded="false" aria-controls="{{ id }}-menu"
+            style="anchor-name:{{ anchor }}"{% if aria_label %} aria-label="{{ aria_label }}"{% if not display_sel %} aria-describedby="{{ id }}-display"{% endif %}{% endif %}
             class="{{ btn_cls }}">
         {% if display_sel %}
             <span class="{{ span_cls }}">{{ shown }}</span>
@@ -74,11 +74,13 @@
             <span id="{{ id }}-display" class="{{ span_cls }}">{{ shown }}</span>
         {% endif %}
     </button>
-    <ul id="{{ id }}-menu" popover style="position-anchor:{{ anchor }}"
+    <ul id="{{ id }}-menu" popover role="menu" aria-labelledby="{{ id }}-button"
+        style="position-anchor:{{ anchor }}"
         class="dropdown menu menu-sm {{ menu_w }} flex-nowrap overflow-y-auto rounded-box border border-base-300 bg-base-100 p-1 shadow-md max-h-48">
         {%- if any_label %}
-            <li>
-                <button type="button" data-opt-value="" data-opt-label="{{ any_label }}"
+            <li role="none">
+                <button type="button" role="menuitem" tabindex="-1"
+                        data-opt-value="" data-opt-label="{{ any_label }}"
                         class="{{ 'active menu-active' if not selected else '' }}"
                         onclick="{{ js_fn }}('{{ id }}', '{{ disp_ref }}', this)">
                     {{ any_label }}
@@ -86,8 +88,8 @@
             </li>
         {% endif -%}
         {%- for opt in opts %}
-            <li>
-                <button type="button"
+            <li role="none">
+                <button type="button" role="menuitem" tabindex="-1"
                         data-opt-value="{{ opt.value }}" data-opt-label="{{ opt.label }}"
                         {{ (opt_data ~ '="' ~ opt.value ~ '"') if opt_data else '' }}
                         class="{{ 'active menu-active' if opt.value|string == selected|string else '' }}"

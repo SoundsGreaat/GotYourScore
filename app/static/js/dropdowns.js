@@ -9,11 +9,11 @@
  * touched — nothing is mutated during the daisyUI entry animation.
  *
  * Behavior (with a menu open):
- *  - Typing printable characters highlights the first option whose
+ *  - Typing printable characters focuses the first option whose
  *    label starts with the accumulated buffer (case-insensitive).
  *    Repeating one character cycles through its matches; Backspace
  *    edits the buffer; the buffer resets after a short idle pause.
- *  - ArrowDown/ArrowUp move the active option, Enter picks it (the
+ *  - ArrowDown/ArrowUp move focus, Enter/Space picks the option (the
  *    option's existing onclick runs — the shared setDropdownValue
  *    setter closes the popover itself).
  *  - ArrowDown/ArrowUp on a closed dropdown's trigger opens it.
@@ -26,19 +26,6 @@
     function optionButtons(menu) {
         return Array.prototype.slice.call(
             menu.querySelectorAll(':scope > li > button'));
-    }
-
-    function setActive(menu, btn) {
-        optionButtons(menu).forEach(function (b) {
-            b.classList.remove('active');
-            b.classList.remove('menu-active');
-        });
-        if (btn) {
-            btn.classList.add('active');
-            btn.classList.add('menu-active');
-            // Keep the highlighted option in view inside max-h-48 lists.
-            if (btn.scrollIntoView) btn.scrollIntoView({ block: 'nearest' });
-        }
     }
 
     function activeButton(menu) {
@@ -68,7 +55,7 @@
         var buttons = optionButtons(menu);
         if (!buttons.length) return;
 
-        var currentIndex = buttons.indexOf(activeButton(menu));
+        var currentIndex = buttons.indexOf(document.activeElement);
         var query;
         var match;
         if (!fresh && state.q.length === 1 && state.q === key) {
@@ -87,7 +74,7 @@
             }
         }
         menu.__ddTypeahead = { q: query, t: now };
-        if (match) setActive(menu, match);
+        if (match) match.focus();
     }
 
     // The open menu a keystroke belongs to: either the target sits inside
@@ -100,11 +87,11 @@
         var trigger = t.closest('button[popovertarget]');
         if (!trigger) return null;
         var owned = document.getElementById(trigger.getAttribute('popovertarget'));
-        return owned && owned.matches(':popover-open') ? owned : null;
+        return owned && owned.matches('[popover].dropdown.menu:popover-open') ? owned : null;
     }
 
     document.addEventListener('keydown', function (event) {
-        if (event.ctrlKey || event.metaKey || event.altKey) return;
+        if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
 
         var menu = openMenuFor(event);
         if (!menu) {
@@ -116,9 +103,12 @@
                 : null;
             if (!trigger) return;
             var closed = document.getElementById(trigger.getAttribute('popovertarget'));
-            if (!closed || !closed.showPopover || closed.matches(':popover-open')) return;
+            if (!closed || !closed.showPopover || !closed.matches('[popover].dropdown.menu')) return;
             event.preventDefault();
             closed.showPopover();
+            var opts = optionButtons(closed);
+            var selected = activeButton(closed) || opts[event.key === 'ArrowUp' ? opts.length - 1 : 0];
+            if (selected) selected.focus();
             return;
         }
 
@@ -126,19 +116,30 @@
             event.preventDefault();
             var buttons = optionButtons(menu);
             if (!buttons.length) return;
-            var idx = buttons.indexOf(activeButton(menu));
+            var idx = buttons.indexOf(document.activeElement);
             var step = event.key === 'ArrowDown' ? 1 : -1;
             var next = buttons[
                 ((idx === -1 ? (step === 1 ? -1 : 0) : idx) + step + buttons.length)
                 % buttons.length
             ];
-            setActive(menu, next);
-        } else if (event.key === 'Enter') {
+            next.focus();
+        } else if (event.key === 'Home' || event.key === 'End') {
             event.preventDefault();
-            var pick = activeButton(menu) || optionButtons(menu)[0];
-            // Runs the option's existing onclick handler; the shared
-            // setDropdownValue setter hides the popover after applying.
-            if (pick) pick.click();
+            var edgeOptions = optionButtons(menu);
+            var edge = event.key === 'Home' ? edgeOptions[0] : edgeOptions[edgeOptions.length - 1];
+            if (edge) edge.focus();
+        } else if (event.key === 'Escape') {
+            // Explicitly restore focus as popover light-dismiss does not
+            // consistently do so across browsers.
+            event.preventDefault();
+            var owner = document.querySelector('[popovertarget="' + menu.id + '"]');
+            if (menu.hidePopover) menu.hidePopover();
+            if (owner) owner.focus();
+        } else if (event.key === 'Tab') {
+            // Continue the browser's tab sequence from the invoker.
+            var trigger = document.querySelector('[popovertarget="' + menu.id + '"]');
+            menu.hidePopover();
+            if (trigger) trigger.focus();
         } else if (event.key === 'Backspace') {
             var st = menu.__ddTypeahead;
             if (st && st.q) {
@@ -146,16 +147,31 @@
                 st.t = Date.now();
                 if (st.q) {
                     var m = findMatch(optionButtons(menu), st.q, -1);
-                    if (m) setActive(menu, m);
+                    if (m) m.focus();
                 }
                 event.preventDefault();
             }
-        } else if (event.key.length === 1) {
-            event.preventDefault(); // e.g. stop Space from scrolling
+        } else if (event.key.length === 1 && event.key !== ' ') {
+            event.preventDefault();
             typeahead(menu, event.key);
         }
-        // Escape: native light dismiss closes the popover.
     });
+
+    // Keep the menu button's expanded state accurate for assistive tech,
+    // including native activation and light-dismiss/outside clicks.
+    document.addEventListener('toggle', function (event) {
+        var menu = event.target;
+        if (!menu.matches || !menu.matches('[popover].dropdown.menu')) return;
+        var trigger = document.querySelector('[popovertarget="' + menu.id + '"]');
+        if (!trigger) return;
+        var open = menu.matches(':popover-open');
+        trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        menu.__ddTypeahead = null;
+        if (open && !menu.contains(document.activeElement)) {
+            var selected = activeButton(menu) || optionButtons(menu)[0];
+            if (selected) selected.focus();
+        }
+    }, true);
 })();
 
 /* Shared pick handler for every popover-API dropdown rendered by
@@ -217,14 +233,10 @@ window.setDropdownValue = function (hiddenId, displayRef, value, text, btnEl) {
     }
     // Popover-API menus stay open after an inner click — close on pick.
     var pop = btnEl && btnEl.closest('[popover]');
-    if (pop && pop.matches(':popover-open')) pop.hidePopover();
-    // Keyboard focus returns to the TRIGGER (native <select> behavior)
-    // instead of being dropped on <body> — blur() left keyboard users
-    // stranded after an Enter pick.
-    var trigger = pop ? document.querySelector('[popovertarget="' + pop.id + '"]') : null;
-    if (trigger) {
-        trigger.focus();
-    } else if (document.activeElement && document.activeElement.blur) {
-        document.activeElement.blur();
+    if (pop && pop.matches(':popover-open')) {
+        pop.hidePopover();
+        // Programmatic picks in a closed menu must not steal focus.
+        var trigger = document.querySelector('[popovertarget="' + pop.id + '"]');
+        if (trigger) trigger.focus();
     }
 };
