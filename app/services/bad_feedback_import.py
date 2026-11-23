@@ -25,7 +25,7 @@ import unicodedata
 from difflib import SequenceMatcher
 from datetime import date, datetime
 from io import BytesIO
-from typing import Any
+from typing import Any, Sequence
 
 from openpyxl import load_workbook
 from sqlalchemy import select
@@ -35,8 +35,11 @@ from app.models import (
     AgentKindEnum,
     BadFeedback,
     BadFeedbackAgent,
+    RefundCheck,
+    RefundCheckAgent,
     ReviewStatusEnum,
     RoleEnum,
+    TrackerField,
     User,
 )
 from app.schemas.bad_feedback import (
@@ -45,6 +48,7 @@ from app.schemas.bad_feedback import (
     ImportPreviewRow,
 )
 from app.services import user_service
+from app.services.tracker_fields import apply_field_values, field_value_limit
 
 # Canonical importable fields. ``support_agents``/``sales_agents`` are
 # the two agent-list columns; everything else is a scalar field.
@@ -67,6 +71,16 @@ FIELD_LABELS = {
     "related_case": "RA related case",
     "support_agents": "RA Support agents assigned",
     "sales_agents": "Sales agents assigned",
+}
+
+# Historic workbook headers remain recognized after the tracker editor
+# switches to shorter display labels.
+_FIELD_LABEL_ALIASES = {
+    "fb_date": ("Date",),
+    "source": ("Source",),
+    "customer_info": ("Customer's info (CRM link / email)",),
+    "customer_feedback": ("Customer's feedback",),
+    "related_case": ("RA related case",),
 }
 
 # Regexes tried in order by _parse_date_text.
@@ -131,6 +145,7 @@ _MAX_CELL = 2000
 # Row-level skip reasons.
 REASON_NO_AGENTS = "no agents in the row"
 REASON_BAD_DATE = "unparsable date (fix it in the sheet or clear the cell)"
+REASON_FIELD_TOO_LONG = "value exceeds the field's maximum length"
 
 
 def _display(value: Any) -> str | None:
@@ -319,14 +334,14 @@ def _field_label(field: str) -> str:
     return FIELD_LABELS[field].split("(", maxsplit=1)[0].strip()
 
 
-def _field_similarity(field: str, header: str) -> float:
+def _label_similarity(label: str, header: str) -> float:
     """Return normalized similarity between an import field and a header.
 
     Labels are the single source of matching vocabulary. Exact and phrase
     matches win; otherwise token overlap and edit similarity handle short
     labels and small spelling differences.
     """
-    label = _normalized_text(_field_label(field))
+    label = _normalized_text(label.split("(", maxsplit=1)[0].strip())
     normalized = _normalized_text(header)
     if not label or not normalized:
         return 0.0
@@ -346,19 +361,42 @@ def _field_similarity(field: str, header: str) -> float:
     return 0.6 * token_score + 0.4 * text_score
 
 
-def suggest_mapping(headers: list[str]) -> dict[str, str]:
-    """Map each field to its best unambiguous header by similarity."""
+def _field_similarity(field: str, header: str) -> float:
+    """Compatibility wrapper for the original Bad Feedback labels."""
+    return _label_similarity(FIELD_LABELS[field], header)
+
+
+def import_field_labels(fields: Sequence[TrackerField]) -> dict[str, str]:
+    """Return configured case labels plus the fixed agent-mapping labels."""
+    labels = {field.key: field.label for field in fields}
+    labels["support_agents"] = FIELD_LABELS["support_agents"]
+    labels["sales_agents"] = FIELD_LABELS["sales_agents"]
+    return labels
+
+
+def _suggest_mapping_for_labels(
+    headers: list[str], field_labels: dict[str, str]
+) -> dict[str, str]:
+    """Suggest one best unambiguous header per configured import field."""
     candidates: list[tuple[float, str, int]] = []
     for index, header in enumerate(headers):
         scored = sorted(
             (
-                (_field_similarity(key, header), key)
-                for key in FIELD_KEYS
+                (
+                    max(
+                        _label_similarity(candidate, header)
+                        for candidate in (label, *_FIELD_LABEL_ALIASES.get(key, ()))
+                    ),
+                    key,
+                )
+                for key, label in field_labels.items()
             ),
             reverse=True,
         )
+        if not scored:
+            continue
         best_score, best_key = scored[0]
-        next_score = scored[1][0]
+        next_score = scored[1][0] if len(scored) > 1 else 0.0
         if best_score < _MAPPING_THRESHOLD:
             continue
         if (
@@ -382,7 +420,19 @@ def suggest_mapping(headers: list[str]) -> dict[str, str]:
     return suggestions
 
 
-def inspect_workbook(content: bytes) -> ImportInspectResponse:
+def suggest_mapping(headers: list[str]) -> dict[str, str]:
+    """Map each field to its best unambiguous header by similarity."""
+    return _suggest_mapping_for_labels(
+        headers, {key: FIELD_LABELS[key] for key in FIELD_KEYS}
+    )
+
+
+def inspect_workbook(
+    content: bytes,
+    fields: Sequence[TrackerField] | None = None,
+    *,
+    include_legacy_date_alias: bool = False,
+) -> ImportInspectResponse:
     """Parse the uploaded workbook in memory (nothing persisted)."""
     workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
     try:
@@ -412,11 +462,22 @@ def inspect_workbook(content: bytes) -> ImportInspectResponse:
                         values=[_display(v) or "" for v in values[: len(headers)]],
                     )
                 )
+        if fields is None:
+            suggestions = suggest_mapping(headers)
+        else:
+            suggestions = _suggest_mapping_for_labels(
+                headers, import_field_labels(fields)
+            )
+            if include_legacy_date_alias and "fb_date" in suggestions:
+                # The old Bad Feedback import client called this field
+                # ``date``. Keep its suggestion while exposing fb_date for
+                # the configurable-field UI.
+                suggestions["date"] = suggestions["fb_date"]
         return ImportInspectResponse(
             sheet_names=list(workbook.sheetnames),
             active_sheet=sheet.title,
             headers=headers,
-            suggestions=suggest_mapping(headers),
+            suggestions=suggestions,
             preview=data_rows,
             total_rows=total,
         )
@@ -431,15 +492,39 @@ async def commit_import(
     excluded_rows: set[int] | None,
     assigned_qa_id: int | None,
     created_by: int,
+    *,
+    tracker: str = "bad-feedback",
+    fields: Sequence[TrackerField] | None = None,
+    include_legacy_date_alias: bool = False,
 ) -> ImportCommitResponse:
-    """Create pending BadFeedback rows from the mapped sheet.
+    """Create pending tracker rows from the mapped sheet.
 
-    ``mapping`` keys are :data:`FIELD_KEYS` with header texts (or
-    None/""). ``excluded_rows`` contains sheet row numbers unchecked
-    in the preview. Rows lacking ANY agent name are skipped with a
-    reason; unknown agent names are created as placeholder users;
-    everything commits atomically.
+    Configured case fields use their stable keys. The two agent mappings
+    remain fixed as ``support_agents`` and ``sales_agents``. For legacy
+    Bad Feedback callers, ``date`` is accepted as an alias for ``fb_date``.
     """
+    if tracker not in {"bad-feedback", "refund-check"}:
+        raise ValueError(f"Unsupported tracker {tracker!r}.")
+    record_model = BadFeedback if tracker == "bad-feedback" else RefundCheck
+    agent_model = BadFeedbackAgent if tracker == "bad-feedback" else RefundCheckAgent
+
+    if fields is None:
+        # Preserve direct callers of this service's original interface.
+        field_specs = [
+            (key, "fb_date" if key == "date" else key, field_type)
+            for key, field_type in (
+                ("date", "date"),
+                ("source", "text"),
+                ("customer_info", "text"),
+                ("customer_feedback", "textarea"),
+                ("related_case", "text"),
+            )
+        ]
+    else:
+        field_specs = [
+            (field.key, field.key, field.field_type) for field in fields
+        ]
+
     workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
     try:
         sheet = workbook[workbook.sheetnames[0]]
@@ -452,14 +537,33 @@ async def commit_import(
             _display(value) or f"Column {idx + 1}"
             for idx, value in enumerate(header_row)
         ]
+        mapping = dict(mapping)
+        if include_legacy_date_alias and "fb_date" not in mapping and "date" in mapping:
+            mapping["fb_date"] = mapping["date"]
+        valid_keys = {
+            mapping_key for mapping_key, _, _ in field_specs
+        } | {"support_agents", "sales_agents"}
+        if include_legacy_date_alias:
+            valid_keys.add("date")
+        unknown_keys = set(mapping) - valid_keys
+        if unknown_keys:
+            raise ValueError(
+                f"Unknown import mapping field {sorted(unknown_keys)[0]!r}."
+            )
+        if any(value is not None and not isinstance(value, str) for value in mapping.values()):
+            raise ValueError("Import mapping values must be header text or null.")
         columns = {
-            key: _header_index(headers, mapping.get(key))
-            for key in FIELD_KEYS
+            mapping_key: _header_index(headers, mapping.get(mapping_key))
+            for mapping_key, _, _ in field_specs
         }
+        columns["support_agents"] = _header_index(
+            headers, mapping.get("support_agents")
+        )
+        columns["sales_agents"] = _header_index(headers, mapping.get("sales_agents"))
 
         by_email, by_nick = await _load_user_maps(db)
         today = date.today()
-        created: list[BadFeedback] = []
+        created: list[BadFeedback | RefundCheck] = []
         skipped: list[tuple[int, str]] = []
         created_users: list[str] = []
 
@@ -486,10 +590,41 @@ async def commit_import(
                     value = value[:_MAX_CELL]
                 return value
 
-            raw_date = cell("date")
-            fb_date = parse_feedback_date(raw_date, today)
-            if raw_date not in (None, "") and fb_date is None:
+            case_values: dict[str, str | None] = {}
+            invalid_date = False
+            too_long_field: str | None = None
+            too_long_limit: int | None = None
+            for mapping_key, field_key, field_type in field_specs:
+                raw_value = cell(mapping_key)
+                if field_type == "date":
+                    parsed_date = parse_feedback_date(raw_value, today)
+                    if raw_value not in (None, "") and parsed_date is None:
+                        invalid_date = True
+                        break
+                    case_values[field_key] = (
+                        parsed_date.isoformat() if parsed_date is not None else None
+                    )
+                    continue
+
+                value = _display(raw_value)
+                value_limit = field_value_limit(field_key)
+                if value is not None and len(value) > value_limit:
+                    too_long_field = field_key
+                    too_long_limit = value_limit
+                    break
+                case_values[field_key] = value
+
+            if invalid_date:
                 skipped.append((row_number, REASON_BAD_DATE))
+                continue
+            if too_long_field is not None:
+                skipped.append(
+                    (
+                        row_number,
+                        f"{REASON_FIELD_TOO_LONG}: {too_long_field} "
+                        f"(maximum {too_long_limit} characters)",
+                    )
+                )
                 continue
 
             agent_rows: list[tuple[User, AgentKindEnum]] = []
@@ -510,16 +645,14 @@ async def commit_import(
                 skipped.append((row_number, REASON_NO_AGENTS))
                 continue
 
-            feedback = BadFeedback(
-                fb_date=fb_date,
-                source=text("source"),
-                customer_info=text("customer_info"),
-                customer_feedback=text("customer_feedback"),
-                related_case=text("related_case"),
+            feedback = record_model(
                 status=ReviewStatusEnum.PENDING,
                 assigned_qa_id=assigned_qa_id,
                 created_by=created_by,
             )
+            # Uses replacement semantics for JSONB and leaves compatibility
+            # columns authoritative for the five seeded keys.
+            apply_field_values(feedback, case_values)
             # Dedup by email, not by user.id: rows created in this
             # import have no id until the flush, so two brand-new
             # agents would collapse into one "None" key.
@@ -529,7 +662,7 @@ async def commit_import(
                 if pair in seen:
                     continue
                 seen.add(pair)
-                feedback.agents.append(BadFeedbackAgent(user=user, kind=kind))
+                feedback.agents.append(agent_model(user=user, kind=kind))
             created.append(feedback)
             db.add(feedback)
 

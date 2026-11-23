@@ -61,6 +61,9 @@ class BadFeedbackCreate(BaseModel):
     customer_info: str | None = Field(default=None, max_length=2000)
     customer_feedback: str | None = Field(default=None, max_length=10_000)
     related_case: str | None = Field(default=None, max_length=255)
+    # Stable field key -> string/null. Legacy flat fields remain supported;
+    # when both forms provide the same key, this mapping takes precedence.
+    field_values: dict[str, str | None] = Field(default_factory=dict)
     assigned_qa_id: int | None = None
     agents: list[BadFeedbackAgentIn] = Field(default_factory=list, max_length=50)
     complete: bool = False
@@ -98,6 +101,9 @@ class BadFeedbackUpdate(BaseModel):
     customer_info: str | None = Field(default=None, max_length=2000)
     customer_feedback: str | None = Field(default=None, max_length=10_000)
     related_case: str | None = Field(default=None, max_length=255)
+    # PATCH semantics are per-key merge: omitted keys are untouched and a
+    # present null clears that configured field.
+    field_values: dict[str, str | None] = Field(default_factory=dict)
     assigned_qa_id: int | None = None
     agents: list[BadFeedbackAgentIn] | None = Field(default=None, max_length=50)
 
@@ -121,6 +127,9 @@ class BadFeedbackRead(BaseModel):
     customer_info: str | None = None
     customer_feedback: str | None = None
     related_case: str | None = None
+    # Canonical values use their stable keys (fb_date is YYYY-MM-DD/null);
+    # custom values are included, including values retained for archived keys.
+    field_values: dict[str, str | None] = Field(default_factory=dict)
     qa_comment: str | None = None
     status: ReviewStatusEnum = ReviewStatusEnum.PENDING
     assigned_qa_id: int | None = None
@@ -181,3 +190,33 @@ class ImportCommitResponse(BaseModel):
     created_users: list[str]
     created_count: int
     skipped_count: int
+
+
+# Refund Check has the same request/response shape but distinct OpenAPI
+# schema names for the separate workflow. Endpoint behavior is shared.
+class RefundCheckAgentIn(BadFeedbackAgentIn):
+    pass
+
+
+class RefundCheckAgentRead(BadFeedbackAgentRead):
+    pass
+
+
+class RefundCheckCreate(BadFeedbackCreate):
+    agents: list[RefundCheckAgentIn] = Field(default_factory=list, max_length=50)
+
+
+class RefundCheckUpdate(BadFeedbackUpdate):
+    agents: list[RefundCheckAgentIn] | None = Field(default=None, max_length=50)
+
+
+class RefundCheckRead(BadFeedbackRead):
+    agents: list[RefundCheckAgentRead] = Field(default_factory=list)
+
+
+class RefundCheckImportInspectResponse(ImportInspectResponse):
+    pass
+
+
+class RefundCheckImportCommitResponse(ImportCommitResponse):
+    pass
