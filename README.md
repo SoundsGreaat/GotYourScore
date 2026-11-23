@@ -94,11 +94,13 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 
 Styling is compiled by Tailwind v4 CLI + daisyUI v5 (no CDN dependencies anywhere — HTMX, Quill, DOMPurify, SortableJS and the Inter font are vendored into `app/static/` by `scripts/vendor.mjs` and committed).
 
+Author styles in `app/static/css/src/`. `input.css` imports the theme and component stylesheets into the single generated `app/static/css/app.css` bundle.
+
 The npm commands are the same in Bash and PowerShell.
 
 ```sh
 npm install          # once
-npm run css:build    # rebuild app/static/css/app.css after markup changes
+npm run css:build    # rebuild app/static/css/app.css after markup or style changes
 npm run css:watch    # while iterating
 npm run build        # vendor assets + rebuild CSS
 ```

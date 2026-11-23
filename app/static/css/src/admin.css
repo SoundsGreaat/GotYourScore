@@ -211,6 +211,22 @@
     cursor: default;
 }
 
+/* SortableJS state classes for the scorecard rule editor. */
+.scorecard-ghost {
+    opacity: 0.4;
+    outline: 1px dashed color-mix(in oklab, var(--color-base-content) 45%, transparent);
+    outline-offset: 2px;
+}
+.scorecard-chosen {
+    opacity: 0.85;
+    cursor: grabbing;
+}
+.scorecard-drag {
+    opacity: 0.95;
+    cursor: grabbing;
+    box-shadow: 0 10px 24px color-mix(in oklab, var(--color-base-content) 20%, transparent);
+}
+
 /* Text fields inherit the shared focus glow instead of a second outline. */
 .gys-admin :is(.btn, .checkbox, .toggle, .focus-halo, summary, [tabindex="0"]):focus-visible {
     outline: 2px solid var(--color-base-content);
