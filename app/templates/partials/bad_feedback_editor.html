@@ -151,10 +151,16 @@
         remove.innerHTML = '&times;';
         remove.setAttribute('aria-label', 'Remove agent');
         remove.addEventListener('click', function () {
-            // The editor hooks document-level listeners + a context menu
-            // node — tear it down with the card, never just remove the DOM.
-            if (host._bfComment) host._bfComment.destroy();
-            host.remove();
+            var agentsHost = host.parentElement;
+            var next = host.nextElementSibling || host.previousElementSibling;
+            var focus = next?.querySelector('[aria-label="Remove agent"]')
+                || section.querySelector('.js-bf-agent-add');
+            window.gysResizePanel(agentsHost, function () {
+                // Tear down Quill's external listeners and context menu too.
+                if (host._bfComment) host._bfComment.destroy();
+                host.remove();
+            });
+            focus.focus({preventScroll: true});
         });
         row.appendChild(remove);
 
@@ -213,7 +219,7 @@
             '<label class="flex flex-col gap-1 text-sm sm:col-span-2"><span>Related case</span><input type="text" id="bf-edit-case" class="input input-sm w-full" value="' + esc(values.related_case) + '"/></label>' +
             '</div>' +
             '<p class="mb-1 mt-4 text-xs font-semibold uppercase tracking-wide text-base-content/60">Agents — Fault & comment per agent</p>' +
-            '<div class="js-bf-agents"></div>' +
+            '<div class="js-bf-agents flow-root"></div>' +
             '<button type="button" class="btn btn-ghost btn-sm js-bf-agent-add">+ Add agent</button>';
 
         // agentCard() returns a DOM node — append, don't stringify.
@@ -223,7 +229,9 @@
         });
 
         body.querySelector('.js-bf-agent-add').addEventListener('click', function () {
-            agentsHost.appendChild(agentCard(null));
+            window.gysResizePanel(agentsHost, function () {
+                agentsHost.appendChild(agentCard(null));
+            });
         });
         return body;
     }

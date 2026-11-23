@@ -150,6 +150,88 @@ test("rapid category switches keep the newest view and errors keep the last load
   expect(failures).toEqual([`503 ${(await failure).url()}`]);
 });
 
+test("drawer keeps its rules footprint and action buttons stable while switching case types", async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 820 });
+  await signIn(page);
+  await page.addInitScript(() => {
+    const animate = Element.prototype.animate;
+    window.ruleResizes = [];
+    Element.prototype.animate = function (frames, options) {
+      if (this.querySelector(":scope > #manual-score-area")) {
+        window.ruleResizes.push(frames.map(({ height }) => parseFloat(height)));
+      }
+      return animate.call(this, frames, options);
+    };
+  });
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  let failNext = false;
+  await page.route("**/partials/case-rules?*", async (route) => {
+    if (failNext) {
+      failNext = false;
+      await route.fulfill({ status: 503 });
+      return;
+    }
+    const type = new URL(route.request().url()).searchParams.get("case_type");
+    if (type === "Service Request") await held;
+    const count = type === "Initial Fix" ? 24 : 3;
+    const rows = Array.from({ length: count }, (_, i) =>
+      `<div data-rule-row class="p-2"><label><input type="checkbox" data-error-name="test-${i}">Rule ${i}</label></div>`
+    );
+    await route.fulfill({ contentType: "text/html", body: rows.join("") });
+  });
+  await page.goto(`${base}/#qa-tracker/qa-score`);
+  await page.getByRole("button", { name: "New Review", exact: true }).click();
+
+  const rules = page.locator("#manual-score-area");
+  const rulesPanel = rules.locator("..");
+  const footer = page.locator(".js-save-review");
+  await expect(rules.locator("[data-rule-row]")).toHaveCount(24);
+  await rulesPanel.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+  const oldHeight = (await rulesPanel.boundingBox()).height;
+  const actionY = (await footer.boundingBox()).y;
+  const select = async (type) => {
+    await page.locator("#case-type-button").click();
+    await page.locator("#case-type-menu").getByRole("menuitemradio", { name: type, exact: true }).click();
+  };
+
+  try {
+    await select("Service Request");
+    await expect(rules).toHaveAttribute("aria-busy", "true");
+    await expect(rules).toHaveAttribute("inert", "");
+    await expect(rulesPanel.getByRole("status")).toHaveText("Loading scorecard…");
+    expect((await rulesPanel.boundingBox()).height).toBeCloseTo(oldHeight, 0);
+    expect((await footer.boundingBox()).y).toBeCloseTo(actionY, 0);
+  } finally {
+    release();
+  }
+  await expect(rules.locator("[data-rule-row]")).toHaveCount(3);
+  await expect(rules).not.toHaveAttribute("inert", "");
+  const [start, end] = await page.evaluate(() => window.ruleResizes.at(-1));
+  expect(start).toBeCloseTo(oldHeight, 0);
+  expect(end).toBeLessThan(start);
+  expect((await footer.boundingBox()).y).toBeCloseTo(actionY, 0);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const before = await page.evaluate(() => window.ruleResizes.length);
+  await select("No Cases");
+  await expect(rules).toContainText("The agent had no cases");
+  await expect(page.getByRole("textbox", { name: "Case number", exact: true })).toBeHidden();
+  expect(await page.evaluate(() => window.ruleResizes.length)).toBe(before);
+
+  await page.locator("#review-agent-button").click();
+  await page.locator("#review-agent-menu").getByRole("menuitemradio").first().click();
+  await expect(footer).toBeEnabled();
+  failNext = true;
+  await select("Initial Fix");
+  const retry = page.getByRole("button", { name: "Retry scorecard" });
+  await expect(retry).toBeVisible();
+  await expect(footer).toBeDisabled();
+  await retry.click();
+  await expect(rules.locator("[data-rule-row]")).toHaveCount(24);
+  await expect(footer).toBeEnabled();
+});
+
 test("review filters survive period changes and event-driven outer swaps", async ({ page }) => {
   const failures = watchPage(page);
   await signIn(page);
@@ -266,6 +348,101 @@ test("admin scorecard saves swap scripts and validation errors leave the editor 
   await expect(page.getByRole("alert").filter({ hasText: "Invalid request." })).toBeVisible();
   await expect(rule).toHaveValue("Last edit");
   expect(failures).toEqual([`400 ${response.url()}`]);
+});
+
+test("To Review queues only refetch for updates in their own category", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/#to-review/qa-score`);
+  const queue = page.locator("#to-review-view");
+  for (const [tab, category, relevant, unrelated] of [
+    ["QA Score", "qa-score", "reviews-changed", "bad-feedback-changed"],
+    ["Bad Feedback", "bad-feedback", "bad-feedback-changed", "reviews-changed"],
+  ]) {
+    await page.getByRole("tab", { name: tab, exact: true }).click();
+    await expect(queue).toHaveAttribute("hx-trigger", `${relevant} from:body`);
+    const activity = await queue.evaluate(async (section, type) => {
+      let requests = 0;
+      const count = () => { requests += 1; };
+      section.addEventListener("htmx:before:request", count);
+      document.body.dispatchEvent(new CustomEvent(type));
+      await new Promise(requestAnimationFrame);
+      section.removeEventListener("htmx:before:request", count);
+      return requests;
+    }, unrelated);
+    expect(activity).toBe(0);
+    const refreshed = nextResponse(page, "/partials/to-review");
+    await page.evaluate((type) => document.body.dispatchEvent(new CustomEvent(type)), relevant);
+    expect(new URL((await refreshed).url()).searchParams.get("cat")).toBe(category);
+  }
+});
+
+test("admin scorecard toggles retain the editor, dirty fields and keyboard focus", async ({ page }) => {
+  const failures = watchPage(page);
+  await signIn(page);
+  await page.goto(`${base}/admin#scorecards`);
+  const editor = page.locator("#scorecard-editor");
+  const create = async (name) => {
+    const form = page.getByRole("form", { name: "New template" });
+    await form.getByRole("textbox", { name: "Template name" }).fill(name);
+    await form.getByRole("button", { name: "Create", exact: true }).click();
+    await expect(editor.getByRole("textbox", { name: "Template name" })).toHaveValue(name);
+  };
+  const name = `CI toggle ${randomUUID()}`;
+  const sibling = `${name} sibling`;
+  await create(name);
+  await create(sibling);
+  const editorField = editor.getByRole("textbox", { name: "Template name" });
+  await editorField.fill(`${sibling} unsaved`);
+  const original = await editorField.elementHandle();
+
+  const first = page.getByRole("checkbox", { name: `Active template: ${name}`, exact: true });
+  const second = page.getByRole("checkbox", { name: `Active template: ${sibling}`, exact: true });
+  const togglePath = /\/admin\/scorecards\/\d+\/toggle$/;
+  await expect(first).not.toBeChecked();
+  await expect(second).toBeChecked();
+  await first.focus();
+  const activation = nextResponse(page, togglePath, "POST");
+  await page.keyboard.press("Space");
+  expect((await activation).status()).toBe(204);
+  await expect(first).toBeFocused();
+  await expect(first).toBeChecked();
+  await expect(second).not.toBeChecked();
+  await expect(editor.locator("[data-template-status]")).toHaveText("Inactive");
+  await expect(editorField).toHaveValue(`${sibling} unsaved`);
+  expect(await original.evaluate((node) => node.isConnected)).toBe(true);
+
+  const deactivation = nextResponse(page, togglePath, "POST");
+  await page.keyboard.press("Space");
+  expect((await deactivation).status()).toBe(204);
+  await expect(first).not.toBeChecked();
+  await expect(second).not.toBeChecked();
+  await expect(first).toBeFocused();
+  await expect(editorField).toHaveValue(`${sibling} unsaved`);
+
+  const reset = nextResponse(page, togglePath, "POST");
+  await second.click();
+  expect((await reset).status()).toBe(204);
+  await expect(editor.locator("[data-template-status]")).toHaveText("Active");
+  let send;
+  const delayed = new Promise((resolve) => { send = resolve; });
+  await page.route(togglePath, async (route) => {
+    await delayed;
+    await route.continue();
+  }, { times: 1 });
+  const queued = page.waitForResponse((response) =>
+    togglePath.test(new URL(response.url()).pathname) && response.request().postData() === "active=false"
+  );
+  try {
+    await first.click();
+    await second.click();
+  } finally {
+    send();
+  }
+  expect((await queued).status()).toBe(204);
+  await expect(first).toBeChecked();
+  await expect(second).not.toBeChecked();
+  await expect(editor.locator("[data-template-status]")).toHaveText("Inactive");
+  expect(failures).toEqual([]);
 });
 
 test("an expired dashboard session redirects the whole page to login", async ({ page }) => {

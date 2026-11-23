@@ -197,9 +197,7 @@
         <div class="card-body min-w-0 gap-3 p-3 sm:p-4">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <h3 id="edit-template-title" class="text-base font-semibold">Edit template</h3>
-                <span class="badge badge-sm {{ 'badge-success badge-soft' if t.is_active else 'badge-ghost' }}">
-                    {{ 'Active' if t.is_active else 'Inactive' }}
-                </span>
+                {{ admin.scorecard_status(t) }}
             </div>
             <div class="flex flex-wrap items-start gap-3">
                 <div class="grid min-w-0 flex-1 basis-44 gap-1">

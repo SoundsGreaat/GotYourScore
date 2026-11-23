@@ -1,11 +1,11 @@
 {% import "macros/to_review_table.html" as to_review_table %}
 {% import "macros/bad_feedback_queue.html" as bf_queue %}
 {% import "macros/modals.html" as modals %}
-{# Category-aware queue: the global QA Score / Bad Feedback selector
-   decides the flavor; ?cat= is BAKED into the self-refetch so
-   reviews-changed / bad-feedback-changed refetches keep the flavor
-   (configRequest only injects for view switches). #}
-<section id="to-review-view" hx-get="/partials/to-review?cat={{ cat }}" hx-trigger="reviews-changed from:body, bad-feedback-changed from:body" hx-swap="outerHTML">
+{# Keep the category on self-refetches and only replace the queue when
+   that category actually changed. #}
+<section id="to-review-view" hx-get="/partials/to-review?cat={{ cat }}"
+         hx-trigger="{{ 'reviews-changed' if cat == 'qa-score' else 'bad-feedback-changed' }} from:body"
+         hx-swap="outerHTML">
     {% if cat == 'qa-score' %}
     {% set assigned_rows = rows | rejectattr('unassigned') | list %}
     {% set shared_rows = rows | selectattr('unassigned') | list %}

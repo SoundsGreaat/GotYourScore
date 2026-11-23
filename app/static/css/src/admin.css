@@ -136,6 +136,20 @@
     cursor: pointer;
 }
 
+.gys-scorecard-status {
+    min-inline-size: 4rem;
+    justify-content: center;
+}
+
+/* Mirror the checked state in a class so the track can interpolate
+   even when the server unchecks a different template. */
+.toggle.gys-scorecard-toggle {
+    grid-template-columns: 0fr 1fr 1fr;
+}
+.toggle.gys-scorecard-toggle-on {
+    grid-template-columns: 1fr 1fr 0fr;
+}
+
 .gys-admin-disclosure > summary {
     min-block-size: 2.5rem;
     cursor: pointer;
@@ -151,6 +165,10 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+    .gys-scorecard-status {
+        transition: background-color var(--gys-speed) var(--gys-ease),
+            color var(--gys-speed) var(--gys-ease);
+    }
     .gys-admin-tabs button,
     .gys-admin-disclosure > summary,
     .gys-admin-template {
@@ -179,6 +197,12 @@
         #scorecard-editor > #editor-root {
             opacity: 0.55;
         }
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .toggle.gys-scorecard-toggle {
+        transition-property: color, background-color, border-color, box-shadow;
     }
 }
 

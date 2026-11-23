@@ -18,6 +18,7 @@ whose body is ONLY ``{"detail": MESSAGE}`` — the global
 bottom-center, like every other notification.
 """
 
+import json
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -497,11 +498,10 @@ async def toggle_scorecard(
     auth: AdminPageUser,
     db: DbSession,
 ) -> Response:
-    """Flip a template's active flag; re-render the list partial.
+    """Set a template's active flag without replacing the editor.
 
     ONE active template per case type: turning a template ON demotes
-    its active siblings of the same case type (see
-    ``scorecard_service.toggle_template``).
+    its active siblings of the same case type.
     """
     redirect = _guard(auth, request)
     if redirect is not None:
@@ -510,14 +510,30 @@ async def toggle_scorecard(
     if await db.get(ScorecardTemplate, template_id) is None:
         return _not_found()
 
+    active = (await request.form()).get("active")
+    if active not in ("true", "false"):
+        return _error_json("Missing template activity state.")
     try:
-        template = await scorecard_service.toggle_template(template_id, db)
+        template = await scorecard_service.set_template_active(
+            template_id, active == "true", db
+        )
+        rows = await db.execute(
+            select(ScorecardTemplate.id, ScorecardTemplate.is_active).where(
+                ScorecardTemplate.case_type == template.case_type
+            )
+        )
+        states = dict(rows.tuples().all())
         await db.commit()
     except ValueError as exc:
         return _error_json(str(exc))
 
-    return _render_scorecards(
-        request, await _scorecards_context(db, selected_id=template.id)
+    return Response(
+        status_code=204,
+        headers={
+            "HX-Trigger": json.dumps(
+                {"scorecard-activity": {"target": "#admin-view", "states": states}}
+            )
+        },
     )
 
 
