@@ -3,29 +3,24 @@
    ({u: User, name: str, roles: [RoleEnum], deleted_at}). Restore
    clears the row's deleted_at via POST /admin/users/{id}/restore,
    which re-renders this whole partial. #}
-<div id="deleted-users-root" class="space-y-4">
-    <div class="card rounded-box bg-base-100 shadow-sm">
-        <div class="card-body min-w-0 p-3 sm:p-4">
-            <h2 class="card-title text-base">
-                Deleted Users
-                <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
-            </h2>
-            {% if rows %}
-            <div class="max-w-full overflow-x-auto">
+{% import "macros/admin.html" as admin %}
+<div id="deleted-users-root">
+    {% call admin.recovery_panel("deleted-users", "Deleted Users", "Restore an account to return it to the active user directory.", rows|length, "No deleted users.") %}
                 <table class="table table-sm">
+                    <caption class="sr-only">Deleted user accounts</caption>
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Roles</th>
-                            <th>Deleted</th>
-                            <th>Actions</th>
+                            <th scope="col">Name</th>
+                            <th scope="col">Email</th>
+                            <th scope="col">Roles</th>
+                            <th scope="col">Deleted</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for row in rows %}
                         <tr>
-                            <th class="font-medium">{{ row.name }}</th>
+                            <th scope="row" class="font-medium">{{ row.name }}</th>
                             <td>{{ row.u.email }}</td>
                             <td>
                                 <div class="flex flex-wrap gap-1">
@@ -36,7 +31,7 @@
                             </td>
                             <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
                             <td>
-                                <button type="button" class="btn btn-outline btn-success btn-xs"
+                                <button type="button" class="btn gys-btn-secondary btn-sm" aria-label="Restore {{ row.name }}"
                                         hx-post="/admin/users/{{ row.u.id }}/restore"
                                         hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
                             </td>
@@ -44,12 +39,5 @@
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-            {% else %}
-            <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
-                No deleted users
-            </div>
-            {% endif %}
-        </div>
-    </div>
+    {% endcall %}
 </div>
