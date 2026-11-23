@@ -211,7 +211,8 @@
     cursor: default;
 }
 
-.gys-admin :is(.btn, .input, .textarea, .checkbox, .toggle, .focus-halo, summary, [tabindex="0"]):focus-visible {
+/* Text fields inherit the shared focus glow instead of a second outline. */
+.gys-admin :is(.btn, .checkbox, .toggle, .focus-halo, summary, [tabindex="0"]):focus-visible {
     outline: 2px solid var(--color-base-content);
     outline-offset: 2px;
 }
@@ -240,6 +241,11 @@
 }
 
 @media (forced-colors: active) {
+    /* Forced colors removes the shared box-shadow, so restore an outline. */
+    .gys-admin :is(.input, .textarea, .select):focus-visible {
+        outline: 2px solid CanvasText;
+        outline-offset: 2px;
+    }
     .gys-admin-tabs {
         scrollbar-color: auto;
     }

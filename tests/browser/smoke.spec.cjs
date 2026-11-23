@@ -469,6 +469,24 @@ test("admin animates new panels and disclosures only when motion is allowed", as
   expect(reduced).toBe(0);
 });
 
+test("admin text fields use a single focus glow and keep a high contrast outline", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/admin#scorecards`);
+  const field = page.getByRole("form", { name: "New template" }).getByRole("textbox", { name: "Template name" });
+  await expect(field).toBeVisible();
+  const resting = await field.evaluate((el) => getComputedStyle(el).borderColor);
+  await page.getByRole("tabpanel", { name: "Scorecards" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(field).toBeFocused();
+  await expect(field).toHaveCSS("outline-style", "none");
+  await expect(field).not.toHaveCSS("border-color", resting);
+  await expect(field).toHaveCSS("box-shadow", /0px 0px 0px 3px/);
+
+  await page.emulateMedia({ forcedColors: "active" });
+  await expect(field).toHaveCSS("outline-style", "solid");
+  await expect(field).toHaveCSS("outline-width", "2px");
+});
+
 test("admin user directory keeps the search and focus after editing, deleting and restoring", async ({ page }) => {
   await signIn(page);
   await page.goto(`${base}/admin#users`);
