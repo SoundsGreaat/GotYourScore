@@ -798,6 +798,7 @@ test("the review drawer restores the delegated QA and can clear the assignment",
     const row = page.locator("#to-review-view").getByRole("row").filter({ hasText: caseNumber });
     const open = row.getByRole("button", { name: `Complete delegated case ${caseNumber}`, exact: true });
     await open.click();
+    await expect(page.getByRole("heading", { name: "Complete case", exact: true })).toBeVisible();
     const assignee = page.getByRole("button", { name: "Assigned QA", exact: true });
     await expect(assignee).toHaveText(nickname);
     await assignee.press("ArrowDown");
