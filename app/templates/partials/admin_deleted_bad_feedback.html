@@ -7,17 +7,18 @@
                 <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
             </h2>
             {% if rows %}
-            <div class="max-w-full overflow-x-auto">
+            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-labelledby="deleted-feedback-caption">
                 <table class="table table-sm">
+                    <caption id="deleted-feedback-caption" class="sr-only">Deleted Bad Feedback records</caption>
                     <thead>
                         <tr>
-                            <th>Deleted</th>
-                            <th>Date</th>
-                            <th>Agents</th>
-                            <th>Reviewed by</th>
-                            <th>Source</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th scope="col">Deleted</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Agents</th>
+                            <th scope="col">Reviewed by</th>
+                            <th scope="col">Source</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -25,7 +26,7 @@
                         <tr>
                             <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
                             <td class="whitespace-nowrap">{% if row.fb_date %}{{ row.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
-                            <th class="font-medium">{{ row.agent_names|join(', ') if row.agent_names else '—' }}</th>
+                            <th scope="row" class="font-medium">{{ row.agent_names|join(', ') if row.agent_names else '—' }}</th>
                             <td>{{ row.reviewer_name }}</td>
                             <td>{{ row.source or '—' }}</td>
                             <td>{{ row.status.value }}</td>

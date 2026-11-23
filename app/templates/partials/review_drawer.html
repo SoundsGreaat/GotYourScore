@@ -765,7 +765,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var content = document.getElementById('ai-score-content');
         if (!data) {
             panel.classList.add('hidden');
-            content.innerHTML = '';
+        content.replaceChildren();
             return;
         }
         // One ROW per repeated error: checkbox (waive the progression) +

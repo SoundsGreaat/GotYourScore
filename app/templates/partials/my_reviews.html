@@ -84,18 +84,19 @@
     {% if rows %}
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
-            <div class="max-w-full overflow-x-auto">
+            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-labelledby="reviews-table-caption">
                 <table class="table table-sm">
+                    <caption id="reviews-table-caption" class="sr-only">{{ title }} results</caption>
                     <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Agent</th>
-                        <th>Reviewed by</th>
-                        <th>Case type</th>
-                        <th>Case #</th>
-                        <th>Score</th>
+                        <th scope="col">Date</th>
+                        <th scope="col">Agent</th>
+                        <th scope="col">Reviewed by</th>
+                        <th scope="col">Case type</th>
+                        <th scope="col">Case #</th>
+                        <th scope="col">Score</th>
                         {% if perspective == 'reviewer' %}
-                        <th>Actions</th>
+                        <th scope="col">Actions</th>
                         {% endif %}
                     </tr>
                     </thead>
@@ -103,7 +104,7 @@
                     {% for row in rows %}
                     <tr>
                         <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
-                        <th class="font-medium">{{ row.agent_name }}</th>
+                        <th scope="row" class="font-medium">{{ row.agent_name }}</th>
                         <td>
                             {% if row.status == 'pending' %}
                             <span class="whitespace-nowrap">Delegated by {{ row.creator_name }}</span>
