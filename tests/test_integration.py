@@ -357,6 +357,7 @@ class ApplicationTests(unittest.TestCase):
         done = self.assert_status(self.client.post(f"{record_path}/complete", headers=qa), 200).json()
         self.assertEqual(done["status"], "completed")
         self.assertEqual(done["qa_id"], self.qa.id)
+
         self.assertIsNotNone(done["completed_at"])
         self.assert_status(self.client.delete(record_path, headers=qa), 204)
         self.assert_status(self.client.get(record_path, headers=qa), 404)
@@ -408,6 +409,53 @@ class ApplicationTests(unittest.TestCase):
         self.assertEqual(imported["field_values"]["customer_feedback"], long_feedback)
         self.assertEqual(imported["agents"][0]["user_id"], self.support.id)
         self.assert_status(self.client.delete(imported_path, headers=qa), 204)
+
+    def test_admin_case_field_position_and_reorder_contract(self):
+        admin = self.session(self.admin)
+        admin_hx = {**admin, "HX-Request": "true"}
+        path = "/admin/case-fields/refund-check"
+
+        async def fields(tracker="refund-check"):
+            async with async_session_factory() as db:
+                return await list_fields(db, tracker)
+
+        def reorder(ids, headers=admin):
+            return self.client.post(
+                f"{path}/reorder", headers=headers, data={"field_ids": json.dumps(ids)}
+            )
+
+        original = self.client.portal.call(fields)
+        original_ids = [field.id for field in original]
+        foreign_id = self.client.portal.call(fields, "bad-feedback")[0].id
+        created = self.assert_status(
+            self.client.post(
+                f"{path}/create", headers=admin_hx, data={"label": "Order contract", "field_type": "text"}
+            ),
+            200,
+        )
+        self.assertIn('id="case-fields-refund-check"', created.text)
+        self.assertNotIn('id="case-fields-bad-feedback"', created.text)
+        field = self.client.portal.call(fields)[-1]
+        self.assertEqual(field.label, "Order contract")
+        self.addCleanup(reorder, original_ids)
+        self.addCleanup(self.client.post, f"{path}/{field.id}/archive", headers=admin)
+        changed = self.assert_status(
+            self.client.post(
+                f"{path}/{field.id}/update", headers=admin,
+                data={"label": "Order contract updated", "field_type": "text"},
+            ),
+            303,
+        )
+        self.assertEqual(changed.headers["location"], "/admin#case-fields")
+        self.assertEqual(self.client.portal.call(fields)[-1].id, field.id)
+        new_order = [field.id, *original_ids]
+        denied = self.assert_status(reorder(new_order, self.session(self.qa)), 303)
+        self.assertEqual(denied.headers["location"], "/")
+        self.assert_status(reorder(new_order), 204)
+        self.assertEqual([field.id for field in self.client.portal.call(fields)], new_order)
+        for invalid in (original_ids, [foreign_id, *original_ids], [original_ids[0], *original_ids]):
+            self.assert_status(reorder(invalid), 400)
+        self.assertEqual([field.id for field in self.client.portal.call(fields)], new_order)
 
     def test_refund_check_my_reviews_does_not_reveal_others_completion_months(self):
         async def completed_for_someone_else():

@@ -4,15 +4,15 @@
  * names instead of re-declaring its own copy.
  */
 
-/* Resize an opted-in panel from its current rendered height, not from a
- * loading placeholder. Return to natural sizing when the motion ends. */
+/* Resize from the current rendered height or a height captured immediately
+ * before a DOM swap. Return to natural sizing when the motion ends. */
 var gysResizeAnimations = new WeakMap();
-window.gysResizePanel = function (panel, update) {
+window.gysResizePanel = function (panel, update, fromHeight) {
     var previous = gysResizeAnimations.get(panel);
     var canAnimate = panel.animate && matchMedia('(prefers-reduced-motion: no-preference)').matches;
-    var start = canAnimate ? panel.getBoundingClientRect().height : 0;
+    var start = canAnimate ? (fromHeight ?? panel.getBoundingClientRect().height) : 0;
     previous?.cancel();
-    update();
+    update?.();
     if (!canAnimate || !panel.isConnected) return;
 
     var end = panel.getBoundingClientRect().height;

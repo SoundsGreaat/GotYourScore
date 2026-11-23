@@ -139,13 +139,14 @@ async def create_field(
     *,
     label: str,
     field_type: str,
-    position: int,
+    position: int | None = None,
     show_in_my_reviews: bool = False,
 ) -> TrackerField:
     """Create a field with a generated stable key; caller commits."""
     tracker = _tracker_name(tracker)
     label = _validate_label(label)
-    position = _validate_position(position)
+    if position is not None:
+        position = _validate_position(position)
     field_type = _validate_type(field_type)
     await lock_field_configuration(db, tracker)
     fields = await list_fields(db, tracker)
@@ -158,7 +159,7 @@ async def create_field(
         field_type=field_type,
         show_in_my_reviews=show_in_my_reviews,
     )
-    _reorder_fields(fields, field, position)
+    _reorder_fields(fields, field, len(fields) if position is None else position)
     db.add(field)
     await db.flush()
     return field
@@ -167,7 +168,11 @@ async def create_field(
 async def _field_or_error(
     db: AsyncSession, tracker: str, field_id: int
 ) -> TrackerField:
-    field = await db.get(TrackerField, field_id)
+    field = await db.scalar(
+        select(TrackerField)
+        .where(TrackerField.id == field_id)
+        .execution_options(populate_existing=True)
+    )
     if field is None or field.tracker != tracker:
         raise ValueError("Tracker field was not found.")
     return field
@@ -206,7 +211,7 @@ async def update_field(
     *,
     label: str,
     field_type: str,
-    position: int,
+    position: int | None = None,
     show_in_my_reviews: bool | None = None,
 ) -> TrackerField:
     """Update a field's label, type and order; caller commits.
@@ -219,7 +224,9 @@ async def update_field(
     tracker = _tracker_name(tracker)
     new_label = _validate_label(label)
     new_type = _validate_type(field_type)
-    new_position = _validate_position(position)
+    new_position = (
+        _validate_position(position) if position is not None else None
+    )
     await lock_field_configuration(db, tracker)
     field = await _field_or_error(db, tracker, field_id)
     if field.archived_at is not None:
@@ -230,14 +237,38 @@ async def update_field(
         )
     if new_type == "date" and field.field_type != "date":
         await _ensure_existing_values_fit_date(db, tracker, field.key)
-    fields = await list_fields(db, tracker)
-    fields.remove(field)
     field.label = new_label
     field.field_type = new_type
     if show_in_my_reviews is not None:
         field.show_in_my_reviews = show_in_my_reviews
-    _reorder_fields(fields, field, new_position)
+    if new_position is not None:
+        fields = await list_fields(db, tracker)
+        fields.remove(field)
+        _reorder_fields(fields, field, new_position)
     return field
+
+
+async def reorder_fields(
+    db: AsyncSession, tracker: str, field_ids: list[int]
+) -> None:
+    """Atomically set the active order, rejecting stale or foreign ID lists."""
+    tracker = _tracker_name(tracker)
+    if (
+        not isinstance(field_ids, list)
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in field_ids)
+        or len(field_ids) != len(set(field_ids))
+    ):
+        raise ValueError("Field order must contain unique integer field IDs.")
+    await lock_field_configuration(db, tracker)
+    fields = await list_fields(db, tracker)
+    active_ids = {field.id for field in fields}
+    if set(field_ids) != active_ids:
+        raise ValueError(
+            "The field list is out of date. Refresh the tracker fields and try again."
+        )
+    by_id = {field.id: field for field in fields}
+    for position, field_id in enumerate(field_ids):
+        by_id[field_id].position = position
 
 
 async def archive_field(

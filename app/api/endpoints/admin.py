@@ -715,30 +715,54 @@ _TRACKERS = tuple(_TRACKER_LABELS)
 _TRACKER_MODELS = {"bad-feedback": BadFeedback, "refund-check": RefundCheck}
 
 
-async def _case_fields_context(db: AsyncSession) -> dict[str, object]:
-    fields = {}
-    for tracker in _TRACKERS:
-        definitions = await tracker_fields.list_fields(db, tracker, include_archived=True)
-        fields[tracker] = {
-            "active": [field for field in definitions if field.archived_at is None],
-            "archived": [field for field in definitions if field.archived_at is not None],
-        }
+async def _case_fields_for_tracker(db: AsyncSession, tracker: str) -> dict[str, object]:
+    definitions = await tracker_fields.list_fields(
+        db, tracker, include_archived=True
+    )
     return {
-        "trackers": _TRACKERS,
-        "tracker_labels": _TRACKER_LABELS,
-        "fields": fields,
-        "max_field_label_length": tracker_fields.MAX_FIELD_LABEL_LENGTH,
-        "max_field_position": tracker_fields.MAX_FIELD_POSITION,
+        "active": [field for field in definitions if field.archived_at is None],
+        "archived": [field for field in definitions if field.archived_at is not None],
     }
 
 
-async def _render_case_fields(
-    request: Request, db: AsyncSession, *, saved: str | None = None
-) -> Response:
+async def _render_case_fields(request: Request, db: AsyncSession) -> Response:
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_case_fields.html",
-        context={**await _case_fields_context(db), "saved": saved},
+        context={
+            "trackers": _TRACKERS,
+            "tracker_labels": _TRACKER_LABELS,
+            "fields": {
+                tracker: await _case_fields_for_tracker(db, tracker) for tracker in _TRACKERS
+            },
+            "max_field_label_length": tracker_fields.MAX_FIELD_LABEL_LENGTH,
+        },
+    )
+
+
+async def _render_case_field_tracker(
+    request: Request,
+    db: AsyncSession,
+    tracker: str,
+    *,
+    saved: str | None = None,
+    changed_field_id: int | None = None,
+) -> Response:
+    if request.headers.get("HX-Request", "").lower() != "true":
+        return RedirectResponse(
+            url="/admin#case-fields", status_code=status.HTTP_303_SEE_OTHER
+        )
+    return templates.TemplateResponse(
+        request=request,
+        name="partials/admin_case_fields_tracker.html",
+        context={
+            "tracker": tracker,
+            "tracker_label": _TRACKER_LABELS[tracker],
+            "tracker_fields": await _case_fields_for_tracker(db, tracker),
+            "max_field_label_length": tracker_fields.MAX_FIELD_LABEL_LENGTH,
+            "saved": saved,
+            "changed_field_id": changed_field_id,
+        },
     )
 
 
@@ -782,19 +806,25 @@ async def create_case_field(
         return _not_found()
     form = await request.form()
     try:
-        await tracker_fields.create_field(
+        field = await tracker_fields.create_field(
             db,
             tracker,
             label=str(form.get("label", "")),
             field_type=str(form.get("field_type", "")),
-            position=_case_field_position(form.get("position", "0")),
+            position=(
+                _case_field_position(form.get("position"))
+                if "position" in form
+                else None
+            ),
             show_in_my_reviews=form.get("show_in_my_reviews") == "true",
         )
         await db.commit()
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
-    return await _render_case_fields(request, db, saved="Field added.")
+    return await _render_case_field_tracker(
+        request, db, tracker, saved="Field added.", changed_field_id=field.id
+    )
 
 
 @router.post(
@@ -821,14 +851,24 @@ async def update_case_field(
             field_id,
             label=str(form.get("label", "")),
             field_type=str(form.get("field_type", "")),
-            position=_case_field_position(form.get("position", "0")),
+            position=(
+                _case_field_position(form.get("position"))
+                if "position" in form
+                else None
+            ),
             show_in_my_reviews=form.get("show_in_my_reviews") == "true",
         )
         await db.commit()
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
-    return await _render_case_fields(request, db, saved="Field updated.")
+    return await _render_case_field_tracker(
+        request,
+        db,
+        tracker,
+        saved="Field updated.",
+        changed_field_id=field_id,
+    )
 
 
 @router.post(
@@ -853,7 +893,13 @@ async def archive_case_field(
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
-    return await _render_case_fields(request, db, saved="Field archived.")
+    return await _render_case_field_tracker(
+        request,
+        db,
+        tracker,
+        saved="Field archived.",
+        changed_field_id=field_id,
+    )
 
 
 @router.post(
@@ -878,7 +924,44 @@ async def restore_case_field(
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
-    return await _render_case_fields(request, db, saved="Field restored.")
+    return await _render_case_field_tracker(
+        request,
+        db,
+        tracker,
+        saved="Field restored.",
+        changed_field_id=field_id,
+    )
+
+
+@router.post(
+    "/admin/case-fields/{tracker}/reorder", name="admin_reorder_case_fields"
+)
+async def reorder_case_fields(
+    request: Request, tracker: str, auth: AdminPageUser, db: DbSession
+) -> Response:
+    """Replace the active field order from a JSON array in FormData."""
+    redirect = _guard(auth, request)
+    if redirect is not None:
+        return redirect
+    if tracker not in _TRACKERS:
+        return _not_found()
+    form = await request.form()
+    try:
+        raw_ids = form.get("field_ids")
+        if not isinstance(raw_ids, str):
+            raise ValueError("Field order is required.")
+        try:
+            field_ids = json.loads(raw_ids)
+        except json.JSONDecodeError:
+            raise ValueError("Field order must be a JSON array of field IDs.") from None
+        if not isinstance(field_ids, list):
+            raise ValueError("Field order must be a JSON array of field IDs.")
+        await tracker_fields.reorder_fields(db, tracker, field_ids)
+        await db.commit()
+    except ValueError as exc:
+        await db.rollback()
+        return _case_field_error(exc)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------
