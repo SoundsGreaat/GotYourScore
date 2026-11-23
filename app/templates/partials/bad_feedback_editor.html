@@ -13,6 +13,7 @@
     Single instance: the script tears down any previous mount before
     initializing; closing the dialog removes the whole partial root. -#}
 {% import "macros/dropdowns.html" as dd %}
+{% import "macros/modals.html" as modals %}
 {% set tracker = tracker or 'bad-feedback' %}
 {% set tracker_label = tracker_label or 'Bad Feedback' %}
 {% set tracker_fields_json = [] %}
@@ -23,12 +24,12 @@
     <template class="js-bf-dropdown-template">{{ dd.dropdown('bf-card-picker') }}</template>
     <dialog class="modal js-bf-edit-modal" aria-labelledby="tracker-editor-title">
         <div class="modal-box max-w-2xl">
-            <form method="dialog"><button class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2" aria-label="Close editor">&times;</button></form>
+            {{ modals.close_button('Close editor') }}
             <h3 id="tracker-editor-title" class="js-bf-edit-title mb-4 text-lg font-bold">{{ 'Edit' if bf_id else 'New' }} {{ tracker_label }}</h3>
             <form class="js-bf-edit-body" method="post" action="/api/{{ tracker }}"
                   aria-labelledby="tracker-editor-title"><!-- filled by JS --></form>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        {{ modals.backdrop() }}
     </dialog>
 </div>
 

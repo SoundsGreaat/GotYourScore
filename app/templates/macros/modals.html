@@ -3,17 +3,43 @@
    delegation): a click on [data-case-notes] inside the same section
    fills .js-notes-title / .js-notes-body from the row's
    template[data-notes-for] and opens the dialog. #}
-{% macro notes_modal() -%}
 {% import "macros/icons.html" as icons %}
+
+{% macro close_button(label='Close') -%}
+<form method="dialog">
+    <button type="submit" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="{{ label }}">{{ icons.x() }}</button>
+</form>
+{%- endmacro %}
+
+{% macro backdrop() -%}
+<form method="dialog" class="modal-backdrop"><button type="submit">close</button></form>
+{%- endmacro %}
+
+{% macro tracker_note_badge(tracker, tracker_label, record_id, entry_id, case_label, subject, comment, title, fault=none, editable=false) -%}
+{% set notes_key = tracker ~ '-' ~ record_id ~ '-' ~ entry_id %}
+<button type="button"
+        class="badge badge-soft badge-sm badge-clickable {{ 'badge-warning' if fault in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if fault == 'Warning' }}"
+        data-case-notes="{{ notes_key }}"
+        data-case-prefix="{{ tracker_label }}"
+        data-case-label="{{ case_label or record_id }}"
+        {% if editable %}
+        data-case-type="{{ subject }}"
+        data-edit-id="{{ record_id }}"
+        data-notes-open="edit"
+        data-notes-kind="{{ 'bf' if tracker == 'bad-feedback' else tracker }}"
+        {% endif %}
+        title="{{ title }}">{{ subject }}{{ ' · ' ~ fault if fault }}</button>
+<template data-notes-for="{{ notes_key }}">{{ comment or '' }}</template>
+{%- endmacro %}
+
+{% macro notes_modal() -%}
 <dialog class="modal js-notes-modal">
     <div class="modal-box w-11/12 max-w-2xl">
-        <form method="dialog">
-            <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">{{ icons.x() }}</button>
-        </form>
+        {{ close_button() }}
         <h3 class="js-notes-title pr-8 text-lg font-bold"></h3>
         <div class="js-notes-body mt-3 max-h-[60vh] overflow-y-auto text-sm leading-relaxed [&_p]:my-2 [&_ul]:pl-5 [&_ul]:[list-style-type:disc] [&_ol]:pl-5 [&_ol]:[list-style-type:decimal]"></div>
         <div class="js-notes-actions mt-4 flex justify-end"><button type="button" class="btn btn-outline btn-sm gap-2 js-notes-edit hidden">{{ icons.edit() }}<span class="js-notes-edit-label">Edit review</span></button></div>
     </div>
-    <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    {{ backdrop() }}
 </dialog>
 {%- endmacro %}

@@ -58,16 +58,10 @@
             {% if row.entries %}
             <div class="flex flex-wrap items-center gap-1">
                 {% for entry in row.entries %}
-                {% set notes_key = tracker ~ '-' ~ fb.id ~ '-' ~ entry.id %}
-                <button type="button"
-                        class="badge badge-soft badge-sm badge-clickable {{ 'badge-warning' if entry.fault and entry.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if entry.fault and entry.fault.value == 'Warning' }}"
-                        data-case-notes="{{ notes_key }}"
-                        data-case-prefix="{{ tracker_label }}"
-                        data-case-label="{{ related_case_value or fb.id }}"
-                        {% if entry.fault %}title="Your fault: {{ entry.fault.value }} — view the QA note"{% else %}title="View the QA note"{% endif %}>
-                    {{ entry.kind.value }}{{ ' · ' ~ entry.fault.value if entry.fault }}
-                </button>
-                <template data-notes-for="{{ notes_key }}">{{ entry.qa_comment or '' }}</template>
+                {% set fault = entry.fault.value if entry.fault else none %}
+                {% set title = 'Your fault: ' ~ fault ~ ' — view the QA note' if fault else 'View the QA note' %}
+                {{ modals.tracker_note_badge(tracker, tracker_label, fb.id, entry.id, related_case_value,
+                    entry.kind.value, entry.qa_comment, title, fault=fault) }}
                 {% endfor %}
                 <span class="text-xs text-base-content/60">— click to read the QA note</span>
             </div>

@@ -261,9 +261,7 @@
     {% if can_delegate %}
     <dialog id="delegate-case-modal" class="modal">
         <div class="modal-box w-11/12 max-w-3xl">
-            <form method="dialog">
-                <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="Close">{{ icons.x() }}</button>
-            </form>
+            {{ modals.close_button() }}
             <h3 class="text-lg font-bold">Delegate case</h3>
             <p class="mt-1 text-xs text-base-content/60">Hand real cases to QAs – they stay pending (quota-neutral) until scored.</p>
 
@@ -370,7 +368,7 @@
                 <button type="button" id="delegate-batch-submit" class="btn btn-primary btn-block btn-sm" disabled>Delegate 0 cases</button>
             </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        {{ modals.backdrop() }}
     </dialog>
     {% endif %}
 
