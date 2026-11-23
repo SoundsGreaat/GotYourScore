@@ -50,8 +50,9 @@ from app.schemas.bad_feedback import (
 )
 from app.services import bad_feedback_import as bfi
 from app.services.tracker_fields import (
-    CANONICAL_FIELD_KEYS,
+    DATE_FIELD_KEYS,
     apply_field_values,
+    canonical_field_keys,
     list_fields,
     lock_field_configuration,
     validate_field_values,
@@ -116,14 +117,14 @@ def _agent_read(agent, schema: type[BadFeedbackAgentRead]):
 
 
 def _read_record(
-    record,
-    read_schema: type[BadFeedbackRead],
+    record: BadFeedback | RefundCheck,
+    read_schema: type[BadFeedbackRead] | type[RefundCheckRead],
     agent_read_schema: type[BadFeedbackAgentRead],
+    date_key: str,
 ):
     """Serialize a record and its agent cards."""
     return read_schema(
         id=record.id,
-        fb_date=record.fb_date,
         source=record.source,
         customer_info=record.customer_info,
         customer_feedback=record.customer_feedback,
@@ -138,6 +139,7 @@ def _read_record(
         created_at=record.created_at,
         deleted_at=record.deleted_at,
         agents=[_agent_read(agent, agent_read_schema) for agent in record.agents],
+        **{date_key: getattr(record, date_key)},
     )
 
 
@@ -233,6 +235,8 @@ def _tracker_router(
 ) -> APIRouter:
     """Bind shared route handlers to one independent tracker."""
     child = APIRouter(prefix=f"/{tracker}", tags=[tracker])
+    date_key = DATE_FIELD_KEYS[tracker]
+    flat_keys = canonical_field_keys(tracker)
 
     async def list_records(auth, db, status_filter=None, limit=200, offset=0):
         if limit > _MAX_LIST_LIMIT:
@@ -250,7 +254,8 @@ def _tracker_router(
         )
         rows = (await db.execute(stmt)).scalars().unique().all()
         return [
-            _read_record(record, read_schema, agent_read_schema) for record in rows
+            _read_record(record, read_schema, agent_read_schema, date_key)
+            for record in rows
         ]
 
     list_records.__annotations__ = {
@@ -273,7 +278,7 @@ def _tracker_router(
         resolved = await _validate_agents_payload(payload.agents, db)
         await _validate_assigned_qa(payload.assigned_qa_id, db)
         legacy_values = payload.model_dump(
-            include=CANONICAL_FIELD_KEYS,
+            include=flat_keys,
             mode="json",
             exclude_unset=True,
         )
@@ -302,7 +307,7 @@ def _tracker_router(
             await _apply_agents(record, resolved, db, agent_model)
         db.add(record)
         await db.commit()
-        return _read_record(record, read_schema, agent_read_schema)
+        return _read_record(record, read_schema, agent_read_schema, date_key)
 
     create_record.__annotations__ = {
         "payload": create_schema,
@@ -323,7 +328,7 @@ def _tracker_router(
         record = await _get_record_or_404(
             feedback_id, db, record_model, display_name
         )
-        return _read_record(record, read_schema, agent_read_schema)
+        return _read_record(record, read_schema, agent_read_schema, date_key)
 
     get_record.__annotations__ = {
         "feedback_id": int,
@@ -345,7 +350,7 @@ def _tracker_router(
         )
         data = payload.model_dump(exclude_unset=True)
         legacy_values = payload.model_dump(
-            include=CANONICAL_FIELD_KEYS,
+            include=flat_keys,
             mode="json",
             exclude_unset=True,
         )
@@ -367,7 +372,7 @@ def _tracker_router(
             await _apply_agents(record, resolved, db, agent_model)
 
         await db.commit()
-        return _read_record(record, read_schema, agent_read_schema)
+        return _read_record(record, read_schema, agent_read_schema, date_key)
 
     update_record.__annotations__ = {
         "feedback_id": int,
@@ -397,7 +402,7 @@ def _tracker_router(
         record.qa_id = auth.id
         record.completed_at = datetime.now(timezone.utc)
         await db.commit()
-        return _read_record(record, read_schema, agent_read_schema)
+        return _read_record(record, read_schema, agent_read_schema, date_key)
 
     complete_record.__annotations__ = {
         "feedback_id": int,

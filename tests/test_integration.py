@@ -228,8 +228,18 @@ class ApplicationTests(unittest.TestCase):
         refund_defaults = fields("refund-check")
         feedback_fields = fields("bad-feedback")
         self.assertTrue(
-            {"fb_date", "source", "customer_info", "customer_feedback", "related_case"}
+            {"r_date", "source", "customer_info", "customer_feedback", "related_case"}
             <= refund_defaults.keys()
+        )
+        self.assertNotIn("fb_date", refund_defaults)
+        self.assertIn("fb_date", feedback_fields)
+        self.assertNotIn("r_date", feedback_fields)
+        self.assert_status(
+            self.client.post(
+                f"{fields_path}/{refund_defaults['r_date'].id}/update",
+                headers=admin_hx, data={"label": "Date", "field_type": "text"},
+            ),
+            400,
         )
         self.assertEqual(refund_defaults["source"].label, feedback_fields["source"].label)
         self.assertNotEqual(refund_defaults["source"].id, feedback_fields["source"].id)
@@ -262,7 +272,7 @@ class ApplicationTests(unittest.TestCase):
         self.addCleanup(change_field, "archive")
         change_field("update", {**form, "label": "Refund paid on", "position": 1})
         self.assertEqual(fields("refund-check")[key].label, "Refund paid on")
-        self.assertEqual(list(fields("refund-check"))[:2], ["fb_date", key])
+        self.assertEqual(list(fields("refund-check"))[:2], ["r_date", key])
         for tracker, expected in (("refund-check", True), ("bad-feedback", False)):
             editor = self.assert_status(
                 self.client.get(f"/partials/{tracker}-editor", headers=qa), 200
@@ -278,11 +288,19 @@ class ApplicationTests(unittest.TestCase):
             self.client.post(feedback_api, headers=qa, json={"field_values": {key: "2026-10-07"}}),
             400,
         )
+        for endpoint, wrong_key in ((refund_api, "fb_date"), (feedback_api, "r_date")):
+            self.assert_status(
+                self.client.post(
+                    endpoint, headers=qa, json={"field_values": {wrong_key: "2026-10-06"}},
+                ),
+                400,
+            )
         self.assert_status(
             self.client.post(refund_api, headers=qa, json={"field_values": {"source": "x" * 256}}),
             400,
         )
         payload = {
+            "r_date": "2026-10-04",
             "field_values": {
                 key: "2026-10-07",
                 "related_case": "Refund CI example",
@@ -294,6 +312,10 @@ class ApplicationTests(unittest.TestCase):
         record = self.assert_status(self.client.post(refund_api, headers=qa, json=payload), 201).json()
         record_path = f"{refund_api}/{record['id']}"
         self.assertEqual(record["status"], "pending")
+        self.assertEqual(record["r_date"], "2026-10-04")
+        self.assertEqual(record["field_values"]["r_date"], "2026-10-04")
+        self.assertNotIn("fb_date", record)
+        self.assertNotIn("fb_date", record["field_values"])
         self.assertEqual(record["field_values"][key], "2026-10-07")
         self.assertEqual(record["related_case"], "Refund CI example")
 
@@ -386,13 +408,15 @@ class ApplicationTests(unittest.TestCase):
             self.client.post(f"{refund_api}/import/inspect", headers=qa, files=upload), 200
         ).json()
         self.assertEqual(preview["suggestions"][key], "Refund paid on")
+        self.assertEqual(preview["suggestions"]["r_date"], "Date")
+        self.assertNotIn("fb_date", preview["suggestions"])
         report = self.assert_status(
             self.client.post(
                 f"{refund_api}/import", headers=qa, files=upload,
                 data={"mapping": json.dumps(
                     {
                         key: "Refund paid on",
-                        "fb_date": "Date",
+                        "r_date": "Date",
                         "support_agents": "Support agents",
                         "customer_feedback": "Customer feedback",
                     }
@@ -405,7 +429,7 @@ class ApplicationTests(unittest.TestCase):
         imported = self.assert_status(self.client.get(imported_path, headers=qa), 200).json()
         self.assertEqual(imported["status"], "pending")
         self.assertEqual(imported["field_values"][key], "2026-10-07")
-        self.assertEqual(imported["field_values"]["fb_date"], "2026-10-05")
+        self.assertEqual(imported["field_values"]["r_date"], "2026-10-05")
         self.assertEqual(imported["field_values"]["customer_feedback"], long_feedback)
         self.assertEqual(imported["agents"][0]["user_id"], self.support.id)
         self.assert_status(self.client.delete(imported_path, headers=qa), 204)

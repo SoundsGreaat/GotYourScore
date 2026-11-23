@@ -23,7 +23,7 @@ class RefundCheck(Base):
     __tablename__ = "refund_checks"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    fb_date: Mapped[date_type | None] = mapped_column(Date, nullable=True, index=True)
+    r_date: Mapped[date_type | None] = mapped_column(Date, nullable=True, index=True)
     source: Mapped[str | None] = mapped_column(String(255), nullable=True)
     customer_info: Mapped[str | None] = mapped_column(Text, nullable=True)
     customer_feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -90,7 +90,7 @@ class RefundCheck(Base):
     def field_values(self) -> dict[str, str | None]:
         """Canonical case fields plus custom values, all string/null."""
         values: dict[str, str | None] = {
-            "fb_date": self.fb_date.isoformat() if self.fb_date else None,
+            "r_date": self.r_date.isoformat() if self.r_date else None,
             "customer_info": self.customer_info,
             "source": self.source,
             "customer_feedback": self.customer_feedback,

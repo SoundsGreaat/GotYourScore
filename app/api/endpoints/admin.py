@@ -722,6 +722,7 @@ async def _case_fields_for_tracker(db: AsyncSession, tracker: str) -> dict[str, 
     return {
         "active": [field for field in definitions if field.archived_at is None],
         "archived": [field for field in definitions if field.archived_at is not None],
+        "date_key": tracker_fields.DATE_FIELD_KEYS[tracker],
     }
 
 

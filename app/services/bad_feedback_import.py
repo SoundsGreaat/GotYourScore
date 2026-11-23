@@ -77,6 +77,7 @@ FIELD_LABELS = {
 # switches to shorter display labels.
 _FIELD_LABEL_ALIASES = {
     "fb_date": ("Date",),
+    "r_date": ("Date",),
     "source": ("Source",),
     "customer_info": ("Customer's info (CRM link / email)",),
     "customer_feedback": ("Customer's feedback",),

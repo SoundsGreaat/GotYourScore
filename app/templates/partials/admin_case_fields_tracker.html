@@ -21,7 +21,7 @@
         <div class="grid min-w-0 gap-1">
             <label for="{{ prefix }}-type-button" class="text-sm font-medium">Type</label>
             {{ dd.dropdown(prefix ~ '-type',
-                items=types[-1:] if field and field.key == 'fb_date' else types,
+                items=types[-1:] if field and field.key == tracker_fields.date_key else types,
                 selected=field.field_type if field else 'text',
                 btn_cls='select gys-admin-field flex w-full items-center',
                 aria_label='Type', hidden_attrs='name="field_type"') }}

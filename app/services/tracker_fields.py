@@ -12,14 +12,13 @@ from app.models import BadFeedback, RefundCheck, TrackerField
 
 TRACKERS = frozenset({"bad-feedback", "refund-check"})
 FIELD_TYPES = frozenset({"date", "text", "textarea"})
-CANONICAL_FIELD_KEYS = frozenset(
-    {"fb_date", "customer_info", "source", "customer_feedback", "related_case"}
-)
+DATE_FIELD_KEYS = {"bad-feedback": "fb_date", "refund-check": "r_date"}
+_SHARED_FIELD_KEYS = frozenset({"customer_info", "source", "customer_feedback", "related_case"})
 MAX_FIELD_LABEL_LENGTH = 200
 MAX_FIELD_VALUE_LENGTH = 10_000
 MAX_FIELD_POSITION = 100_000
 _CANONICAL_FIELD_MAX_LENGTHS = {
-    "fb_date": 10,
+    **dict.fromkeys(DATE_FIELD_KEYS.values(), 10),
     "source": 255,
     "related_case": 255,
     "customer_info": 2_000,
@@ -35,6 +34,10 @@ _FIELD_LOCK_NAMESPACE = 0x47595346  # GYSF
 _FIELD_LOCK_KEYS = {"bad-feedback": 1, "refund-check": 2}
 _CUSTOM_KEY_SLUG_RE = re.compile(r"[^a-z0-9_]+")
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def canonical_field_keys(tracker: str) -> frozenset[str]:
+    return _SHARED_FIELD_KEYS | {DATE_FIELD_KEYS[tracker]}
 
 
 def _tracker_name(tracker: str) -> str:
@@ -184,7 +187,7 @@ async def _ensure_existing_values_fit_date(
     """Reject a text-to-date conversion if existing values are incompatible."""
     model = _RECORD_MODELS[tracker]
     column = (
-        getattr(model, key) if key in CANONICAL_FIELD_KEYS
+        getattr(model, key) if key in canonical_field_keys(tracker)
         else model.field_values_data[key].astext
     )
     result = await db.execute(select(column).where(column.is_not(None)))
@@ -231,9 +234,9 @@ async def update_field(
     field = await _field_or_error(db, tracker, field_id)
     if field.archived_at is not None:
         raise ValueError("Restore the archived field before changing it.")
-    if field.key == "fb_date" and new_type != "date":
+    if field.key == DATE_FIELD_KEYS[tracker] and new_type != "date":
         raise ValueError(
-            "The Date field uses the legacy SQL DATE column and must remain a date."
+            "The built-in Date field must remain a date."
         )
     if new_type == "date" and field.field_type != "date":
         await _ensure_existing_values_fit_date(db, tracker, field.key)
@@ -344,9 +347,9 @@ def apply_field_values(
     """Apply already validated values to legacy columns or custom JSONB."""
     custom = dict(record.field_values_data or {})
     for key, value in values.items():
-        if key == "fb_date":
-            record.fb_date = _parse_iso_date(value) if value is not None else None
-        elif key in {"customer_info", "source", "customer_feedback", "related_case"}:
+        if key in DATE_FIELD_KEYS.values():
+            setattr(record, key, _parse_iso_date(value) if value is not None else None)
+        elif key in _SHARED_FIELD_KEYS:
             setattr(record, key, value)
         else:
             # Replacement, rather than in-place JSONB mutation, ensures
