@@ -22,16 +22,17 @@
             </form>
             <span class="hidden text-sm text-base-content/70 sm:inline">{{ period_range }}</span>
             {% if can_delegate %}
-            <button type="button" class="btn btn-primary btn-sm" data-delegate-open>Delegate case</button>
+            <button type="button" class="btn gys-btn-secondary btn-sm" data-delegate-open>Delegate case</button>
             {% endif %}
         </div>
     </div>
     {% macro agent_row(agent) %}
                         <tr>
-                            <th class="truncate font-medium" title="{{ agent.name }}">{{ agent.name }}</th>
+                            <th scope="row" class="truncate font-medium" title="{{ agent.name }}">{{ agent.name }}</th>
                             <td>
                                 <div class="flex items-center gap-3">
-                                    <progress class="progress progress-primary w-28" value="{{ agent.completed }}" max="{{ agent.target }}"></progress>
+                                    <progress class="progress progress-primary w-28" value="{{ agent.completed }}" max="{{ agent.target }}"
+                                              aria-label="Review quota for {{ agent.name }}"></progress>
                                     <span class="text-sm text-base-content/70">{{ agent.completed }}/{{ agent.target }}</span>
                                 </div>
                                 {% if agent.target %}
@@ -82,13 +83,14 @@
                             </td>
                         </tr>
     {% endmacro %}
-    {% macro agent_table(agent_list) %}
-                <div class="max-w-full overflow-x-auto">
+    {% macro agent_table(agent_list, id, label) %}
+                <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-labelledby="{{ id }}">
                     <!-- table-fixed + colgroup: filling/removing case chips
                          must not reflow the other columns (Avg score used
                          to slide sideways); min-w keeps mobile scrolling
                          instead of squishing. -->
                     <table class="table table-sm table-fixed w-full min-w-[720px]">
+                        <caption id="{{ id }}" class="sr-only">{{ label }}</caption>
                         <colgroup>
                             <col class="w-[18%]" /><!-- Agent -->
                             <col class="w-[40%]" /><!-- Quota -->
@@ -97,10 +99,10 @@
                         </colgroup>
                         <thead>
                             <tr>
-                                <th>Agent</th>
-                                <th>Quota</th>
-                                <th>Completed cases</th>
-                                <th>Avg score</th>
+                                <th scope="col">Agent</th>
+                                <th scope="col">Quota</th>
+                                <th scope="col">Completed cases</th>
+                                <th scope="col">Avg score</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -121,7 +123,7 @@
                 Your agents
                 <span class="badge badge-soft badge-sm">{{ my_agents | length }}</span>
             </h3>
-            {{ agent_table(my_agents) }}
+            {{ agent_table(my_agents, 'your-agents-caption', 'Review quotas for your agents') }}
         </div>
     </div>
     <div class="card rounded-box bg-base-100 shadow-sm">
@@ -130,7 +132,7 @@
                 Other agents
                 <span class="badge badge-soft badge-sm">{{ other_agents | length }}</span>
             </h3>
-            {{ agent_table(other_agents) }}
+            {{ agent_table(other_agents, 'other-agents-caption', 'Review quotas for other agents') }}
         </div>
     </div>
     {% elif my_agents %}
@@ -140,13 +142,13 @@
                 Your agents
                 <span class="badge badge-soft badge-sm">{{ my_agents | length }}</span>
             </h3>
-            {{ agent_table(my_agents) }}
+            {{ agent_table(my_agents, 'your-agents-caption', 'Review quotas for your agents') }}
         </div>
     </div>
     {% else %}
     <div class="card rounded-box bg-base-100 shadow-sm">
         <div class="card-body min-w-0 p-3 sm:p-4">
-            {{ agent_table(other_agents) }}
+            {{ agent_table(other_agents, 'other-agents-caption', 'Agent review quotas') }}
         </div>
     </div>
     {% endif %}
@@ -163,12 +165,13 @@
                 <span class="badge badge-soft badge-sm">{{ cases|length }}</span>
             </h3>
             {% if cases %}
-            <div class="max-w-full overflow-x-auto">
+            <div class="max-w-full overflow-x-auto" tabindex="0" role="region" aria-labelledby="matrix-cases-caption">
                 <!-- table-fixed + colgroup: scores appearing/vanishing
                      must not reflow the other columns; min-w keeps
                      mobile on the horizontal scroll instead of
                      squishing. -->
                 <table class="table table-sm table-fixed w-full min-w-[640px]">
+                    <caption id="matrix-cases-caption" class="sr-only">Cases in this reporting period</caption>
                     <colgroup>
                         <col class="w-[12%]" /><!-- Date -->
                         <col class="w-[16%]" /><!-- Agent -->
@@ -180,20 +183,20 @@
                     </colgroup>
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Agent</th>
-                            <th>Reviewed by</th>
-                            <th>Case type</th>
-                            <th>Case #</th>
-                            <th>Score</th>
-                            <th>Actions</th>
+                            <th scope="col">Date</th>
+                            <th scope="col">Agent</th>
+                            <th scope="col">Reviewed by</th>
+                            <th scope="col">Case type</th>
+                            <th scope="col">Case #</th>
+                            <th scope="col">Score</th>
+                            <th scope="col">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for case in cases %}
                         <tr>
                             <td class="truncate" title="{{ case.created_at.strftime('%b %d, %Y') }}">{{ case.created_at.strftime('%b %d, %Y') }}</td>
-                            <th class="truncate font-medium" title="{{ case.agent_name }}">{{ case.agent_name }}</th>
+                            <th scope="row" class="truncate font-medium" title="{{ case.agent_name }}">{{ case.agent_name }}</th>
                             <td class="truncate" title="{{ case.reviewer_name or '' }}">{{ case.reviewer_name }}</td>
                             <td class="truncate" title="{{ case.case_type.value }}">{{ case.case_type.value }}</td>
                             <td class="truncate" title="{{ case.case_number or '' }}">{% if case.case_number %}{{ case.case_number }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
@@ -390,13 +393,7 @@
                 display.textContent = placeholder;
                 display.classList.add('text-base-content/70');
             }
-            var menu = document.getElementById(hiddenId + '-menu');
-            if (menu) {
-                menu.querySelectorAll('button').forEach(function (btn) {
-                    btn.classList.remove('active');
-                    btn.classList.remove('menu-active');
-                });
-            }
+            if (window.gysSyncDropdown) window.gysSyncDropdown(hiddenId);
             if (window.qaMatrixScheduleBatchPreview) window.qaMatrixScheduleBatchPreview();
         };
     }
@@ -532,7 +529,7 @@
 
         function resetBatchRows() {
             if (!batchRows) return;
-            batchRows.innerHTML = '';
+            batchRows.replaceChildren();
             addBatchRow();
         }
 
@@ -551,7 +548,7 @@
 
             if (!ready && !incomplete) {
                 batchSummary.classList.add('hidden');
-                batchSummary.innerHTML = '';
+            batchSummary.replaceChildren();
                 return;
             }
             var html = '<span class="font-semibold">' + ready + ' case' + (ready === 1 ? '' : 's') + ' ready</span>';
@@ -645,7 +642,6 @@
             case_type: 'All rows…'
         };
         var overrideSnapshots = {}; // field -> { rowHiddenId: {value, text} }
-        var overrideTexts = {};     // field -> picked display label
 
         function batchOverrideHidden(field) {
             var suffix = { assigned_qa_id: 'qa', support_agent_id: 'agent', case_type: 'case-type' }[field];
@@ -721,29 +717,21 @@
         // setDropdownValue is replaced by this hook), then fan the value
         // out over every row's column.
         window.qaMatrixOverrideChanged = function (field) {
-            return function (hiddenId, displayId, value, text, btnEl) {
-                // New-style macro calls pass only (…, btnEl): resolve the
-                // picked value/label from the option's dataset first so
-                // the override state below sees real values.
-                if (btnEl && value === undefined) {
-                    value = btnEl.dataset.optValue || '';
-                    text = btnEl.dataset.optLabel || '';
-                }
-                window.setDropdownValue(hiddenId, displayId, value, text, btnEl);
-                overrideTexts[field] = value ? (text || '') : '';
+            return function () {
+                window.setDropdownValue.apply(null, arguments);
+                var active = batchOverrideActive(field);
                 var rows = batchRows ? Array.prototype.slice.call(batchRows.querySelectorAll('.delegate-batch-row')) : [];
                 rows.forEach(function (row) {
-                    if (value) batchApplyFieldToRow(row, field);
+                    if (active) batchApplyFieldToRow(row, field);
                     else batchRestoreFieldRow(row, field);
                 });
-                if (!value && overrideSnapshots[field]) overrideSnapshots[field] = {};
+                if (!active && overrideSnapshots[field]) overrideSnapshots[field] = {};
                 updateBatchSummary();
             };
         };
 
         function resetBatchPane() {
             overrideSnapshots = {};
-            overrideTexts = {};
             OVERRIDE_FIELDS.forEach(function (field) {
                 var hidden = batchOverrideHidden(field);
                 if (hidden && window.qaMatrixClearDropdown) {

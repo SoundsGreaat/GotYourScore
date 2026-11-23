@@ -11,8 +11,8 @@
        <span class="gys-tabs-line" aria-hidden="true"></span>
      </div>
 
-   - Clicks move .active + aria-selected and glide the underline
-     (reduced-motion users get instant placement via CSS).
+   - Arrows move focus; Enter/Space activates the focused tab. Wait for
+     the view to swap before changing selection or the panel's label.
    - Requests are declarative: buttons with hx-get/hx-target are fired
      by htmx itself; disabled buttons never activate.
    - data-hash mirrors the active data-tab into the location hash and
@@ -31,7 +31,7 @@
             // data-cat = the dashboard's category-filter tabs, whose
             // click behavior lives in js/dashboard.js — visuals here
             // are shared, so the strip must recognize BOTH.
-            track.querySelectorAll('button[data-tab], button[data-cat]')
+            track.querySelectorAll('button[role="tab"]:not(:disabled)')
         );
         if (!buttons.length) return;
         var armed = false;
@@ -51,53 +51,102 @@
             }
         }
 
+        function reveal(btn) {
+            var item = btn.getBoundingClientRect();
+            var list = track.getBoundingClientRect();
+            var start = list.left + 2;
+            var end = list.left + track.clientWidth - 2;
+            if (item.left < start) track.scrollLeft += item.left - start;
+            else if (item.right > end) track.scrollLeft += item.right - end;
+        }
+
+        function setTabStop(btn) {
+            buttons.forEach(function (b) { b.tabIndex = b === btn ? 0 : -1; });
+        }
+
+        function syncSelection() {
+            var selected = track.querySelector('button[aria-selected="true"]');
+            if (!selected) return;
+            var focused = document.activeElement;
+            var focusInTrack = buttons.indexOf(focused) !== -1;
+            setTabStop(focusInTrack ? focused : selected);
+            var panel = document.getElementById(track.dataset.panel);
+            if (panel) panel.setAttribute('aria-labelledby', selected.id);
+            place();
+            reveal(focusInTrack ? focused : selected);
+        }
+
         function activate(btn) {
             buttons.forEach(function (b) {
                 b.classList.toggle('active', b === btn);
                 b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
             });
-            place();
+            syncSelection();
         }
 
-        buttons.forEach(function (btn) {
-            btn.addEventListener('click', function () {
-                // Dashboard category tabs follow the successfully loaded view.
-                if (btn.disabled || btn.hasAttribute('data-cat')) return;
-                activate(btn);
-                if (track.hasAttribute('data-hash')) {
-                    // Mirror into the hash so reloads reopen the same tab.
-                    history.replaceState(null, '', '#' + btn.getAttribute('data-tab'));
-                }
-            });
+        track.addEventListener('keydown', function (event) {
+            var index = buttons.indexOf(event.target);
+            if (index < 0 || event.altKey || event.ctrlKey || event.metaKey) return;
+            var direction = getComputedStyle(track).direction === 'rtl' ? -1 : 1;
+            switch (event.key) {
+                case 'ArrowLeft': index -= direction; break;
+                case 'ArrowRight': index += direction; break;
+                case 'Home': index = 0; break;
+                case 'End': index = buttons.length - 1; break;
+                default: return;
+            }
+            event.preventDefault();
+            var next = buttons[(index + buttons.length) % buttons.length];
+            setTabStop(next);
+            next.focus({preventScroll: true});
+            reveal(next);
+        });
+        track.addEventListener('focusin', function (event) {
+            if (buttons.indexOf(event.target) !== -1) setTabStop(event.target);
+        });
+        track.addEventListener('focusout', function (event) {
+            if (!track.contains(event.relatedTarget)) {
+                setTabStop(track.querySelector('button[aria-selected="true"]'));
+            }
         });
 
         if (track.hasAttribute('data-hash')) {
-            var wanted = window.location.hash.replace('#', '');
-            if (wanted) {
-                var restored = null;
-                buttons.forEach(function (b) {
-                    if (b.getAttribute('data-tab') === wanted) restored = b;
-                });
-                if (restored && !restored.disabled) {
-                    activate(restored);
-                    var targetSelector = restored.getAttribute('hx-target');
-                    var eagerTarget = targetSelector && document.querySelector(targetSelector);
-                    if (eagerTarget && restored.getAttribute('hx-get')) {
-                        eagerTarget.setAttribute('hx-get', restored.getAttribute('hx-get'));
-                    }
-                }
+            var panel = document.getElementById(track.dataset.panel);
+            var wanted = window.location.hash.slice(1);
+            var restored = buttons.find(function (b) { return b.dataset.tab === wanted; });
+            if (panel && restored) {
+                activate(restored);
+                panel.setAttribute('hx-get', restored.getAttribute('hx-get'));
             }
+
+            // Keep the last loaded tab on a failed or no-swap response.
+            var tabSwaps = new WeakMap();
+            document.addEventListener('htmx:before:swap', function (event) {
+                var detail = event.detail;
+                var source = detail.ctx.sourceElement;
+                if (buttons.indexOf(source) !== -1 && detail.tasks.some(function (task) {
+                    return task.type === 'main' && task.target === panel && task.swapSpec.style !== 'none';
+                })) {
+                    tabSwaps.set(detail.ctx, source);
+                }
+            });
+            document.addEventListener('htmx:after:swap', function (event) {
+                var tab = tabSwaps.get(event.detail.ctx);
+                if (!tab) return;
+                activate(tab);
+                history.replaceState(null, '', '#' + tab.dataset.tab);
+            });
         }
 
-        place();
+        syncSelection();
         // dashboard.js toggles .active programmatically (hash restore,
         // category filter switches) — it fires this event because plain
         // class toggles never pass through the click handler above and
         // the underline would keep pointing at the previous tab.
-        track.addEventListener('gys-tabs-sync', place);
+        track.addEventListener('gys-tabs-sync', syncSelection);
         window.addEventListener('resize', function () { place(); });
         if (document.fonts && document.fonts.ready) {
-            document.fonts.ready.then(function () { place(); });
+            document.fonts.ready.then(syncSelection);
         }
     });
 })();
