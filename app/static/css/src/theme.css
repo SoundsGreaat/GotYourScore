@@ -1,0 +1,138 @@
+/* Inter Variable is self-hosted. Keep the Latin and Cyrillic subset ranges
+   in sync with the font assets copied by npm run vendor. */
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-cyrillic-ext-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-cyrillic-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-latin-ext-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap;
+    font-weight: 100 900;
+    src: url(/static/fonts/inter-latin-wght-normal.woff2) format("woff2-variations");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@theme {
+    --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+
+    --animate-menu-pop: menu-pop 0.2s cubic-bezier(0, 0, 0.2, 1);
+    @keyframes menu-pop {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
+        }
+    }
+}
+
+:root {
+    color-scheme: light dark;
+}
+:root:has(> head > meta[name="color-scheme"][content="light"]) {
+    color-scheme: light;
+}
+:root:has(> head > meta[name="color-scheme"][content="dark"]) {
+    color-scheme: dark;
+}
+/* The inline script in base.html sets data-theme before paint. Target the
+   attribute so the palettes override daisyUI's default :root tokens. */
+[data-theme="light"] {
+    --color-base-100: oklch(100% 0 0);
+    --color-base-200: oklch(98.5% 0.002 248.7);
+    --color-base-300: oklch(92.8% 0.006 264.4);
+    --color-base-content: oklch(33.3% 0.047 288.6);
+    --color-primary: oklch(76.6% 0.158 166.7);
+    --color-primary-content: oklch(33.3% 0.047 288.6);
+    --color-secondary: oklch(80.2% 0.117 357.2);
+    --color-secondary-content: oklch(33.3% 0.047 288.6);
+    --color-accent: oklch(93.8% 0.174 118.3);
+    --color-accent-content: oklch(33.3% 0.047 288.6);
+    --color-neutral: oklch(33.3% 0.047 288.6);
+    --color-neutral-content: oklch(100% 0 0);
+    --color-info: oklch(62.3% 0.214 259.8);
+    --color-info-content: oklch(100% 0 0);
+    --color-success: oklch(69.6% 0.17 162.5);
+    --color-success-content: oklch(100% 0 0);
+    --color-warning: oklch(76.9% 0.188 70.1);
+    --color-warning-content: oklch(33.3% 0.047 288.6);
+    --color-error: oklch(64.7% 0.222 16.4);
+    --color-error-content: oklch(100% 0 0);
+    --radius-selector: 0.5rem;
+    --radius-field: 0.5rem;
+    --radius-box: 1rem;
+    --size-selector: 0.25rem;
+    --size-field: 0.25rem;
+    --border: 1px;
+    --depth: 0;
+    --noise: 0;
+}
+
+[data-theme="dark"] {
+    --color-base-100: oklch(27.8% 0.03 256.9);
+    --color-base-200: oklch(21% 0.032 264.7);
+    --color-base-300: oklch(13% 0.027 261.7);
+    --color-base-content: oklch(96.7% 0.003 264.4);
+    --color-primary: oklch(76.6% 0.158 166.7);
+    --color-primary-content: oklch(21% 0.032 264.7);
+    --color-secondary: oklch(80.2% 0.117 357.2);
+    --color-secondary-content: oklch(21% 0.032 264.7);
+    --color-accent: oklch(93.8% 0.174 118.3);
+    --color-accent-content: oklch(21% 0.032 264.7);
+    --color-neutral: oklch(13% 0.027 261.7);
+    --color-neutral-content: oklch(87.2% 0.009 258.4);
+    --color-info: oklch(70% 0.165 254.6);
+    --color-info-content: oklch(21% 0.032 264.7);
+    --color-success: oklch(69.6% 0.17 162.5);
+    --color-success-content: oklch(21% 0.032 264.7);
+    --color-warning: oklch(76.9% 0.188 70.1);
+    --color-warning-content: oklch(21% 0.032 264.7);
+    --color-error: oklch(64.7% 0.222 16.4);
+    --color-error-content: oklch(100% 0 0);
+    --radius-selector: 0.5rem;
+    --radius-field: 0.5rem;
+    --radius-box: 1rem;
+    --size-selector: 0.25rem;
+    --size-field: 0.25rem;
+    --border: 1px;
+    --depth: 0;
+    --noise: 0;
+}
+
+:root {
+    /* Match the transition duration and curve used by the utility classes. */
+    --gys-speed: 0.2s;
+    --gys-ease: cubic-bezier(0, 0, 0.2, 1);
+    --gys-sheen-primary: linear-gradient(135deg,
+        color-mix(in oklab, var(--color-primary) 11%, transparent),
+        color-mix(in oklab, var(--color-primary) 2%, transparent));
+    --gys-sheen-white: linear-gradient(135deg,
+        rgb(255 255 255 / 0.20),
+        rgb(255 255 255 / 0.04));
+}
+
+/* Avoid horizontal layout jumps when panels of different heights swap. */
+html {
+    scrollbar-gutter: stable;
+}

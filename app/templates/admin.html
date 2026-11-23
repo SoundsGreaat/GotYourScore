@@ -1,55 +1,40 @@
-{# Admin panel shell. Context: current_user=User. Tabs swap HTMX
-   partials into #admin-view; the Prompts tab loads eagerly. The tab
-   strip is the shared sliding-underline component (js/tabs.js):
-   data-hash mirrors the active tab into the location hash and
-   restores it before htmx's eager load. #}
+{# The shared tabs controller restores the section from the URL hash
+   before HTMX loads the first partial into #admin-view. #}
 {% extends "base.html" %}
 
 {% block title %}Administration · GotYourScore{% endblock %}
 
 {% block content %}
-<main class="container mx-auto max-w-7xl p-4 md:p-6">
-    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-            <div class="flex h-10 w-10 items-center justify-center rounded-box bg-primary text-primary-content">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-            </div>
-            <div>
-                <h1 class="text-2xl font-bold leading-tight">Administration</h1>
-                <p class="text-sm text-base-content/60">Prompts, scorecards and accounts</p>
-            </div>
-        </div>
+<script defer src="/static/js/admin.js?v={{ asset_v }}"></script>
+<main class="gys-admin mx-auto max-w-7xl px-4 py-5 md:px-6 md:py-7 lg:px-8">
+    <header class="mb-5">
         <a href="/" class="btn btn-ghost btn-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
             Back to dashboard
         </a>
-    </div>
+        <h1 class="mt-2 text-2xl font-bold leading-tight">Administration</h1>
+        <p class="mt-1 text-sm text-base-content/75">Manage settings, user access, and deleted records.</p>
+    </header>
 
-    <div class="gys-tabs" data-tabs data-hash data-panel="admin-view" role="tablist" aria-label="Admin sections" hx-sync:inherited="#admin-view:replace">
-        <button type="button" role="tab" id="admin-tab-prompts" class="active" data-tab="prompts"
-                hx-get="/admin/partials/prompts" hx-target="#admin-view" hx-swap="innerHTML" aria-selected="true">Prompts</button>
-        <button type="button" role="tab" id="admin-tab-ai" data-tab="ai" aria-selected="false" tabindex="-1"
-                hx-get="/admin/partials/ai" hx-target="#admin-view" hx-swap="innerHTML">AI</button>
-        <button type="button" role="tab" id="admin-tab-scorecards" data-tab="scorecards" aria-selected="false" tabindex="-1"
-                hx-get="/admin/partials/scorecards" hx-target="#admin-view" hx-swap="innerHTML">Scorecards</button>
-        <button type="button" role="tab" id="admin-tab-users" data-tab="users" aria-selected="false" tabindex="-1"
-                hx-get="/admin/partials/users" hx-target="#admin-view" hx-swap="innerHTML">Users</button>
-        <button type="button" role="tab" id="admin-tab-deleted-users" data-tab="deleted-users" aria-selected="false" tabindex="-1"
-                hx-get="/admin/partials/deleted-users" hx-target="#admin-view" hx-swap="innerHTML">Deleted Users</button>
-        <button type="button" role="tab" id="admin-tab-deleted-reviews" data-tab="deleted-reviews" aria-selected="false" tabindex="-1"
-                hx-get="/admin/partials/deleted-reviews" hx-target="#admin-view" hx-swap="innerHTML">Deleted Reviews</button>
-        <button type="button" role="tab" id="admin-tab-deleted-bad-feedback" data-tab="deleted-bad-feedback" aria-selected="false" tabindex="-1"
-                hx-get="/admin/partials/deleted-bad-feedback" hx-target="#admin-view" hx-swap="innerHTML">Deleted Bad Feedback</button>
-        <span class="gys-tabs-line" aria-hidden="true"></span>
+    <div class="gys-admin-layout">
+        <div class="gys-admin-tabs" data-tabs data-hash data-responsive-orientation data-panel="admin-view"
+             role="tablist" aria-label="Admin sections" hx-sync:inherited="#admin-view:replace">
+            {% for key, label in [
+                ('prompts', 'Prompts'), ('ai', 'AI settings'), ('scorecards', 'Scorecards'), ('users', 'Users'),
+                ('deleted-users', 'Deleted Users'), ('deleted-reviews', 'Deleted Reviews'),
+                ('deleted-bad-feedback', 'Deleted Bad Feedback')
+            ] %}
+            <button type="button" role="tab" id="admin-tab-{{ key }}" data-tab="{{ key }}"
+                    {% if loop.first %}class="active" aria-selected="true"{% else %}aria-selected="false" tabindex="-1"{% endif %}
+                    hx-get="/admin/partials/{{ key }}" hx-target="#admin-view" hx-swap="innerHTML">{{ label }}</button>
+            {% endfor %}
+        </div>
+        <div id="admin-view" role="tabpanel" aria-labelledby="admin-tab-prompts" tabindex="0"
+             class="min-w-0" hx-get="/admin/partials/prompts" hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace">
+            <p role="status" data-admin-loading class="gys-admin-surface p-4 text-sm">Loading settings…</p>
+        </div>
     </div>
-
-    <div id="admin-view" role="tabpanel" aria-labelledby="admin-tab-prompts" tabindex="0"
-         class="mt-5 min-w-0 overflow-x-auto" hx-get="/admin/partials/prompts" hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
 </main>
 {% endblock %}

@@ -1,0 +1,62 @@
+{% macro chevron() -%}
+<svg class="gys-admin-chevron size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+     aria-hidden="true" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+    <path d="m6 9 6 6 6-6" />
+</svg>
+{%- endmacro %}
+
+{% macro page_heading(title, description) -%}
+<div>
+    <h2 class="text-lg font-semibold">{{ title }}</h2>
+    <p class="mt-1 text-sm text-base-content/75">{{ description }}</p>
+</div>
+{%- endmacro %}
+
+{% macro move_controls(item) -%}
+<span class="inline-flex shrink-0 gap-1">
+    {% for direction, line in [('up', 'm6 15 6-6 6 6'), ('down', 'm6 9 6 6 6-6')] %}
+    <button type="button" class="btn btn-square btn-ghost btn-xs gys-admin-move" data-move="{{ direction }}"
+            aria-label="Move {{ item }} {{ direction }}">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"
+             stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
+            <path d="{{ line }}" />
+        </svg>
+    </button>
+    {% endfor %}
+</span>
+{%- endmacro %}
+
+{% macro recovery_panel(key, title, description, count, empty) -%}
+<div class="space-y-4">
+    {{ page_heading(title, description) }}
+    <section class="gys-admin-surface min-w-0" aria-labelledby="{{ key }}-title">
+        <div class="flex items-center gap-2 border-b border-base-300 px-4 py-3">
+            <h3 id="{{ key }}-title" class="text-sm font-semibold">Records available to restore</h3>
+            <span class="badge badge-ghost badge-sm">{{ count }}</span>
+        </div>
+        {% if count %}
+        <div class="gys-admin-table overflow-x-auto" tabindex="0" role="region" aria-label="{{ title }} table">
+            {{ caller() }}
+        </div>
+        {% else %}
+        <p class="p-6 text-center text-sm text-base-content/75">{{ empty }}</p>
+        {% endif %}
+    </section>
+</div>
+{%- endmacro %}
+
+{% macro role_choices(choices, checked, lock_admin=false) -%}
+<fieldset>
+    <legend class="mb-1 text-sm font-medium">Roles</legend>
+    <div class="flex flex-wrap gap-x-4 gap-y-1">
+        {% for role in choices %}
+        <label class="gys-admin-check flex min-h-8 items-center gap-2 text-sm">
+            <input type="checkbox" name="roles" value="{{ role }}" class="checkbox checkbox-sm checkbox-primary"
+                   {{ 'checked' if role in checked }}
+                   {% if lock_admin and role == 'Admin' %}disabled{% endif %}>
+            <span>{{ role }}</span>
+        </label>
+        {% endfor %}
+    </div>
+</fieldset>
+{%- endmacro %}

@@ -1,0 +1,157 @@
+/* Keep full selector specificity so the shared halo replaces daisyUI's
+   default outline rather than doubling up with it. */
+.input:focus, .input:focus-within,
+.textarea:focus, .select:focus,
+.checkbox:focus-visible, .radio:focus-visible,
+.toggle:focus-visible,
+.toggle:has(:focus-visible),
+.focus-halo:focus-visible,
+.ql-editor:focus, .glow-shell:focus-within {
+    outline: none;
+}
+.input:focus, .input:focus-within,
+.textarea:focus, .select:focus {
+    border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+    box-shadow:
+        0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+        0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
+}
+
+/* Draw the Quill halo on its wrapper so overflow does not clip the glow. */
+.glow-shell:focus-within {
+    border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
+    box-shadow:
+        0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
+        0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
+}
+.btn:focus-visible,
+.btn:has(:focus-visible) {
+    outline-style: none;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
+}
+.checkbox:focus-visible, .radio:focus-visible,
+.toggle:focus-visible,
+.focus-halo:focus-visible {
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
+}
+
+.input, .textarea, .select, .checkbox, .radio, .toggle,
+.focus-halo, .glow-shell, .ql-editor {
+    transition:
+        border-color var(--gys-speed) var(--gys-ease),
+        box-shadow var(--gys-speed) var(--gys-ease),
+        background-color var(--gys-speed) var(--gys-ease),
+        color var(--gys-speed) var(--gys-ease);
+}
+
+/* Use the same outset shadow shape at rest so the halo can interpolate. */
+.input:not(:focus):not(:focus-within),
+.textarea:not(:focus),
+.select:not(:focus) {
+    box-shadow:
+        0 0 0 3px #0000,
+        0 0 12px 0 #0000;
+}
+
+/* Preserve the toggle thumb slide when replacing the default transition. */
+.toggle {
+    transition:
+        border-color var(--gys-speed) var(--gys-ease),
+        box-shadow var(--gys-speed) var(--gys-ease),
+        background-color var(--gys-speed) var(--gys-ease),
+        color var(--gys-speed) var(--gys-ease),
+        grid-template-columns var(--gys-speed) var(--gys-ease);
+}
+
+/* Theme wiring mirrors :has(>input:checked) in a class because Chromium
+   can skip the transition when only the :has() match changes. */
+.toggle.toggle-on {
+    grid-template-columns: 1fr 1fr 0fr;
+    background-color: var(--color-base-100);
+    --input-color: var(--color-base-content);
+}
+
+/* Avoid scaling the dialog, which makes its border look uneven mid-transition. */
+.modal .modal-box,
+.modal[open] > .modal-box {
+    transition:
+        translate var(--gys-speed) var(--gys-ease),
+        opacity var(--gys-speed) var(--gys-ease),
+        box-shadow var(--gys-speed) var(--gys-ease);
+    scale: none;
+}
+
+/* Crossfade the theme snapshots instead of animating the whole live page. */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: var(--gys-speed);
+    animation-timing-function: var(--gys-ease);
+}
+
+/* Keep controls from continuing their own transitions under the crossfade. */
+:root:active-view-transition *,
+:root:active-view-transition *::before,
+:root:active-view-transition *::after {
+    transition: none !important;
+}
+
+/* Without view transitions, the theme script briefly applies a palette fade.
+   Keep this after generic form transitions and before button overrides. */
+.gys-theme-fade,
+.gys-theme-fade *,
+.gys-theme-fade *::before,
+.gys-theme-fade *::after {
+    transition:
+        background-color var(--gys-speed) var(--gys-ease),
+        border-color var(--gys-speed) var(--gys-ease),
+        color var(--gys-speed) var(--gys-ease),
+        fill var(--gys-speed) var(--gys-ease),
+        stroke var(--gys-speed) var(--gys-ease),
+        grid-template-columns var(--gys-speed) var(--gys-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    /* The AI context menu uses this utility without a motion guard. */
+    .animate-menu-pop {
+        animation: none;
+    }
+}
+
+.btn {
+    transition-property: color, background-color, border-color,
+        box-shadow, transform;
+    transition-duration: var(--gys-speed);
+    transition-timing-function: var(--gys-ease);
+}
+
+/* Keep the solid accent for primary actions; secondary actions stay neutral. */
+.btn-primary, .gys-btn-secondary {
+    box-shadow: none;
+    text-shadow: none;
+}
+.gys-btn-secondary:where(:enabled) {
+    background-color: var(--color-base-100);
+    border-color: color-mix(in oklab, var(--color-base-content) 55%, var(--color-base-100));
+}
+@media (hover: hover) {
+    .gys-btn-secondary:where(:enabled:hover) {
+        background-color: color-mix(in oklab, var(--color-primary) 12%, var(--color-base-100));
+    }
+}
+.gys-btn-secondary:where(:enabled:active) {
+    background-color: color-mix(in oklab, var(--color-primary) 20%, var(--color-base-100));
+}
+.btn-primary:focus-visible, .gys-btn-secondary:focus-visible {
+    outline: 2px solid var(--color-base-content);
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+/* Shared click affordance for case and status chips. */
+.badge-clickable {
+    cursor: pointer;
+    transition: background-color var(--gys-speed) var(--gys-ease);
+}
+.badge-clickable:hover {
+    background-color: var(--color-base-200);
+}

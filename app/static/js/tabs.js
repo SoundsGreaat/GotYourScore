@@ -35,6 +35,15 @@
         );
         if (!buttons.length) return;
         var armed = false;
+        var responsive = track.hasAttribute('data-responsive-orientation');
+        var vertical = false;
+
+        function syncOrientation() {
+            if (!responsive) return;
+            vertical = getComputedStyle(track).flexDirection === 'column';
+            track.setAttribute('aria-orientation', vertical ? 'vertical' : 'horizontal');
+        }
+        syncOrientation();
 
         function place() {
             var active = track.querySelector('button.active');
@@ -52,6 +61,7 @@
         }
 
         function reveal(btn) {
+            if (vertical) return;
             var item = btn.getBoundingClientRect();
             var list = track.getBoundingClientRect();
             var start = list.left + 2;
@@ -89,8 +99,10 @@
             if (index < 0 || event.altKey || event.ctrlKey || event.metaKey) return;
             var direction = getComputedStyle(track).direction === 'rtl' ? -1 : 1;
             switch (event.key) {
-                case 'ArrowLeft': index -= direction; break;
-                case 'ArrowRight': index += direction; break;
+                case 'ArrowLeft': if (vertical) return; index -= direction; break;
+                case 'ArrowRight': if (vertical) return; index += direction; break;
+                case 'ArrowUp': if (!vertical) return; index -= 1; break;
+                case 'ArrowDown': if (!vertical) return; index += 1; break;
                 case 'Home': index = 0; break;
                 case 'End': index = buttons.length - 1; break;
                 default: return;
@@ -144,7 +156,14 @@
         // class toggles never pass through the click handler above and
         // the underline would keep pointing at the previous tab.
         track.addEventListener('gys-tabs-sync', syncSelection);
-        window.addEventListener('resize', function () { place(); });
+        window.addEventListener('resize', function () {
+            if (responsive) {
+                syncOrientation();
+                syncSelection();
+            } else {
+                place();
+            }
+        });
         if (document.fonts && document.fonts.ready) {
             document.fonts.ready.then(syncSelection);
         }

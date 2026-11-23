@@ -1,0 +1,71 @@
+/* Shared callout surfaces; empty states keep their neutral dashed treatment. */
+.gys-accent-panel {
+    border: 1px solid color-mix(in oklab, var(--color-primary) 30%, transparent);
+    border-radius: var(--radius-box);
+    background: var(--gys-sheen-primary);
+}
+.alert {
+    background-image: var(--gys-sheen-white);
+}
+
+/* Transient notifications and batch reports share a bottom-center stack. */
+.gys-float-stack {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 20px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column-reverse; /* newest at the bottom edge */
+    align-items: center;
+    gap: 10px;
+    width: min(560px, calc(100vw - 32px));
+    pointer-events: none;
+}
+.gys-float-note {
+    pointer-events: auto;
+    text-align: center;
+    border-radius: var(--radius-box);
+    width: fit-content;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 11px 26px;
+    font-size: 0.85rem;
+    color: var(--color-base-content);
+    -webkit-backdrop-filter: blur(9px);
+    backdrop-filter: blur(9px);
+    background:
+        linear-gradient(135deg,
+            color-mix(in oklab, var(--color-primary) 13%, transparent),
+            color-mix(in oklab, var(--color-primary) 3%, transparent)),
+        color-mix(in oklab, var(--color-base-100) 86%, transparent);
+    border: 1px solid color-mix(in oklab, var(--color-primary) 40%, transparent);
+    box-shadow: 0 10px 28px rgb(0 0 0 / 0.16);
+}
+.gys-float-note.gys-error {
+    border-color: color-mix(in oklab, var(--color-error) 45%, transparent);
+    background:
+        var(--gys-sheen-white),
+        color-mix(in oklab, var(--color-error) 15%,
+            color-mix(in oklab, var(--color-base-100) 84%, transparent));
+}
+.gys-float-note ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+    list-style: disc;
+    text-align: left;
+}
+@media (prefers-reduced-motion: no-preference) {
+    .gys-float-note {
+        animation: gys-float-in var(--gys-speed) var(--gys-ease);
+    }
+    .gys-float-note.gys-leaving {
+        opacity: 0;
+        transform: translateY(8px);
+        transition:
+            opacity var(--gys-speed) var(--gys-ease),
+            transform var(--gys-speed) var(--gys-ease);
+    }
+    @keyframes gys-float-in {
+        from { opacity: 0; transform: translateY(10px); }
+    }
+}
