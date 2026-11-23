@@ -138,6 +138,62 @@ test("Bad Feedback editor cards share the new picker behavior", async ({ page })
   await expect(picker.getByRole("menuitemradio", { name: "Sales" })).toBeChecked();
 });
 
+test("tracker notes open the specific agent card and respect each view's edit mode", async ({ page }) => {
+  await signIn(page);
+  const me = await page.request.get(`${base}/auth/me`);
+  expect(me.ok()).toBe(true);
+  const { id: userId } = await me.json();
+  const response = await page.request.post(`${base}/api/refund-check`, {
+    data: {
+      related_case: "CI-notes",
+      agents: [
+        { user_id: userId, kind: "Support", fault: "Full Fault", qa_comment: "<strong>Support note</strong>" },
+        { user_id: userId, kind: "Sales", fault: "Warning", qa_comment: "Sales note" },
+      ],
+    },
+  });
+  expect(response.status()).toBe(201);
+  const { id, agents } = await response.json();
+  const support = agents.find((agent) => agent.kind === "Support");
+  const sales = agents.find((agent) => agent.kind === "Sales");
+  const badge = (agent) => page.locator(`[data-case-notes="refund-check-${id}-${agent.id}"]`);
+  const notes = page.locator(".js-notes-modal");
+  const edit = notes.getByRole("button", { name: "Edit record" });
+  const close = notes.getByRole("button", { name: "Close", exact: true });
+  try {
+    await page.goto(`${base}/#qa-tracker/refund-check`);
+    await expect(badge(support)).toHaveClass(/badge-warning/);
+    await badge(support).click();
+    await expect(notes.locator("strong")).toHaveText("Support note");
+    await close.click();
+    await expect(notes).toBeHidden();
+    await expect(badge(sales)).toHaveClass(/badge-info/);
+    await badge(sales).click();
+    await expect(notes.locator(".js-notes-body")).toHaveText("Sales note");
+    await edit.click();
+    const editor = page.getByRole("dialog", { name: "Edit Refund Check" });
+    await expect(editor).toBeVisible();
+    await expect(page.locator(".js-bf-editor-root")).toHaveAttribute("data-bf-open", String(id));
+    await editor.getByRole("button", { name: "Close editor" }).click();
+    await expect(editor).toBeHidden();
+
+    await page.getByRole("link", { name: /To review/ }).click();
+    await expect(badge(sales)).toHaveAttribute("title", "Sales — view the QA note");
+    await badge(sales).click();
+    await expect(notes.locator(".js-notes-body")).toHaveText("Sales note");
+    await expect(edit).toBeVisible();
+    await close.click();
+
+    await page.getByRole("link", { name: "My Reviews" }).click();
+    await expect(badge(sales)).toHaveText("Sales · Warning");
+    await badge(sales).click();
+    await expect(notes.locator(".js-notes-body")).toHaveText("Sales note");
+    await expect(edit).toBeHidden();
+  } finally {
+    await page.request.delete(`${base}/api/refund-check/${id}`);
+  }
+});
+
 test("Bad Feedback agent cards resize the open dialog and keep focus on removal", async ({ page }) => {
   await signIn(page);
   await page.goto(`${base}/#qa-tracker/bad-feedback`);

@@ -88,26 +88,12 @@
                         {% endfor %}
                         <td>
                             <div class="flex max-w-72 flex-wrap items-center gap-1">
-                                 {% for agent in fb.agents %}
-                                 {% set agent_name = (agent.user.name or agent.user.nickname) if agent.user else ('#' ~ agent.user_id) %}
-                                 {% set notes_key = tracker ~ '-' ~ fb.id ~ '-' ~ agent.id %}
-                                <!-- Click = the shared notes modal for THIS
-                                     record + agent (notes_modal.js
-                                     delegation; Edit re-opens the BF editor
-                                     via data-notes-kind="bf"). -->
-                                <button type="button"
-                                        class="badge badge-soft badge-sm badge-clickable {{ 'badge-warning' if agent.fault and agent.fault.value in ('Full Fault', 'Partial Fault') }} {{ 'badge-info' if agent.fault and agent.fault.value == 'Warning' }}"
-                                        data-case-notes="{{ notes_key }}"
-                                        data-case-prefix="{{ tracker_label }}"
-                                        data-case-label="{{ related_case_value or fb.id }}"
-                                        data-case-type="{{ agent_name }}"
-                                        data-edit-id="{{ fb.id }}"
-                                        data-notes-open="edit"
-                                        data-notes-kind="{{ 'bf' if tracker == 'bad-feedback' else tracker }}"
-                                        title="{{ agent.kind.value }}{% if agent.fault %} · {{ agent.fault.value }}{% endif %} — view the QA note">
-                                    {{ agent_name }}{{ ' · ' ~ agent.fault.value if agent.fault }}
-                                </button>
-                                 <template data-notes-for="{{ notes_key }}">{{ agent.qa_comment or '' }}</template>
+                                {% for agent in fb.agents %}
+                                {% set agent_name = (agent.user.name or agent.user.nickname) if agent.user else ('#' ~ agent.user_id) %}
+                                {% set fault = agent.fault.value if agent.fault else none %}
+                                {% set title = agent.kind.value ~ (' · ' ~ fault if fault else '') ~ ' — view the QA note' %}
+                                {{ modals.tracker_note_badge(tracker, tracker_label, fb.id, agent.id, related_case_value,
+                                    agent_name, agent.qa_comment, title, fault=fault, editable=true) }}
                                 {% endfor %}
                             </div>
                         </td>
@@ -131,9 +117,7 @@
                             <button type="button" class="btn btn-ghost btn-xs btn-circle text-error"
                                     data-tracker-delete="{{ fb.id }}" data-tracker="{{ tracker }}"
                                     aria-label="Delete {{ tracker_label|lower }} {{ fb.id }}" title="Delete">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
+                                {{ icons.trash() }}
                             </button>
                         </td>
                     </tr>
@@ -154,7 +138,7 @@
     <!-- ===== Import modal: upload → mapping → report ===== -->
     <dialog class="modal js-tracker-import-modal" aria-labelledby="bf-import-title">
         <div class="modal-box max-w-2xl">
-            <form method="dialog"><button aria-label="Close import" class="btn btn-circle btn-ghost btn-sm absolute right-2 top-2">✕</button></form>
+            {{ modals.close_button('Close import') }}
             <h3 id="bf-import-title" class="mb-1 pr-8 text-lg font-bold">Import {{ tracker_label }}</h3>
             <p class="mb-4 text-sm text-base-content/70">
                 Upload an .xlsx file, confirm which column holds what, and the rows
@@ -229,7 +213,7 @@
                 </div>
             </div>
         </div>
-        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+        {{ modals.backdrop() }}
     </dialog>
 
     <!-- Edit modal is an on-demand partial (partials/bad_feedback_editor.html)

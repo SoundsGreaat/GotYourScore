@@ -67,7 +67,7 @@ import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_rate_limit import reserve_ai_request
@@ -103,7 +103,7 @@ from app.services import (
     multiplier_service,
     quota_service,
     reporting_period,
-    scorecard_service,
+    review_service,
 )
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -222,6 +222,27 @@ async def _get_assigned_qa_or_error(qa_id: int, db: AsyncSession) -> User:
     return assigned_qa
 
 
+async def _reject_duplicate_pending(
+    db: AsyncSession,
+    agent_id: int,
+    case_number: str | None,
+    *,
+    exclude_review_id: int | None = None,
+) -> None:
+    if case_number is None:
+        return
+    if await review_service.find_pending_pairs(
+        db, [(agent_id, case_number)], exclude_review_id=exclude_review_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Support agent {agent_id} already has a pending review "
+                f"for case_number '{case_number}'."
+            ),
+        )
+
+
 async def _reject_quota_reached(
     agent: User,
     db: AsyncSession,
@@ -316,24 +337,7 @@ async def _create_saved_for_later_review(
     # collapse to null (numberless rows never collide in the guard).
     case_number = (payload.case_number or "").strip() or None
 
-    if case_number is not None:
-        result = await db.execute(
-            select(Review.support_agent_id, Review.case_number).where(
-                tuple_(Review.support_agent_id, Review.case_number).in_(
-                    [(agent.id, case_number)]
-                ),
-                Review.status == ReviewStatusEnum.PENDING,
-                Review.deleted_at.is_(None),
-            )
-        )
-        if result.first() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Support agent {agent.id} already has a pending review "
-                    f"for case_number '{case_number}'."
-                ),
-            )
+    await _reject_duplicate_pending(db, agent.id, case_number)
 
     # Keep the ticked rules + waives so the drawer can resume exactly
     # where the author left off; nothing here is scored yet.
@@ -418,23 +422,10 @@ async def create_review(
         scorecard_data: dict[str, Any] | None = None
         final_score: int | None = None
     else:
-        breakdown, final_score, total_penalty = (
-            await multiplier_service.calculate_final_score(
-                agent.id, payload.raw_scorecard or {}, db,
-                no_multiplier_keys=set(payload.no_multiplier_keys),
-            )
+        scorecard_data, final_score = await review_service.build_scorecard_data(
+            db, agent.id, payload.case_type, payload.raw_scorecard or {},
+            multiplier_exemptions=sorted(payload.no_multiplier_keys),
         )
-        rules_snapshot = await scorecard_service.get_active_rules(
-            payload.case_type, db
-        )
-        scorecard_data = {
-            "rules_snapshot": rules_snapshot,
-            "base_score": multiplier_service.BASE_SCORE,
-            "total_penalty": total_penalty,
-            "final_score": final_score,
-            "breakdown": breakdown,
-            "multiplier_exemptions": sorted(payload.no_multiplier_keys),
-        }
 
     # Backfill: pin the row to the chosen period's last second so it
     # lands inside that period's bounds everywhere (quota, partials).
@@ -588,17 +579,9 @@ async def auto_score_review(
     finally:
         await lease.release()
 
-    breakdown, final_score, total_penalty = (
-        await multiplier_service.calculate_final_score(agent.id, raw_scorecard, db)
+    scorecard_data, final_score = await review_service.build_scorecard_data(
+        db, agent.id, payload.case_type, raw_scorecard,
     )
-    rules_snapshot = await scorecard_service.get_active_rules(payload.case_type, db)
-    scorecard_data = {
-        "rules_snapshot": rules_snapshot,
-        "base_score": multiplier_service.BASE_SCORE,
-        "total_penalty": total_penalty,
-        "final_score": final_score,
-        "breakdown": breakdown,
-    }
 
     review = Review(
         support_agent_id=agent.id,
@@ -674,27 +657,7 @@ async def create_pending_review(
     if payload.assigned_qa_id is not None:
         await _get_assigned_qa_or_error(payload.assigned_qa_id, db)
 
-    # Duplicate protection parity with the bulk endpoint: one OPEN
-    # handoff per (support agent, case number); rows without a number
-    # never collide (NULL never matches in the tuple comparison).
-    if payload.case_number is not None:
-        result = await db.execute(
-            select(Review.support_agent_id, Review.case_number).where(
-                tuple_(Review.support_agent_id, Review.case_number).in_(
-                    [(agent.id, payload.case_number)]
-                ),
-                Review.status == ReviewStatusEnum.PENDING,
-                Review.deleted_at.is_(None),
-            )
-        )
-        if result.first() is not None:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Support agent {agent.id} already has a pending review "
-                    f"for case_number '{payload.case_number}'."
-                ),
-            )
+    await _reject_duplicate_pending(db, agent.id, payload.case_number)
 
     review = Review(
         support_agent_id=agent.id,
@@ -821,22 +784,10 @@ async def create_pending_reviews_bulk(
 
     # One query for every candidate pair that is ALREADY an open,
     # non-deleted handoff; completed/old rows do not block.
-    existing_pairs: set[tuple[int, str]] = set()
-    numbered_rows = [
-        (index, row) for index, row in valid_rows if row.case_number is not None
-    ]
-    if numbered_rows:
-        pairs = [
-            (row.support_agent_id, row.case_number) for _, row in numbered_rows
-        ]
-        result = await db.execute(
-            select(Review.support_agent_id, Review.case_number).where(
-                tuple_(Review.support_agent_id, Review.case_number).in_(pairs),
-                Review.status == ReviewStatusEnum.PENDING,
-                Review.deleted_at.is_(None),
-            )
-        )
-        existing_pairs = set(result.all())
+    existing_pairs = await review_service.find_pending_pairs(db, [
+        (row.support_agent_id, row.case_number)
+        for _, row in valid_rows if row.case_number is not None
+    ])
 
     created_reviews: list[Review] = []
     for index, row in valid_rows:
@@ -1211,32 +1162,10 @@ async def update_review(
         )
         effective_case_number = review.case_number
         if "case_number" in provided:
-            stripped = (
-                payload.case_number.strip()
-                if payload.case_number is not None
-                else ""
-            )
-            effective_case_number = stripped or None
-        if effective_case_number is not None:
-            result = await db.execute(
-                select(Review.id).where(
-                    tuple_(
-                        Review.support_agent_id, Review.case_number
-                    ).in_([(effective_agent_id, effective_case_number)]),
-                    Review.status == ReviewStatusEnum.PENDING,
-                    Review.deleted_at.is_(None),
-                    Review.id != review.id,
-                )
-            )
-            if result.first() is not None:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=(
-                        f"Support agent {effective_agent_id} already has a "
-                        f"pending review for case_number "
-                        f"'{effective_case_number}'."
-                    ),
-                )
+            effective_case_number = (payload.case_number or "").strip() or None
+        await _reject_duplicate_pending(
+            db, effective_agent_id, effective_case_number, exclude_review_id=review.id
+        )
 
     # Only provided fields change.
     if payload.case_type is not None:
@@ -1246,12 +1175,7 @@ async def update_review(
         # un-blanks the handoff — legal since creation made the number
         # optional. Non-blank values are stored stripped.
         if "case_number" in provided:
-            stripped = (
-                payload.case_number.strip()
-                if payload.case_number is not None
-                else ""
-            )
-            review.case_number = stripped or None
+            review.case_number = effective_case_number
     elif payload.case_number is not None:
         # Legacy completed-row behavior: verbatim, only when non-null.
         review.case_number = payload.case_number
@@ -1277,27 +1201,13 @@ async def update_review(
                 (review.scorecard_data or {}).get("multiplier_exemptions")
                 or []
             )
-        breakdown, final_score, total_penalty = (
-            await multiplier_service.calculate_final_score(
-                review.support_agent_id, payload.raw_scorecard, db,
-                exclude_review_id=review.id,
-                no_multiplier_keys=set(multiplier_exemptions),
-            )
-        )
-        rules_snapshot = await scorecard_service.get_active_rules(
-            effective_case_type, db
-        )
         # Rebuild the whole dict (never mutate in place): JSONB change
         # tracking relies on attribute reassignment.
-        review.scorecard_data = {
-            "rules_snapshot": rules_snapshot,
-            "base_score": multiplier_service.BASE_SCORE,
-            "total_penalty": total_penalty,
-            "final_score": final_score,
-            "breakdown": breakdown,
-            "multiplier_exemptions": multiplier_exemptions,
-        }
-        review.final_score = final_score
+        review.scorecard_data, review.final_score = await review_service.build_scorecard_data(
+            db, review.support_agent_id, effective_case_type, payload.raw_scorecard,
+            exclude_review_id=review.id,
+            multiplier_exemptions=multiplier_exemptions,
+        )
 
     # LAST EDITOR BECOMES EXECUTOR: every successful pending PATCH —
     # metadata edit or completion — reassigns qa_id to the editor;

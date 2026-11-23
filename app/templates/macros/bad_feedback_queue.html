@@ -1,6 +1,7 @@
 {#- Shared assigned/unassigned table for both case trackers.
     Agent badges open the note for that exact agent card; its edit
     action opens the corresponding record rather than the note key. -#}
+{% import "macros/modals.html" as modals %}
 {% macro queue(rows, tracker, tracker_label, tracker_fields, unassigned=false) %}
 {% set show_related_case = tracker_fields | selectattr('key', 'equalto', 'related_case') | first is defined %}
 <div class="card rounded-box bg-base-100 shadow-sm">
@@ -39,18 +40,8 @@
                         <td class="truncate">
                             <span class="flex flex-wrap gap-1">
                                 {% for a in row.agents %}
-                                {% set notes_key = tracker ~ '-' ~ row.id ~ '-' ~ a.id %}
-                                <button type="button"
-                                        class="badge badge-soft badge-sm badge-clickable"
-                                        data-case-notes="{{ notes_key }}"
-                                        data-case-prefix="{{ tracker_label }}"
-                                        data-case-label="{{ related_case_value or row.id }}"
-                                        data-case-type="{{ a.label }}"
-                                        data-edit-id="{{ row.id }}"
-                                        data-notes-open="edit"
-                                        data-notes-kind="{{ 'bf' if tracker == 'bad-feedback' else tracker }}"
-                                        title="{{ a.kind }} — view the QA note">{{ a.label }}</button>
-                                <template data-notes-for="{{ notes_key }}">{{ a.qa_comment or '' }}</template>
+                                {{ modals.tracker_note_badge(tracker, tracker_label, row.id, a.id, related_case_value,
+                                    a.label, a.qa_comment, a.kind ~ ' — view the QA note', editable=true) }}
                                 {% endfor %}
                             </span>
                         </td>

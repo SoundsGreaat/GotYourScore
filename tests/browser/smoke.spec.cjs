@@ -564,6 +564,12 @@ test("admin scorecard saves swap scripts and validation errors leave the editor 
   await expect(selected).toHaveCSS("box-shadow", "none");
   await editor.getByRole("button", { name: "+ Add rule (new category)" }).click();
   await editor.locator("[data-display]").fill("CI rule");
+  await editor.getByRole("button", { name: "+ Add rule", exact: true }).click();
+  const draft = editor.locator("[data-row]").last();
+  await expect(draft.getByRole("spinbutton", { name: "Penalty points" })).toHaveValue("1");
+  await expect(draft.getByRole("checkbox", { name: "Rule active" })).toBeChecked();
+  await draft.getByRole("button", { name: "Remove rule" }).click();
+  await expect(editor.locator("[data-row]")).toHaveCount(1);
   const save = editor.getByRole("button", { name: "Save rules" });
   await save.click();
   await expect(page.getByRole("alert").filter({ hasText: "Scorecard saved." })).toBeVisible();
@@ -606,6 +612,14 @@ test("admin scorecard saves swap scripts and validation errors leave the editor 
   await expect(page.getByRole("alert").filter({ hasText: "Invalid request." })).toBeVisible();
   await expect(rule).toHaveValue("Last edit");
   expect(failures).toEqual([`400 ${response.url()}`]);
+
+  await editor.getByRole("textbox", { name: "Template name" }).fill(template);
+  await editor.getByRole("button", { name: "Remove rule" }).click();
+  await expect(rule).toHaveCount(0);
+  const removed = nextResponse(page, savePath, "POST");
+  await save.click();
+  expect((await removed).status()).toBe(200);
+  await expect(editor.locator("[data-empty-rules]")).toBeVisible();
 });
 
 test("To Review queues only refetch for updates in their own category", async ({ page }) => {

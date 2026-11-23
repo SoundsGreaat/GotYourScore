@@ -11,67 +11,37 @@
    GLOBAL htmx error net (common.js) toasts. #}
 {% import "macros/dropdowns.html" as dd %}
 {% import "macros/admin.html" as admin %}
+{% import "macros/icons.html" as icons %}
+
+{% macro rule_row(item=none) %}
+<div class="gys-admin-rule" data-row data-item-id="{{ item.id if item else '' }}">
+    {{ admin.sort_grip('rule') }}
+    <input data-display value="{{ item.display_name if item else '' }}" maxlength="255"
+           {% if not item %}placeholder="Rule name"{% endif %}
+           class="input input-sm gys-admin-field min-w-0 flex-1 basis-36" aria-label="Rule display name" />
+    <input data-penalty type="number" min="1" max="100" value="{{ item.penalty_points if item else 1 }}"
+           class="input input-sm gys-admin-field w-16 tabular-nums" aria-label="Penalty points" />
+    <input data-category value="{{ item.category if item else '' }}" list="cat-options"
+           class="input input-sm gys-admin-field min-w-0 flex-1 basis-28" aria-label="Category" />
+    <input type="checkbox" class="toggle toggle-sm" data-active {{ 'checked' if not item or item.is_active }}
+           aria-label="Rule active" />
+    {{ admin.move_controls('rule') }}
+    <button type="button" class="btn btn-square btn-ghost btn-sm" data-remove-rule aria-label="Remove rule">
+        {{ icons.trash() }}
+    </button>
+</div>
+{% endmacro %}
+
 <div id="editor-root">
-    <template id="rule-move-controls">{{ admin.move_controls('rule') }}</template>
+    <template id="scorecard-rule-row">{{ rule_row() }}</template>
     <template id="category-move-controls">{{ admin.move_controls('category') }}</template>
-    <template id="rule-sort-grip">{{ admin.sort_grip('rule') }}</template>
     <template id="category-sort-grip">{{ admin.sort_grip('category') }}</template>
     <script>
         window.__editorRemoved = [];
 
-        window.__gripButton = function (kind) {
-            return document.getElementById(kind + "-sort-grip").content.cloneNode(true);
-        };
-
         window.__buildRow = function (category) {
-            var row = document.createElement("div");
-            row.className = "gys-admin-rule";
-            row.dataset.row = "";
-            row.dataset.itemId = "";
-
-            var display = document.createElement("input");
-            display.className = "input input-sm gys-admin-field min-w-0 flex-1 basis-36";
-            display.dataset.display = "";
-            display.maxLength = 255;
-            display.placeholder = "Rule name";
-            display.setAttribute("aria-label", "Rule display name");
-
-            var penalty = document.createElement("input");
-            penalty.type = "number";
-            penalty.min = "1";
-            penalty.max = "100";
-            penalty.value = "1";
-            penalty.className = "input input-sm gys-admin-field w-16 tabular-nums";
-            penalty.dataset.penalty = "";
-            penalty.setAttribute("aria-label", "Penalty points");
-
-            var categoryInput = document.createElement("input");
-            categoryInput.className = "input input-sm gys-admin-field min-w-0 flex-1 basis-28";
-            categoryInput.dataset.category = "";
-            categoryInput.value = category || "";
-            categoryInput.setAttribute("list", "cat-options");
-            categoryInput.setAttribute("aria-label", "Category");
-
-            var active = document.createElement("input");
-            active.type = "checkbox";
-            active.checked = true;
-            active.className = "toggle toggle-sm";
-            active.dataset.active = "";
-            active.setAttribute("aria-label", "Rule active");
-
-            var remove = document.createElement("button");
-            remove.type = "button";
-            remove.className = "btn btn-square btn-ghost btn-sm";
-            remove.setAttribute("aria-label", "Remove rule");
-            remove.innerHTML =
-                '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">' +
-                '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" ' +
-                'd="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />' +
-                "</svg>";
-            remove.addEventListener("click", function () { __removeRow(remove); });
-
-            var moves = document.getElementById("rule-move-controls").content.cloneNode(true);
-            row.append(__gripButton("rule"), display, penalty, categoryInput, active, moves, remove);
+            var row = document.getElementById("scorecard-rule-row").content.firstElementChild.cloneNode(true);
+            row.querySelector("[data-category]").value = category || "";
             return row;
         };
 
@@ -102,7 +72,8 @@
             label.className = "grow text-sm font-semibold";
             label.textContent = "New category";
             var moves = document.getElementById("category-move-controls").content.cloneNode(true);
-            header.append(__gripButton("category"), label, moves, addBtn);
+            var grip = document.getElementById("category-sort-grip").content.cloneNode(true);
+            header.append(grip, label, moves, addBtn);
 
             var rows = document.createElement("div");
             rows.className = "divide-y divide-base-300";
@@ -117,12 +88,12 @@
             row.querySelector("[data-display]").focus();
         };
 
-        window.__removeRow = function (btn) {
-            var row = btn.closest("[data-row]");
+        document.getElementById("editor-root").addEventListener("click", function (event) {
+            var row = event.target.closest("[data-remove-rule]")?.closest("[data-row]");
             if (!row) return;
             if (row.dataset.itemId) window.__editorRemoved.push(row.dataset.itemId);
             row.remove();
-        };
+        });
 
         window.__saveForm = function (form) {
             var values = {};
@@ -214,24 +185,7 @@
                     </div>
                     <div class="divide-y divide-base-300" data-rows>
                         {% for item in group['items'] %}
-                        <div class="gys-admin-rule" data-row data-item-id="{{ item.id }}">
-                            {{ admin.sort_grip('rule') }}
-                            <input data-display value="{{ item.display_name }}" maxlength="255"
-                                   class="input input-sm gys-admin-field min-w-0 flex-1 basis-36" aria-label="Rule display name" />
-                            <input data-penalty type="number" min="1" max="100" value="{{ item.penalty_points }}"
-                                   class="input input-sm gys-admin-field w-16 tabular-nums" aria-label="Penalty points" />
-                            <input data-category value="{{ item.category }}" list="cat-options"
-                                   class="input input-sm gys-admin-field min-w-0 flex-1 basis-28" aria-label="Category" />
-                            <input type="checkbox" class="toggle toggle-sm" data-active {{ 'checked' if item.is_active }}
-                                   aria-label="Rule active" />
-                            {{ admin.move_controls('rule') }}
-                            <button type="button" class="btn btn-square btn-ghost btn-sm"
-                                    onclick="__removeRow(this)" aria-label="Remove rule">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                            </button>
-                        </div>
+                        {{ rule_row(item) }}
                         {% endfor %}
                     </div>
                 </div>
