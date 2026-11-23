@@ -77,7 +77,7 @@
         }
     });
 
-    var CATEGORIES = ['qa-score', 'bad-feedback'];
+    var CATEGORIES = ['qa-score', 'bad-feedback', 'refund-check'];
     var VIEW_LABELS = {
         'qa-tracker': 'QA Tracker',
         'my-reviews': 'My Reviews',
@@ -111,16 +111,15 @@
         return (url || '').split('?')[0];
     }
     function endpointFor(view, category) {
-        var bf = category === 'bad-feedback';
+        var caseTracker = category !== 'qa-score';
         switch (view) {
             case 'qa-tracker':
-                return bf ? '/partials/bad-feedback' : '/partials/qa-matrix';
+                return caseTracker ? '/partials/' + category : '/partials/qa-matrix';
             case 'my-reviews':
-                return bf ? '/partials/my-reviews?cat=bad-feedback' : '/partials/my-reviews';
             case 'all-reviews':
-                return bf ? '/partials/all-reviews?cat=bad-feedback' : '/partials/all-reviews';
+                return '/partials/' + view + (caseTracker ? '?cat=' + category : '');
             case 'to-review':
-                return '/partials/to-review?cat=' + (bf ? 'bad-feedback' : 'qa-score');
+                return '/partials/to-review?cat=' + category;
             case 'team-quotas':
                 return '/partials/team-quotas';
         }
@@ -170,7 +169,8 @@
         });
         heading.textContent = VIEW_LABELS[view];
         if (newReviewLabel) {
-            newReviewLabel.textContent = category === 'bad-feedback' ? 'New Bad Feedback' : 'New Review';
+            newReviewLabel.textContent = category === 'bad-feedback' ? 'New Bad Feedback'
+                : (category === 'refund-check' ? 'New Refund Check' : 'New Review');
         }
         // The sliding underline is owned by js/tabs.js — nudge it, since
         // programmatic .active toggles never pass through its click
@@ -228,12 +228,12 @@
 
     // The navbar "New Review" button is CATEGORY-AWARE: QA Score mounts
     // the review drawer (which self-opens on swap), Bad Feedback opens
-    // the Bad Feedback creator modal (window.openBadFeedbackCreator in
+    // the matching tracker creator modal (window.openTrackerCreator in
     // common.js) — so the htmx wiring moved here from the markup.
     if (newReviewBtn) {
         newReviewBtn.addEventListener('click', function () {
-            if (state.category === 'bad-feedback') {
-                window.openBadFeedbackCreator();
+            if (state.category !== 'qa-score') {
+                window.openTrackerCreator(state.category);
                 return;
             }
             htmx.ajax('GET', '/partials/review-drawer', {

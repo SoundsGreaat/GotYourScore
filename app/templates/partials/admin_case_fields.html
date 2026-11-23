@@ -1,0 +1,128 @@
+{# Admin controls for configurable tracker fields. Keys remain server-managed and stable. #}
+{% import "macros/admin.html" as admin %}
+<div id="admin-case-fields-root" class="space-y-6">
+    {{ admin.page_heading("Case fields", "Manage the fields shown on Bad Feedback and Refund Check records. Archiving preserves historical values.") }}
+    {% if saved %}<script>window.gysToast && window.gysToast({{ saved|tojson }}, 'alert-success');</script>{% endif %}
+
+    {% for tracker in trackers %}
+    {% set tracker_fields = fields[tracker] %}
+    <section class="gys-admin-surface min-w-0 space-y-4 p-4 sm:p-5"
+             aria-labelledby="case-fields-{{ tracker }}-title">
+        <div>
+            <h3 id="case-fields-{{ tracker }}-title" class="text-base font-semibold">{{ tracker_labels[tracker] }}</h3>
+            <p class="mt-1 text-sm text-base-content/70">Position 0 is first. Only fields marked “Show in My Reviews” are shown to agents listed on the record. Field keys do not change when labels change.</p>
+        </div>
+
+        <form action="/admin/case-fields/{{ tracker }}/create" method="post"
+              hx-post="/admin/case-fields/{{ tracker }}/create" hx-target="#admin-view" hx-swap="innerHTML"
+              aria-labelledby="case-fields-{{ tracker }}-add-title"
+              class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <h4 id="case-fields-{{ tracker }}-add-title" class="sr-only">Add {{ tracker_labels[tracker] }} field</h4>
+            <div class="form-control">
+                <label for="case-field-{{ tracker }}-new-label" class="label"><span class="label-text">Label</span></label>
+                <input id="case-field-{{ tracker }}-new-label" name="label" type="text" maxlength="{{ max_field_label_length }}"
+                       class="input input-bordered input-sm w-full" required>
+            </div>
+            <div class="form-control">
+                <label for="case-field-{{ tracker }}-new-type" class="label"><span class="label-text">Type</span></label>
+                <select id="case-field-{{ tracker }}-new-type" name="field_type" class="select select-bordered select-sm w-full" required>
+                    <option value="text">Text</option>
+                    <option value="textarea">Long text</option>
+                    <option value="date">Date</option>
+                </select>
+            </div>
+            <div class="form-control">
+                <label for="case-field-{{ tracker }}-new-position" class="label"><span class="label-text">Position</span></label>
+                <input id="case-field-{{ tracker }}-new-position" name="position" type="number" min="0" max="{{ max_field_position }}"
+                       value="{{ tracker_fields.active|length }}" class="input input-bordered input-sm w-full" required>
+            </div>
+            <label class="flex items-center gap-2 pb-1 text-sm" for="case-field-{{ tracker }}-new-personal">
+                <input class="checkbox checkbox-sm" id="case-field-{{ tracker }}-new-personal"
+                       name="show_in_my_reviews" type="checkbox" value="true">
+                Show in My Reviews
+            </label>
+            <button type="submit" class="btn gys-btn-secondary btn-sm">Add field</button>
+        </form>
+
+        <div>
+            <h4 class="mb-2 text-sm font-semibold">Active fields ({{ tracker_fields.active|length }})</h4>
+            {% if tracker_fields.active %}
+            <ul class="space-y-3">
+                {% for field in tracker_fields.active %}
+                <li class="rounded-box border border-base-300 p-3">
+                    <form action="/admin/case-fields/{{ tracker }}/{{ field.id }}/update" method="post"
+                          hx-post="/admin/case-fields/{{ tracker }}/{{ field.id }}/update"
+                          hx-target="#admin-view" hx-swap="innerHTML"
+                          aria-labelledby="case-field-{{ tracker }}-{{ field.id }}-heading"
+                          class="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                        <h5 id="case-field-{{ tracker }}-{{ field.id }}-heading" class="sr-only">Edit {{ field.label }}</h5>
+                        <div class="form-control">
+                            <label for="case-field-{{ tracker }}-{{ field.id }}-label" class="label"><span class="label-text">Label</span></label>
+                            <input id="case-field-{{ tracker }}-{{ field.id }}-label" name="label" type="text"
+                                   maxlength="{{ max_field_label_length }}" value="{{ field.label }}" class="input input-bordered input-sm w-full" required>
+                        </div>
+                        <div class="form-control">
+                            <label for="case-field-{{ tracker }}-{{ field.id }}-type" class="label"><span class="label-text">Type</span></label>
+                            <select id="case-field-{{ tracker }}-{{ field.id }}-type" name="field_type"
+                                    class="select select-bordered select-sm w-full" required>
+                                {% for kind, label in [('text', 'Text'), ('textarea', 'Long text'), ('date', 'Date')] if field.key != 'fb_date' or kind == 'date' %}
+                                <option value="{{ kind }}" {{ 'selected' if field.field_type == kind }}>{{ label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-control">
+                            <label for="case-field-{{ tracker }}-{{ field.id }}-position" class="label"><span class="label-text">Position</span></label>
+                            <input id="case-field-{{ tracker }}-{{ field.id }}-position" name="position" type="number" min="0" max="{{ max_field_position }}"
+                                   value="{{ field.position }}" class="input input-bordered input-sm w-full" required>
+                        </div>
+                        <label class="flex items-center gap-2 pb-1 text-sm" for="case-field-{{ tracker }}-{{ field.id }}-personal">
+                            <input class="checkbox checkbox-sm" id="case-field-{{ tracker }}-{{ field.id }}-personal"
+                                   name="show_in_my_reviews" type="checkbox" value="true" {% if field.show_in_my_reviews %}checked{% endif %}>
+                            Show in My Reviews
+                        </label>
+                        <button type="submit" class="btn gys-btn-secondary btn-sm">Save changes</button>
+                    </form>
+                    <div class="mt-2 flex flex-wrap items-center justify-between gap-2">
+                        <p class="text-xs text-base-content/65">Stable key: <code>{{ field.key }}</code></p>
+                        <form action="/admin/case-fields/{{ tracker }}/{{ field.id }}/archive" method="post"
+                              hx-post="/admin/case-fields/{{ tracker }}/{{ field.id }}/archive"
+                              hx-target="#admin-view" hx-swap="innerHTML">
+                            <button type="submit" class="btn btn-ghost btn-sm"
+                                    aria-label="Archive {{ field.label }}">Archive</button>
+                        </form>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="rounded-box border border-dashed border-base-300 p-4 text-sm text-base-content/70">No active fields.</p>
+            {% endif %}
+        </div>
+
+        {% set archived = tracker_fields.archived %}
+        <details class="rounded-box border border-base-300">
+            <summary class="cursor-pointer px-3 py-2 text-sm font-semibold">Archived fields ({{ archived|length }})</summary>
+            {% if archived %}
+            <ul class="divide-y divide-base-300 px-3">
+                {% for field in archived %}
+                <li class="flex flex-wrap items-center justify-between gap-3 py-3">
+                    <div>
+                        <p class="font-medium">{{ field.label }} <span class="text-xs font-normal text-base-content/65">({{ field.field_type }}, position {{ field.position }})</span></p>
+                        <p class="text-xs text-base-content/65">Stable key: <code>{{ field.key }}</code></p>
+                    </div>
+                    <form action="/admin/case-fields/{{ tracker }}/{{ field.id }}/restore" method="post"
+                          hx-post="/admin/case-fields/{{ tracker }}/{{ field.id }}/restore"
+                          hx-target="#admin-view" hx-swap="innerHTML">
+                        <button type="submit" class="btn gys-btn-secondary btn-sm"
+                                aria-label="Restore {{ field.label }}">Restore</button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}
+            <p class="px-3 pb-3 text-sm text-base-content/70">No archived fields.</p>
+            {% endif %}
+        </details>
+    </section>
+    {% endfor %}
+</div>

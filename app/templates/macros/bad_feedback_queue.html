@@ -1,23 +1,8 @@
-{#- Shared Bad Feedback queue table for the To-review partial.
-
-    BOTH queues ("Assigned to you" and "Unassigned — grab any") MUST
-    render through this one macro — same reason as
-    to_review_table.html: hand-copied tables drift apart. Table
-    geometry (table-fixed + colgroup) mirrors the QA queue macro so
-    the two categories look like one UI.
-
-    Params:
-      rows        — BF row dicts (id, fb, agents[{label, kind,
-                    user_id, qa_comment}], source, related_case,
-                    assigned_qa_name).
-      unassigned  — true for the shared queue: swaps the heading,
-                    the warning "Unassigned" badge and the grab tooltip.
-      any (kwargs) — extra heading badges.
-
-    Agent badges are notes-modal triggers (notes_modal.js delegation):
-    click shows THIS record's QA note for that agent; the modal's Edit
-    button re-opens the Bad Feedback editor (data-notes-kind="bf"). -#}
-{% macro queue(rows, unassigned=false) %}
+{#- Shared assigned/unassigned table for both case trackers.
+    Agent badges open the note for that exact agent card; its edit
+    action opens the corresponding record rather than the note key. -#}
+{% macro queue(rows, tracker, tracker_label, tracker_fields, unassigned=false) %}
+{% set show_related_case = tracker_fields | selectattr('key', 'equalto', 'related_case') | first is defined %}
 <div class="card rounded-box bg-base-100 shadow-sm">
     <div class="card-body min-w-0 p-3 sm:p-4">
         {% if unassigned %}
@@ -31,21 +16,12 @@
             <span class="badge badge-soft badge-sm">{{ rows|length }}</span>
         </h3>
         {% endif %}
-        <div class="max-w-full overflow-x-auto">
-            <table class="table table-sm table-fixed w-full min-w-[640px]">
-                <colgroup>
-                    <col class="w-[12%]" /><!-- Date -->
-                    <col class="w-[13%]" /><!-- Source -->
-                    <col class="w-[13%]" /><!-- Case -->
-                    <col class="w-[32%]" /><!-- Agents -->
-                    <col class="w-[16%]" /><!-- Assigned QA -->
-                    <col class="w-[14%]" /><!-- Actions -->
-                </colgroup>
+        <div class="max-w-full overflow-x-auto" tabindex="0" role="region"
+             aria-label="{{ tracker_label }} {{ 'shared' if unassigned else 'assigned' }} queue">
+            <table class="table table-sm min-w-max">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Source</th>
-                        <th>Case</th>
+                        {% for field in tracker_fields %}<th scope="col">{{ field.label }}</th>{% endfor %}
                         <th>Agents</th>
                         <th>Assigned QA</th>
                         <th>Actions</th>
@@ -53,24 +29,28 @@
                 </thead>
                 <tbody>
                     {% for row in rows %}
+                    {% set values = row.record.field_values %}
+                    {% set related_case_value = values.get('related_case') if show_related_case else none %}
                     <tr>
-                        <td class="truncate">{% if row.fb.fb_date %}{{ row.fb.fb_date.strftime('%b %d, %Y') }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
-                        <td class="truncate" title="{{ row.fb.source or '' }}">{{ row.fb.source or '—' }}</td>
-                        <td class="truncate" title="{{ row.fb.related_case or '' }}">{% if row.fb.related_case %}{{ row.fb.related_case }}{% else %}<span class="text-base-content/50">&mdash;</span>{% endif %}</td>
+                        {% for field in tracker_fields %}
+                        {% set field_value = values.get(field.key) %}
+                        <td class="min-w-36 max-w-48 truncate" title="{{ field_value or '' }}">{{ field_value or '—' }}</td>
+                        {% endfor %}
                         <td class="truncate">
                             <span class="flex flex-wrap gap-1">
                                 {% for a in row.agents %}
+                                {% set notes_key = tracker ~ '-' ~ row.id ~ '-' ~ a.id %}
                                 <button type="button"
                                         class="badge badge-soft badge-sm badge-clickable"
-                                        data-case-notes="{{ row.id }}-{{ a.user_id }}"
-                                        data-case-prefix="Bad Feedback"
-                                        data-case-label="{{ row.fb.related_case or row.id }}"
+                                        data-case-notes="{{ notes_key }}"
+                                        data-case-prefix="{{ tracker_label }}"
+                                        data-case-label="{{ related_case_value or row.id }}"
                                         data-case-type="{{ a.label }}"
                                         data-edit-id="{{ row.id }}"
                                         data-notes-open="edit"
-                                        data-notes-kind="bf"
+                                        data-notes-kind="{{ 'bf' if tracker == 'bad-feedback' else tracker }}"
                                         title="{{ a.kind }} — view the QA note">{{ a.label }}</button>
-                                <template data-notes-for="{{ row.id }}-{{ a.user_id }}">{{ a.qa_comment or '' }}</template>
+                                <template data-notes-for="{{ notes_key }}">{{ a.qa_comment or '' }}</template>
                                 {% endfor %}
                             </span>
                         </td>
@@ -83,9 +63,9 @@
                         </td>
                         <td class="whitespace-nowrap">
                             <button type="button" class="btn gys-btn-secondary btn-xs"
-                                    data-bf-edit="{{ row.id }}"
-                                    aria-label="{{ 'Grab' if unassigned else 'Complete' }} bad feedback {{ row.id }}"
-                                    title="{{ 'Grab and work this record' if unassigned else 'Open the Bad Feedback editor' }}">Complete</button>
+                                    data-tracker-edit="{{ row.id }}" data-tracker="{{ tracker }}"
+                                    aria-label="{{ 'Grab' if unassigned else 'Complete' }} {{ tracker_label|lower }} {{ row.id }}"
+                                    title="{{ 'Grab and work this record' if unassigned else 'Open the ' ~ tracker_label ~ ' editor' }}">Complete</button>
                         </td>
                     </tr>
                     {% endfor %}

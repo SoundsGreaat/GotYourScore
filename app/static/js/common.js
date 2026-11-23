@@ -171,34 +171,42 @@ window.openReviewDrawer = function (reviewId, mode) {
  * view (the partial mounts into #bf-editor-container, which lives next
  * to the drawer container on the dashboard). Closing the dialog
  * unmounts the partial entirely. */
-function mountBadFeedbackEditor(query) {
+function mountTrackerEditor(tracker, query) {
+    if (tracker !== 'bad-feedback' && tracker !== 'refund-check') return;
     var target = document.getElementById('bf-editor-container');
     if (!target || !window.htmx) {
         window.gysToast('Unable to open the editor.');
         return;
     }
-    window.__bfEditorEpoch = (window.__bfEditorEpoch || 0) + 1;
-    var epoch = window.__bfEditorEpoch;
-    htmx.ajax('GET', '/partials/bad-feedback-editor' + query, {
+    window.__trackerEditorEpoch = (window.__trackerEditorEpoch || 0) + 1;
+    var epoch = window.__trackerEditorEpoch;
+    htmx.ajax('GET', '/partials/' + tracker + '-editor' + query, {
+        source: target,
         target: '#bf-editor-container',
         swap: 'innerHTML',
     }).then(function () {
         // A newer open superseded this one — let its mount win.
-        if (epoch !== window.__bfEditorEpoch) return;
+        if (epoch !== window.__trackerEditorEpoch) return;
         var modal = target.querySelector('.js-bf-edit-modal');
         if (modal && !modal.open) modal.showModal();
     }).catch(function () {
-        window.gysToast('Unable to open the editor.');
+        if (epoch === window.__trackerEditorEpoch) window.gysToast('Unable to open the editor.');
     });
 }
 
+window.openTrackerEditor = function (tracker, recordId) {
+    mountTrackerEditor(tracker, '?id=' + encodeURIComponent(recordId));
+};
 window.openBadFeedbackEditor = function (recordId) {
-    mountBadFeedbackEditor('?id=' + encodeURIComponent(recordId));
+    window.openTrackerEditor('bad-feedback', recordId);
 };
 
 /* CREATE mode: same modal, no id — the partial renders the empty form
  * with a "Save For Later" (Pending) action. Used by the navbar New
  * Review button while the Bad Feedback category is active. */
 window.openBadFeedbackCreator = function () {
-    mountBadFeedbackEditor('');
+    mountTrackerEditor('bad-feedback', '');
+};
+window.openTrackerCreator = function (tracker) {
+    mountTrackerEditor(tracker, '');
 };

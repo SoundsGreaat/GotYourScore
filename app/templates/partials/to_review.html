@@ -4,7 +4,7 @@
 {# Keep the category on self-refetches and only replace the queue when
    that category actually changed. #}
 <section id="to-review-view" hx-get="/partials/to-review?cat={{ cat }}"
-         hx-trigger="{{ 'reviews-changed' if cat == 'qa-score' else 'bad-feedback-changed' }} from:body"
+          hx-trigger="{{ 'reviews-changed' if cat == 'qa-score' else ('bad-feedback-changed' if cat == 'bad-feedback' else 'refund-check-changed') }} from:body"
          hx-swap="outerHTML">
     {% if cat == 'qa-score' %}
     {% set assigned_rows = rows | rejectattr('unassigned') | list %}
@@ -31,17 +31,17 @@
     {% set bf_shared = bf_rows | selectattr('unassigned') | list %}
     <div class="mb-4 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-lg font-semibold">To review</h2>
-        <span class="hidden text-sm text-base-content/70 sm:inline">Bad Feedback records delegated to you or waiting in the shared queue</span>
+        <span class="hidden text-sm text-base-content/70 sm:inline">{{ tracker_label }} records delegated to you or waiting in the shared queue</span>
     </div>
     {# Both tables MUST come from the shared macro (bad_feedback_queue)
         — same geometry as the QA queue tables above. #}
     {% if bf_assigned %}
     <div class="mb-4">
-        {{ bf_queue.queue(bf_assigned) }}
+        {{ bf_queue.queue(bf_assigned, tracker=cat, tracker_label=tracker_label, tracker_fields=tracker_fields) }}
     </div>
     {% endif %}
     {% if bf_shared %}
-    {{ bf_queue.queue(bf_shared, unassigned=true) }}
+        {{ bf_queue.queue(bf_shared, unassigned=true, tracker=cat, tracker_label=tracker_label, tracker_fields=tracker_fields) }}
     {% endif %}
     {% if not bf_rows %}
     <div class="rounded-box border border-dashed border-base-300 p-10 text-center text-base-content/70">
@@ -59,7 +59,6 @@
         if (!section) return;
 
         var openReviewDrawer = window.openReviewDrawer;
-        var openBfEditor = window.openBadFeedbackEditor;
 
         section.addEventListener('click', function (event) {
             var completeButton = event.target.closest ? event.target.closest('[data-review-complete]') : null;
@@ -67,9 +66,12 @@
                 openReviewDrawer(completeButton.getAttribute('data-review-complete'), 'complete');
                 return;
             }
-            var bfButton = event.target.closest('[data-bf-edit]');
-            if (bfButton && section.contains(bfButton)) {
-                openBfEditor(bfButton.getAttribute('data-bf-edit'));
+            var trackerButton = event.target.closest('[data-tracker-edit]');
+            if (trackerButton && section.contains(trackerButton)) {
+                window.openTrackerEditor(
+                    trackerButton.getAttribute('data-tracker'),
+                    trackerButton.getAttribute('data-tracker-edit')
+                );
             }
         });
     })();

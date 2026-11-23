@@ -53,9 +53,7 @@
             <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <h1 id="dashboard-heading" tabindex="-1" class="text-2xl font-bold">{{ 'QA Tracker' if can_review else 'My Reviews' }}</h1>
             {% if can_review %}
-            <!-- Action is category-aware and wired in js/dashboard.js:
-                  QA Score -> review drawer, Bad Feedback -> the Bad
-                  Feedback creator modal (New Bad Feedback). -->
+            <!-- dashboard.js opens the review drawer or the matching tracker editor. -->
             <button type="button" id="new-review-btn" class="btn gys-create-action">
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 16 16" stroke="currentColor" aria-hidden="true">
                     <path stroke-linecap="round" stroke-width="1.5" d="M8 3.5v9m4.5-4.5h-9" />
@@ -69,10 +67,11 @@
              the CURRENT view in that category (js/dashboard.js owns the
              state and the underline via the gys-tabs-sync event).
              Visible for everyone: Support users use it on My Reviews
-             (their QA reviews vs. Bad Feedback about them). -->
+              to switch between their reviews in each category. -->
         <div class="gys-tabs" data-tabs data-panel="view-container" role="tablist" aria-label="Tracker categories">
             <button type="button" role="tab" id="tracker-tab-qa-score" data-cat="qa-score" class="active" aria-selected="true">QA Score</button>
             <button type="button" role="tab" id="tracker-tab-bad-feedback" data-cat="bad-feedback" aria-selected="false" tabindex="-1">Bad Feedback</button>
+            <button type="button" role="tab" id="tracker-tab-refund-check" data-cat="refund-check" aria-selected="false" tabindex="-1">Refund Check</button>
             <span class="gys-tabs-line" aria-hidden="true"></span>
         </div>
 
@@ -80,9 +79,8 @@
                  hx-get="{{ '/partials/qa-matrix' if can_review else '/partials/my-reviews' }}" hx-trigger="load" hx-swap="innerHTML" hx-sync="this:replace"></div>
             <!-- Drawer mount survives sidebar navigation. -->
             <div id="drawer-container"></div>
-            <!-- Bad Feedback editor mount (on-demand partial, opened from
-                 any view via window.openBadFeedbackEditor). -->
-            <div id="bf-editor-container"></div>
+            <!-- Shared case tracker editor mount, loaded on demand. -->
+            <div id="bf-editor-container" hx-sync="this:replace"></div>
         </main>
     </div>
 
@@ -122,6 +120,14 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                             </svg>
                             <span>Bad Feedback</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#" data-view="qa-tracker" data-cat="refund-check" hx-get="/partials/refund-check" hx-target="#view-container" hx-swap="innerHTML" class="hover:bg-white/10 hover:text-primary">
+                            <svg aria-hidden="true" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h2m4 0h4M5 5h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2Z" />
+                            </svg>
+                            <span>Refund Check</span>
                         </a>
                     </li>
                     {% endif %}
