@@ -6,10 +6,10 @@ Internal QA tool for scoring support-agent cases. FastAPI backend with async SQL
 
 - **Case reviews** — QA staff score support cases against configurable scorecards (per case type, with multipliers); every saved review embeds a snapshot of the then-active scoring rules.
 - **Delegation** — Supervisors/Admins create pending reviews and route them to a specific QA or to a shared queue every QA sees.
-- **Bad Feedback** — complaint tracking (not scored): records with involved agent cards (Support/Sales), a pending → complete lifecycle, tracker views grouped by calendar month, and a two-phase smart Excel import (inspect → confirm mapping → commit).
+- **Bad Feedback & Refund Check** — independent, unscored case trackers with Support/Sales agent cards, a pending → complete lifecycle, monthly views, and Excel import (inspect → confirm mapping → commit).
 - **Quotas & compliance** — each support agent has a monthly quota (default 6) per reporting period; dashboards track completion and average scores per agent.
 - **AI assistance** — OpenRouter-backed QA-note refactoring, Bad Feedback comment rewriting, preview scoring and auto-scoring of pasted ticket transcripts (503 when no API key is configured), with Admin-managed versioned system prompts.
-- **Admin panel** — HTMX panel for users (incl. soft-deleted), scorecards and system prompts.
+- **Admin panel** — HTMX panel for users (incl. soft-deleted), scorecards, system prompts, and configurable case fields for each tracker.
 
 ## Tech stack
 
@@ -46,9 +46,9 @@ After [setting up `.env`](#environment-setup), run these commands from the repos
 
 ```sh
 docker compose up -d --wait db
-uv sync
-uv run alembic upgrade head
-uv run uvicorn app.main:app --reload
+uv sync --locked --python 3.12
+uv run --locked alembic upgrade head
+uv run --locked uvicorn app.main:app --reload
 ```
 
 The app serves on http://127.0.0.1:8000 (liveness probe: `GET /ping`).
@@ -89,7 +89,7 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 - **Pending reviews** are quota-neutral; completion = PATCH with `raw_scorecard` (deliberately skips the quota gate). The last editor of a pending review becomes its executor; completed rows reject reassignment.
 - **Scorecards**: exactly one active per case type; saved reviews embed `rules_snapshot` and score against it, never live rules. `error_name` on saved items is immutable.
 - **Bad Feedback and Refund Check**: separate case trackers with the same per-agent cards, queue, completion, and Excel import workflow. Neither is scored or quota-counted. Views group by calendar month of `completed_at`; pending records are visible in every month.
-- **Case fields**: Admin → **Case Fields** manages each tracker's field list independently. Both start with Date, Source, Customer info, Customer feedback, and Related case. Drag a handle or use the arrows to reorder fields; the order saves automatically. Changes apply to the editor, listings, and Excel mapping. Renaming or reordering keeps the same field key; archiving hides a field without deleting historical values, and restoring makes them visible again. Customer info and new fields are hidden from My Reviews unless explicitly enabled. Workflow data (assignment, status, and per-agent cards) is managed separately.
+- **Case fields**: Admin → **Case Fields** manages each tracker's field list independently. Both start with Date, Source, Customer info, Customer feedback, and Related case. Date uses the key `fb_date` in Bad Feedback and `r_date` in Refund Check. Drag a handle or use the arrows to reorder fields; the order saves automatically. Changes apply to the editor, listings, and Excel mapping. Renaming or reordering keeps the same field key; archiving hides a field without deleting historical values, and restoring makes them visible again. Customer info and new fields are hidden from My Reviews unless explicitly enabled. Workflow data (assignment, status, and per-agent cards) is managed separately.
 
 ## Frontend assets
 
@@ -97,10 +97,12 @@ Styling is compiled by Tailwind v4 CLI + daisyUI v5 (no CDN dependencies anywher
 
 Author styles in `app/static/css/src/`. `input.css` imports the theme and component stylesheets into the single generated `app/static/css/app.css` bundle.
 
+Reuse existing components before building new ones. The [dropdown macro](app/templates/macros/dropdowns.html) shares keyboard and search behavior across views. Case Fields and Scorecards share [drag handles and keyboard move buttons](app/templates/macros/admin.html) and [SortableJS setup](app/static/js/admin.js), while each screen controls when changes save. See [AGENTS.md](AGENTS.md#frontend) for implementation conventions.
+
 The npm commands are the same in Bash and PowerShell.
 
 ```sh
-npm install          # once
+npm ci               # install from the lockfile
 npm run css:build    # rebuild app/static/css/app.css after markup or style changes
 npm run css:watch    # while iterating
 npm run build        # vendor assets + rebuild CSS
@@ -115,7 +117,7 @@ Docker always runs `npm ci` and rebuilds the assets from `package-lock.json`. Th
 [CI](.github/workflows/ci.yml) runs on PRs, pushes to `main`, merge queues and daily. The required check includes:
 
 - Dependency review on PRs; `uv audit` and both npm lockfile audits. npm findings at moderate severity and above block CI. The existing low-severity Quill advisory is still printed.
-- Integration tests with PostgreSQL on Python 3.12, 3.13 and 3.14: the migration of an older database preserves sample data; tests cover OAuth callback handling, sessions and role checks, review scoring and quota, both case trackers, Excel uploads and the no-key AI response. No real Google or OpenRouter credentials are used.
+- Integration tests with PostgreSQL across the Python versions in the CI matrix: the migration of an older database preserves sample data; tests cover OAuth callback handling, sessions and role checks, review scoring and quota, both case trackers, Excel uploads and the no-key AI response. No real Google or OpenRouter credentials are used.
 - Production Docker build with regenerated assets, a clean-volume boot and restart, migration and `/ping` checks, and Chromium tests against the running container. Fixable high/critical OS findings block both the app and PostgreSQL images. The [temporary PostgreSQL libxml2 exception](.github/trivy-postgres-ignore.yml) is printed in CI, expires on December 12, 2026, and should be removed as soon as the official image includes the fix.
 
 After a successful push to `main`, the exact tested Linux/amd64 image is available under **Actions → CI → Artifacts** as `gotyourscore-<commit SHA>` for 14 days. Unzip it and use `docker load -i gotyourscore.tar` to import it. CI does not deploy to production.
