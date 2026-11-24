@@ -6,7 +6,7 @@
                 <table class="table table-sm">
                     <caption class="sr-only">{{ title }}</caption>
                     <thead>
-                        <tr id="deleted-{{ tracker }}-{{ record.id }}">
+                        <tr>
                             <th scope="col">Deleted</th>
                             <th scope="col">Agents</th>
                             <th scope="col">Reviewed by</th>
@@ -21,7 +21,7 @@
                         {% for row in rows %}
                         {% set record = row.record %}
                         {% set values = record.field_values %}
-                        <tr>
+                        <tr id="deleted-{{ tracker }}-{{ record.id }}">
                             <td class="whitespace-nowrap">{{ record.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
                             <th scope="row" class="font-medium">{{ row.agent_names|join(', ') if row.agent_names else '—' }}</th>
                             <td>{{ row.reviewer_name }}</td>
@@ -32,7 +32,7 @@
                             <td>
                                 <button type="button" class="btn gys-btn-secondary btn-sm"
                                         aria-label="Restore {{ tracker_label }} record {{ record.id }}"
-                                        data-admin-restore hx-post="/admin/{{ tracker }}/{{ record.id }}/restore">Restore</button>
+                                        hx-post="/admin/{{ tracker }}/{{ record.id }}/restore">Restore</button>
                             </td>
                         </tr>
                         {% endfor %}

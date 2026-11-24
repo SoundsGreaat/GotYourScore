@@ -510,7 +510,7 @@
         var submitted = ctx.request.body;
         adminDraftRequests.set(ctx, {
             form: new URLSearchParams(submitted).toString(),
-            textareas: new Map(Array.from(form.querySelectorAll('textarea[data-admin-keep-draft]'), function (field) {
+            fields: new Map(Array.from(form.querySelectorAll('[data-admin-keep-draft][id]'), function (field) {
                 return [field.id, submitted.get(field.name)];
             })),
         });
@@ -527,35 +527,46 @@
         var request = adminDraftRequests.get(ctx);
         keepDisclosures(scope, task.fragment);
 
-        var textareas = [];
-        scope.querySelectorAll('textarea[id]').forEach(function (field) {
+        var draftFields = [];
+        scope.querySelectorAll('textarea[id], input[data-admin-keep-draft][id]').forEach(function (field) {
             var next = task.fragment.getElementById(field.id);
             if (!next) return;
             // A manual browser resize writes an inline size on the field.
-            next.style.height = field.style.height;
-            if (field.style.width) next.style.width = field.style.width;
-            if (!next.style.length) next.removeAttribute('style');
-            var baseline = request?.textareas.get(field.id) ?? field.defaultValue;
+            if (field.matches('textarea')) {
+                next.style.height = field.style.height;
+                if (field.style.width) next.style.width = field.style.width;
+                if (!next.style.length) next.removeAttribute('style');
+            }
+            var baseline = request?.fields.get(field.id) ?? field.defaultValue;
             var value = field.hasAttribute('data-admin-keep-draft') &&
                 !source.hasAttribute('data-admin-discard-draft') && field.value !== baseline
                 ? field.value : next.defaultValue;
-            textareas.push([field.id, value]);
+            draftFields.push([field.id, value]);
         });
 
-        var keepForms = Array.from(scope.querySelectorAll('form[data-admin-keep-form][id]')).filter(function (form) {
-            return task.fragment.getElementById(form.id) &&
-                (form !== source || request?.form !== formValues(form));
+        var formDrafts = [];
+        scope.querySelectorAll('form[data-admin-keep-form][id]').forEach(function (form) {
+            var next = task.fragment.getElementById(form.id);
+            if (!next) return;
+            var submitted = form === source && request ? new URLSearchParams(request.form) : null;
+            var values = Array.from(form.elements).flatMap(function (field) {
+                if (!(field instanceof HTMLInputElement) || !field.name || field.disabled) return [];
+                if (field.type === 'checkbox') {
+                    var baseline = submitted ? submitted.getAll(field.name).includes(field.value) : field.defaultChecked;
+                    return field.checked === baseline ? [] : [{name: field.name, value: field.value, checked: field.checked}];
+                }
+                var original = submitted ? submitted.get(field.name) : field.defaultValue;
+                return field.value === original ? [] : [{name: field.name, value: field.value}];
+            });
+            // Apply only unsaved local edits on top of fresh server defaults.
+            // Keeping a whole stale role form could re-grant a revoked role.
+            formDrafts.push({id: form.id, values: values});
         });
-        keepForms.forEach(function (form) { form.setAttribute('hx-morph-skip', ''); });
-        var restoreRow = source.matches('[data-admin-restore]') && source.closest('tr');
-        var nextFocus = restoreRow?.nextElementSibling?.querySelector('[data-admin-restore]')
-            || restoreRow?.previousElementSibling?.querySelector('[data-admin-restore]')
-            || source.closest('details')?.querySelector('summary')
+        var nextFocus = source.closest('details')?.querySelector('summary')
             || scope.querySelector('[data-admin-state-focus]');
-        var resetForm = source.hasAttribute('data-admin-discard-draft') ? source.closest('form')
-            : source.matches('form[data-admin-keep-form]') && !keepForms.includes(source) ? source : null;
+        var resetForm = source.hasAttribute('data-admin-discard-draft') ? source.closest('form') : null;
         adminStateSwaps.set(ctx, {
-            scope: scope, keepForms: keepForms, textareas: textareas, active: document.activeElement,
+            scope: scope, formDrafts: formDrafts, draftFields: draftFields, active: document.activeElement,
             nextFocus: nextFocus, resetForm: resetForm,
         });
     });
@@ -564,12 +575,31 @@
         var state = adminStateSwaps.get(ctx);
         if (!state) return;
         adminStateSwaps.delete(ctx);
-        state.keepForms.forEach(function (form) { form.removeAttribute('hx-morph-skip'); });
         if (!state.scope.isConnected) return;
         if (state.resetForm?.isConnected) state.resetForm.reset();
-        state.textareas.forEach(function (entry) {
+        state.formDrafts.forEach(function (draft) {
+            var form = document.getElementById(draft.id);
+            if (!form) return;
+            form.reset();
+            draft.values.forEach(function (entry) {
+                var field = Array.from(form.elements).find(function (input) {
+                    return !input.disabled && input.name === entry.name &&
+                        (entry.checked === undefined || input.value === entry.value);
+                });
+                if (field && entry.checked !== undefined) field.checked = entry.checked;
+                else if (field) field.value = entry.value;
+            });
+        });
+        state.draftFields.forEach(function (entry) {
             var field = document.getElementById(entry[0]);
-            if (field && field.value !== entry[1]) field.value = entry[1];
+            if (!field) return;
+            if (field.matches('[data-admin-draft-picker]')) {
+                var picker = document.getElementById(field.id + '-picker');
+                var option = picker?.querySelector('[data-opt-value="' + CSS.escape(entry[1]) + '"]');
+                if (option) window.setDropdownValue(field.id, '#' + field.id + '-display', entry[1], option.dataset.optLabel);
+            } else if (field.value !== entry[1]) {
+                field.value = entry[1];
+            }
         });
         if (!state.active?.isConnected && state.nextFocus?.isConnected) {
             state.nextFocus.focus({preventScroll: true});

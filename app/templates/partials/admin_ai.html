@@ -84,7 +84,7 @@
                   aria-labelledby="request-title" class="flex flex-col gap-3">
                 <div class="grid gap-1">
                 <label for="ai-model" class="text-sm font-medium">Model override</label>
-                <input id="ai-model" name="model" type="text" maxlength="200"
+                <input id="ai-model" name="model" type="text" maxlength="200" data-admin-keep-draft
                        value="{{ (request_stored or {}).get('model', '') }}"
                        placeholder="Built-in: {{ default_model }}"
                        aria-describedby="ai-model-help"
@@ -102,7 +102,7 @@
                     any_label='Model default (no override)',
                     placeholder='Model default (no override)',
                     aria_label='Reasoning effort',
-                    hidden_attrs='name="reasoning_effort"') }}
+                    hidden_attrs='name="reasoning_effort" data-admin-keep-draft data-admin-draft-picker') }}
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
