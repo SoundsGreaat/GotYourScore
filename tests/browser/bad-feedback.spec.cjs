@@ -1,14 +1,5 @@
 const { expect, test } = require("@playwright/test");
-
-const base = process.env.APP_BASE_URL;
-const session = process.env.CI_SESSION_COOKIE;
-if (!base || !session || new URL(base).hostname !== "127.0.0.1") {
-  throw new Error("Start the isolated Compose stack and set APP_BASE_URL and CI_SESSION_COOKIE");
-}
-
-async function signIn(page) {
-  await page.context().addCookies([{ name: "session", value: session, url: base, httpOnly: true }]);
-}
+const { base, signIn } = require("./harness.cjs");
 
 async function openImport(page) {
   await page.goto(`${base}/#qa-tracker/bad-feedback`);
