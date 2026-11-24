@@ -39,14 +39,14 @@
                 <button type="submit" class="btn btn-primary btn-sm self-start">Save as active version</button>
             </form>
 
-            <details id="prompt-history-{{ slot.key }}" class="gys-admin-disclosure border-t border-base-300">
-                 <summary data-admin-state-focus class="flex items-center gap-2 rounded-field py-2 text-sm font-medium">
+            <details id="prompt-history-{{ slot.key }}" class="gys-admin-disclosure border-t border-base-300 pt-3">
+                 <summary data-admin-state-focus class="flex items-center gap-2 rounded-field px-3 py-3 text-sm font-medium">
                     Version history
                     <span class="badge badge-ghost badge-sm">{{ slot.versions | length }}</span>
                     <span class="ms-auto">{{ admin.chevron() }}</span>
                 </summary>
                 {% if slot.versions %}
-            <ul class="divide-y divide-base-300 rounded-box border border-base-300">
+            <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300">
                 {% for v in slot.versions %}
                 <li id="prompt-version-{{ v.id }}" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 {{ 'bg-success/5' if slot.active_id == v.id }}">
                     <span class="whitespace-nowrap text-xs tabular-nums text-base-content/60">{{ v.created_at.strftime('%b %d, %Y %H:%M') }}</span>
@@ -76,7 +76,7 @@
                 {% endfor %}
             </ul>
             {% else %}
-                <p class="pb-2 text-sm text-base-content/75">No stored versions yet — the built-in default prompt is used.</p>
+                <p class="mt-2 px-3 pb-2 text-sm text-base-content/75">No stored versions yet — the built-in default prompt is used.</p>
                 {% endif %}
             </details>
         </div>
