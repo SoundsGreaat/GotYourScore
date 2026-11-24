@@ -18,3 +18,14 @@
 @source "../../../static/js";
 
 @plugin "daisyui";
+
+/* Let the drawer slide as before, but paint the open panel without a
+   lingering translate that can soften text in Chrome. */
+.gys-drawer-panel {
+    /* Keep the panel above the overlay without a transform. */
+    z-index: 1;
+    will-change: auto;
+}
+.drawer-toggle:checked ~ .drawer-side > .gys-drawer-panel {
+    translate: none;
+}

@@ -1,13 +1,3 @@
-/* Paint the open drawer without a lingering transform that softens text. */
-.gys-review-drawer-panel {
-    /* Keep the panel above the overlay without a transform. */
-    z-index: 1;
-    will-change: auto;
-}
-#review-drawer-toggle:checked ~ .drawer-side > .gys-review-drawer-panel {
-    translate: none;
-}
-
 /* Keep the previous rules' footprint while the next scorecard loads. */
 #manual-score-area[aria-busy="true"] {
     opacity: 0.55;
