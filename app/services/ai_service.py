@@ -256,7 +256,7 @@ Strict rules:
 
 
 # SystemPrompt key whose newest active row replaces the hardcoded
-# Bad Feedback comment refactoring prompt (see refactor_bf_comment).
+# Bad Feedback comment refactoring prompt (see refactor_tracker_comment).
 BF_COMMENT_PROMPT_KEY = "bf_comment_refactor"
 
 BF_COMMENT_SYSTEM_PROMPT = """\
@@ -284,6 +284,16 @@ Strict rules:
 - NEVER include reasoning or meta-commentary: the output must contain
   ONLY the rewritten comment itself, nothing else.
 """
+
+
+REFUND_CHECK_COMMENT_PROMPT_KEY = "refund_check_comment_refactor"
+# Both workflows start with the same instructions but resolve independent overrides.
+REFUND_CHECK_COMMENT_SYSTEM_PROMPT = BF_COMMENT_SYSTEM_PROMPT
+
+_TRACKER_COMMENT_PROMPTS = {
+    "bad-feedback": (BF_COMMENT_PROMPT_KEY, BF_COMMENT_SYSTEM_PROMPT),
+    "refund-check": (REFUND_CHECK_COMMENT_PROMPT_KEY, REFUND_CHECK_COMMENT_SYSTEM_PROMPT),
+}
 
 
 NOTES_FROM_SCORE_SYSTEM_PROMPT = """\
@@ -785,18 +795,16 @@ async def refactor_qa_notes(raw_html: str, db_session: AsyncSession) -> str:
     )
 
 
-async def refactor_bf_comment(raw_html: str, db_session: AsyncSession) -> str:
-    """Rewrite a per-agent Bad Feedback comment for clarity and tone.
-
-    Same pipeline as ``refactor_qa_notes`` with its OWN system-prompt
-    slot (``BF_COMMENT_PROMPT_KEY``, editable in the admin panel) so the
-    agent-facing tone stays tunable independently of the review notes.
-    """
+async def refactor_tracker_comment(
+    raw_html: str, db_session: AsyncSession, *, tracker: str
+) -> str:
+    """Rewrite a tracker comment using that tracker's own prompt slot."""
+    prompt_key, fallback_prompt = _TRACKER_COMMENT_PROMPTS[tracker]
     return await _refactor_html(
         raw_html,
         db_session,
-        prompt_key=BF_COMMENT_PROMPT_KEY,
-        fallback_prompt=BF_COMMENT_SYSTEM_PROMPT,
+        prompt_key=prompt_key,
+        fallback_prompt=fallback_prompt,
     )
 
 
@@ -933,20 +941,19 @@ async def stream_refactor_qa_notes(
         yield event
 
 
-async def stream_refactor_bf_comment(
+async def stream_refactor_tracker_comment(
     raw_html: str,
     db_session: AsyncSession,
+    *,
+    tracker: str,
 ) -> AsyncIterator[tuple[str, str]]:
-    """Stream a Bad Feedback comment rewrite (see ``_stream_refactor``).
-
-    System prompt resolves the ``BF_COMMENT_PROMPT_KEY`` slot, identical
-    to the buffered ``refactor_bf_comment``.
-    """
+    """Stream a rewrite using the same prompt slot as the buffered endpoint."""
+    prompt_key, fallback_prompt = _TRACKER_COMMENT_PROMPTS[tracker]
     async for event in _stream_refactor(
         raw_html,
         db_session,
-        prompt_key=BF_COMMENT_PROMPT_KEY,
-        fallback_prompt=BF_COMMENT_SYSTEM_PROMPT,
+        prompt_key=prompt_key,
+        fallback_prompt=fallback_prompt,
     ):
         yield event
 

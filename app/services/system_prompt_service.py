@@ -56,6 +56,15 @@ PROMPT_SLOTS = [
         ),
     },
     {
+        "key": "refund_check_comment_refactor",
+        "title": "Refund Check Comment Refactoring",
+        "description": (
+            "System prompt for rewriting per-agent Refund Check comments. "
+            "The built-in text is the same as Bad Feedback, but each "
+            "tracker has its own prompt versions."
+        ),
+    },
+    {
         "key": "notes_from_score",
         "title": "Notes from Score",
         "description": (
