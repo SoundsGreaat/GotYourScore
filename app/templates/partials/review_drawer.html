@@ -253,6 +253,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var hookFallbackTimer = null;
     var pendingDeductions;
     var quill;
+    var notesDraftRequest = null;
+    var unlockNotesEditor = null;
     // Entry mode: 'create' (default, unchanged flow), 'edit' or 'complete'
     // (set programmatically via window.openReviewDrawerForReview).
     var drawerState = {
@@ -270,6 +272,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var autofailDetails = document.getElementById('review-autofail-details');
     var autofailReason = document.getElementById('review-autofail-reason');
     var autofailError = document.getElementById('review-autofail-error');
+    var autofailRevision = 0;
 
     function canAutofail() {
         return !!caseTypeInput.value && caseTypeInput.value !== 'No Cases';
@@ -318,9 +321,14 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     function restoreAutofail(entry) {
+        ++autofailRevision;
         autofailCheckbox.checked = entry.autofail === true;
         autofailReason.value = typeof entry.autofail_reason === 'string' ? entry.autofail_reason : '';
         syncAutofailField();
+    }
+
+    function validAutofailReason(value) {
+        return typeof value === 'string' && value.length <= autofailReason.maxLength ? value.trim() : '';
     }
 
     function validateAutofailReason() {
@@ -404,7 +412,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         window.clearTimeout(draftTimer);
         draftTimer = window.setTimeout(function () {
             try {
-                var pristine = !quill.getText().trim()
+                // Autosave other form edits without persisting an in-progress reveal.
+                var notesHtml = notesDraftRequest ? notesDraftRequest.originalHtml : quill.root.innerHTML;
+                var hasNotesText = notesDraftRequest ? notesDraftRequest.hasOriginalText : !!quill.getText().trim();
+                var pristine = !hasNotesText
                     && !document.getElementById('review-agent').value
                     && !document.getElementById('case-number').value
                     && document.getElementById('case-type').value === 'Initial Fix'
@@ -416,7 +427,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 } else {
                     window.localStorage.setItem(draftKey, JSON.stringify({
                         v: 1,
-                        notes_html: sanitizeHtml(quill.root.innerHTML),
+                        notes_html: sanitizeHtml(notesHtml),
                         agent_id: document.getElementById('review-agent').value,
                         agent_name: document.querySelector('.js-review-agent-display').textContent,
                         case_number: document.getElementById('case-number').value,
@@ -456,6 +467,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         window.clearTimeout(draftTimer);
         window.clearTimeout(previewTimer);
         window.clearTimeout(hookFallbackTimer);
+        if (unlockNotesEditor) unlockNotesEditor();
         if (quill) {
             quill.off('text-change', saveDraft);
             // Do NOT call quill.disable() here: its ql-disabled class leaks onto the
@@ -541,7 +553,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     saveLaterButton.dataset.labelHtml = saveLaterButton.innerHTML;
 
     function updateSaveState() {
-        var ready = !rulesPending && !rulesFailed && !savingReview
+        var ready = !rulesPending && !rulesFailed && !savingReview && !notesDraftRequest
             && !!document.getElementById('review-agent').value;
         saveButton.disabled = !ready;
         saveLaterButton.disabled = !ready;
@@ -684,6 +696,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // init has fully finished.
     function applyEntry(review, mode) {
         if (!review || typeof review !== 'object') return;
+        if (notesDraftRequest) notesDraftRequest.controller.abort();
         // Fresh entry: restore the stored waives so preview and save
         // reproduce the review's original exemptions.
         multiplierExemptions = {};
@@ -939,6 +952,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     autofailCheckbox.addEventListener('change', function () {
+        ++autofailRevision;
         syncAutofailField(true);
         if (isAutofail()) {
             // The override is known locally; the API still fills in the
@@ -953,6 +967,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         saveDraft();
     }, { signal: controller.signal });
     autofailReason.addEventListener('input', function () {
+        ++autofailRevision;
         clearAutofailError();
         saveDraft();
     }, { signal: controller.signal });
@@ -1056,13 +1071,32 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         return error && error.message ? error.message : 'AI request failed.';
     }
 
-    // Shared empty guard for the AI/copy menu actions: whitespace-only
-    // notes with no embedded image have nothing to act on.
+    function autofailContext() {
+        return {
+            rules: rulesSeq,
+            reviewId: drawerState.reviewId,
+            agentId: document.getElementById('review-agent').value,
+            caseNumber: document.getElementById('case-number').value,
+            caseType: caseTypeInput.value,
+            enabled: isAutofail(),
+            reason: autofailReason.value,
+            revision: autofailRevision
+        };
+    }
+
+    function autofailContextIsCurrent(context) {
+        if (disposed || !drawerToggle.checked) return false;
+        var current = autofailContext();
+        return Object.keys(context).every(function (key) { return context[key] === current[key]; });
+    }
+
+    // Whitespace-only notes with no embedded image have nothing to act on.
     function notesAreEmpty() {
         return !quill.getText().trim() && !quill.root.querySelector('img');
     }
 
     refactorButton.addEventListener('click', async function () {
+        if (notesDraftRequest) return;
         if (notesAreEmpty()) {
             showToast('Notes are empty.');
             hideMenu(true);
@@ -1093,17 +1127,18 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     });
 
     scoreButton.addEventListener('click', async function () {
-        if (rulesPending || rulesFailed) return;
+        if (rulesPending || rulesFailed || notesDraftRequest) return;
         if (notesAreEmpty()) {
             showToast('Notes are empty.');
             hideMenu(true);
             return;
         }
-        var currentRules = rulesSeq;
+        var autofailAtRequest = autofailContext();
+        var submittedNotes = quill.root.innerHTML;
         setLoading(scoreButton, 'Scoring…', true);
         try {
             var response = await aiFetch('/api/ai/score', {
-                html: window.gysAiStream.omitImages(quill.root.innerHTML),
+                html: window.gysAiStream.omitImages(submittedNotes),
                 case_type: document.getElementById('case-type').value
             });
             if (!response.ok) {
@@ -1119,7 +1154,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 throw new Error(extractErrorDetail(errorPayload, response.status));
             }
             var result = await response.json();
-            if (disposed || currentRules !== rulesSeq) return;
+            if (disposed || !drawerToggle.checked || autofailAtRequest.rules !== rulesSeq) return;
+            if (quill.root.innerHTML !== submittedNotes) {
+                hideMenu(true);
+                showToast('Notes changed while scoring. Generate the score again.');
+                return;
+            }
             var matched = 0;
             Object.entries(result.scorecard || {}).forEach(function (entry) {
                 if (Number(entry[1]) <= 0) return;
@@ -1135,11 +1175,27 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     matched += 1;
                 }
             });
-            if (!matched) showToast('No matching scorecard rules for the AI findings.');
-            else showToast(matched + ' rule(s) applied from the AI score.', 'alert-success');
+            var suggestedReason = validAutofailReason(result.autofail_reason);
+            var appliedAutofail = suggestedReason && canAutofail() && !autofailReason.value.trim()
+                && autofailContextIsCurrent(autofailAtRequest);
+            if (appliedAutofail) {
+                ++autofailRevision;
+                autofailCheckbox.checked = true;
+                autofailReason.value = suggestedReason;
+                syncAutofailField(true);
+                showAutofailScore();
+                showToast(matched ? matched + ' rule(s) and Autofail applied from the AI score.'
+                    : 'Autofail applied from the AI score.', 'alert-success');
+            } else if (matched) {
+                showToast(matched + ' rule(s) applied from the AI score.', 'alert-success');
+            } else {
+                showToast(suggestedReason && canAutofail() ? 'Autofail was not changed.'
+                    : 'No matching scorecard rules for the AI findings.');
+            }
             hideMenu(true);
             window.clearTimeout(previewTimer);
             recalcScore();
+            if (matched || appliedAutofail) saveDraft();
         } catch (error) {
             showToast(aiErrorMessage(error));
         } finally {
@@ -1147,26 +1203,93 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
     });
 
-    document.getElementById('copy-all-action').addEventListener('click', function () {
-        var source = quill.root; // the .ql-editor element
+    function autofailCopyText() {
+        var reason = isAutofail() && validAutofailReason(autofailReason.value);
+        return reason ? 'Autofail: ' + reason : '';
+    }
+
+    function appendAutofailForCopy(target, text, hasNotes) {
+        if (hasNotes) {
+            var blankLine = document.createElement('p');
+            blankLine.appendChild(document.createElement('br'));
+            target.appendChild(blankLine);
+        } else {
+            target.replaceChildren(); // Drop Quill's empty paragraph.
+        }
+        var paragraph = document.createElement('p');
+        text.split('\n').forEach(function (line, index) {
+            if (index) paragraph.appendChild(document.createElement('br'));
+            paragraph.appendChild(document.createTextNode(line));
+        });
+        target.appendChild(paragraph);
+    }
+
+    function copyRichNotes(source) {
         var selection = window.getSelection();
-        if (!selection) return;
+        if (!selection) return false;
         selection.removeAllRanges();
         var range = document.createRange();
         range.selectNodeContents(source);
         selection.addRange(range);
-        var copied = false;
-        try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
-        selection.removeAllRanges();
-    if (!copied && navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(source.innerText).then(function () {
-            showToast('Copied to clipboard.', 'alert-success');
-        }, function () { showToast('Unable to copy.'); });
-    } else {
-        showToast(copied ? 'Copied to clipboard.' : 'Unable to copy.',
-                  copied ? 'alert-success' : undefined);
+        try { return document.execCommand('copy'); }
+        catch (error) { return false; }
+        finally { selection.removeAllRanges(); }
     }
-        hideMenu(true);
+
+    document.getElementById('copy-all-action').addEventListener('click', async function () {
+        if (notesDraftRequest) return;
+        var source = quill.root;
+        var hasNotes = !notesAreEmpty();
+        var autofailText = autofailCopyText();
+        if (!hasNotes && !autofailText) {
+            showToast('Notes are empty.');
+            hideMenu(true);
+            return;
+        }
+        function reportCopy(ok) {
+            showToast(ok ? 'Copied to clipboard.' : 'Unable to copy.',
+                      ok ? 'alert-success' : undefined);
+        }
+        var text = hasNotes ? source.innerText : '';
+        var copied;
+        if (autofailText) {
+            text = [text.trimEnd(), autofailText].filter(Boolean).join('\n\n');
+            var clone = source.cloneNode(true);
+            clone.removeAttribute('contenteditable');
+            appendAutofailForCopy(clone, autofailText, hasNotes);
+            hideMenu(true);
+            // Native selection may add extra line breaks between paragraphs
+            // to its text/plain flavor. Supply both flavors explicitly.
+            if (navigator.clipboard && navigator.clipboard.write && window.ClipboardItem) {
+                try {
+                    var fragment = document.createElement('template');
+                    fragment.innerHTML = sanitizeHtml(quill.getSemanticHTML());
+                    if (hasNotes && !fragment.innerHTML) throw new Error('Unable to prepare rich notes.');
+                    appendAutofailForCopy(fragment.content, autofailText, hasNotes);
+                    await navigator.clipboard.write([new window.ClipboardItem({
+                        'text/html': new Blob([fragment.innerHTML], { type: 'text/html' }),
+                        'text/plain': new Blob([text], { type: 'text/plain' })
+                    })]);
+                    reportCopy(true);
+                    return;
+                } catch (error) { /* Use the existing rich selection fallback. */ }
+            }
+            // Never insert the reason into the live editor, even in the fallback.
+            var scratch = document.createElement('div');
+            scratch.setAttribute('aria-hidden', 'true');
+            scratch.style.cssText = 'position:fixed;top:0;left:-10000px;pointer-events:none';
+            scratch.appendChild(clone);
+            if (source.isConnected) {
+                source.parentElement.appendChild(scratch);
+                try { copied = copyRichNotes(clone); }
+                finally { scratch.remove(); }
+            }
+        } else {
+            copied = copyRichNotes(source);
+            hideMenu(true);
+        }
+        if (copied) reportCopy(true);
+        else copyPlainText(text, reportCopy);
     });
 
     // CRM paste target is its Source Code editor, which receives the
@@ -1176,8 +1299,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var EXPORT_ALLOWED_TAGS = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 's',
         'ul', 'ol', 'li', 'img', 'a', 'span', 'h1', 'h2', 'h3', 'h4', 'h5',
         'h6', 'blockquote', 'pre', 'code'];
-    function buildExportHtml() {
+    function buildExportHtml(autofailText, hasNotes) {
         var clone = quill.root.cloneNode(true);
+        if (autofailText) appendAutofailForCopy(clone, autofailText, hasNotes);
         // Editor-only chrome: decorative list markers, editable flags and
         // Quill utility classes (ql-indent/ql-align/…) mean nothing to the CRM.
         clone.querySelectorAll('.ql-ui').forEach(function (el) { el.remove(); });
@@ -1213,15 +1337,19 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         done(false);
     }
     document.getElementById('copy-html-action').addEventListener('click', function () {
-        var html = buildExportHtml();
-        if (!html || notesAreEmpty()) {
-            showToast('Notes are empty.');
+        if (notesDraftRequest) return;
+        var hasNotes = !notesAreEmpty();
+        var autofailText = autofailCopyText();
+        var html = (hasNotes || autofailText) ? buildExportHtml(autofailText, hasNotes) : '';
+        if (!html) {
+            showToast(hasNotes || autofailText ? 'Unable to copy.' : 'Notes are empty.');
             hideMenu(true);
             return;
         }
         copyPlainText(html, function (copied) {
             if (!copied) {
                 // Non-secure-context fallback: hidden textarea + execCommand.
+                var previousFocus = document.activeElement;
                 var scratch = document.createElement('textarea');
                 scratch.value = html;
                 scratch.setAttribute('readonly', '');
@@ -1230,7 +1358,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 document.body.appendChild(scratch);
                 scratch.select();
                 try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
-                scratch.remove();
+                finally {
+                    scratch.remove();
+                    if (previousFocus) previousFocus.focus({ preventScroll: true });
+                }
             }
             showToast(copied
                 ? 'HTML copied — paste it via the CRM Source Code option.'
@@ -1241,7 +1372,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     });
 
     document.getElementById('paste-notes-action').addEventListener('click', function () {
+        if (notesDraftRequest) return;
         navigator.clipboard.readText().then(function (text) {
+            if (disposed || notesDraftRequest) return;
             if (!text) throw new Error('Clipboard is empty');
             // Insert through the Quill API: a direct quill.root.innerHTML
             // write desyncs Quill's internal delta — same as Refactor.
@@ -1258,14 +1391,46 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         });
     });
 
-    document.getElementById('score-notes-action').addEventListener('click', async function () {
-        if (rulesPending || rulesFailed) return;
+    notesButton.addEventListener('click', async function () {
+        if (rulesPending || rulesFailed || savingReview || notesDraftRequest || refactorButton.disabled || scoreButton.disabled) return;
         if (!validateAutofailReason()) {
             hideMenu(true);
             return;
         }
+        var autofailAtRequest = autofailContext();
         var button = this;
+        // A manual close hides the drawer without unmounting it. Cancel
+        // the reveal on close as well as on disposal/replacement.
+        var request = new AbortController();
+        function cancel() { request.abort(); }
+        function isCurrent() { return autofailContextIsCurrent(autofailAtRequest); }
+        function cancelIfStale() { if (!isCurrent()) cancel(); }
+        controller.signal.addEventListener('abort', cancel, { once: true, signal: request.signal });
+        [
+            [drawerToggle, 'change'], [autofailCheckbox, 'change'], [autofailReason, 'input'],
+            [document, 'review-agent-change'], [document, 'case-type-change'],
+            [document.getElementById('case-number'), 'input']
+        ].forEach(function (listener) {
+            listener[0].addEventListener(listener[1], cancelIfStale, { signal: request.signal });
+        });
+        // Quill still accepts silent stream updates while user edits are disabled.
+        var notesEditor = quill;
+        notesDraftRequest = {
+            controller: request,
+            originalHtml: notesEditor.root.innerHTML,
+            hasOriginalText: !!notesEditor.getText().trim()
+        };
+        if (notesEditor.isEnabled()) {
+            notesEditor.disable();
+            unlockNotesEditor = function () { notesEditor.enable(); unlockNotesEditor = null; };
+        }
+        var blockedActions = Array.from(menu.querySelectorAll('button')).filter(function (action) {
+            return action !== button && !action.disabled;
+        });
+        blockedActions.forEach(function (action) { action.disabled = true; });
+        updateSaveState();
         setLoading(button, 'Drafting…', true);
+        var drafted = false;
         try {
             var agentId = document.getElementById('review-agent').value;
             var payload = {
@@ -1277,28 +1442,50 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 exclude_review_id: drawerState.reviewId || null,
                 no_multiplier_keys: Object.keys(multiplierExemptions)
             };
-            if (isAutofail()) payload.autofail_reason = autofailReason.value.trim();
-            await window.gysAiStream.streamInto({
+            if (autofailAtRequest.enabled) payload.autofail_reason = autofailAtRequest.reason.trim();
+            var result = await window.gysAiStream.streamInto({
                 url: '/api/ai/notes-from-score/stream',
                 payload: payload,
-                quill: quill,
+                quill: notesEditor,
                 sanitize: sanitizeDraftNotes,
                 emptyMessage: 'The AI returned an empty note',
-                focusEnd: true,
-                signal: controller.signal
+                signal: request.signal,
+                canApply: isCurrent
             });
-        saveDraft();
-        hideMenu(true);
-        showToast('Notes drafted from the current score.', 'alert-success');
+            if (!isCurrent() || request.signal.aborted) return;
+            var rewrittenReason = validAutofailReason(result && result.autofail_reason);
+            if (autofailAtRequest.enabled && rewrittenReason) {
+                ++autofailRevision;
+                autofailReason.value = rewrittenReason;
+                clearAutofailError();
+            }
+            drafted = true;
+            showToast('Notes drafted from the current score.', 'alert-success');
         } catch (error) {
-            showToast(error.message || 'AI note drafting failed');
+            if (!disposed && drawerToggle.checked) {
+                if (!isCurrent()) showToast('The review changed while notes were drafting. Try again.');
+                else if (!request.signal.aborted) showToast(error.message || 'AI note drafting failed');
+            }
         } finally {
+            var cancelled = request.signal.aborted;
+            cancel();
             setLoading(button, '', false);
+            blockedActions.forEach(function (action) { action.disabled = false; });
+            if (unlockNotesEditor) unlockNotesEditor();
+            notesDraftRequest = null;
+            if (!disposed) {
+                updateSaveState();
+                saveDraft();
+                if (drafted || cancelled) hideMenu(true);
+                if (drafted && document.activeElement === document.body) {
+                    notesEditor.setSelection(notesEditor.getLength() - 1, 0, 'silent');
+                }
+            }
         }
     });
 
     async function saveExistingReview(completing) {
-        if (rulesPending || rulesFailed || savingReview) return;
+        if (rulesPending || rulesFailed || savingReview || notesDraftRequest) return;
         if (!validateAutofailReason()) return;
         var autofail = isAutofail();
         var deductions = collectDeductions();
@@ -1364,7 +1551,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     async function createReview(saveForLater) {
         var clickedButton = saveForLater ? saveLaterButton : saveButton;
-        if (rulesPending || rulesFailed || savingReview || !document.getElementById('review-agent').value) return;
+        if (rulesPending || rulesFailed || savingReview || notesDraftRequest || !document.getElementById('review-agent').value) return;
         if (!validateAutofailReason()) return;
         var autofail = isAutofail();
         savingReview = true;
