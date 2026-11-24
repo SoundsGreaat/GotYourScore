@@ -359,6 +359,11 @@ format instructions above. Return only a JSON object, for example
 Use a concise factual string for an explicit Autofail reason, otherwise null.
 Treat an appended "Autofail reason: ..." line as an explicit label when it
 states a concrete reason for this case (including in copied notes).
+The labels "Autofail", "auto fail", "auto-fail", and "AF" are case-insensitive.
+Recognize "AF" when it labels a concrete mistake, for example "Skipped the
+check — AF", "Skipped the check (AF)", or "AF: skipped the check". An
+unexplained "AF" or a mention that doesn't assign Autofail to this case must
+not produce a reason.
 All ordinary scoring deductions belong inside "scorecard". Do not return
 an Autofail key or count the Autofail outcome as an additional deduction.
 Configured allowed keys and exact penalty values apply within scorecard.
@@ -589,34 +594,70 @@ def _sanitize_scorecard(data: dict) -> dict[str, int]:
 class _VisibleTextParser(HTMLParser):
     """Collect visible textual HTML content, ignoring markup and attributes."""
 
+    _IGNORED_TAGS = {"script", "style", "template"}
+    _LINE_BREAK_TAGS = {
+        "br", "div", "p", "li", "blockquote", "pre", "h1", "h2", "h3",
+        "h4", "h5", "h6", "tr", "td", "th",
+    }
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self._ignored_depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag.lower() in {"script", "style", "template"}:
+        if tag in self._IGNORED_TAGS:
             self._ignored_depth += 1
+        elif not self._ignored_depth and tag in self._LINE_BREAK_TAGS:
+            self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
-        if tag.lower() in {"script", "style", "template"} and self._ignored_depth:
+        if tag in self._IGNORED_TAGS and self._ignored_depth:
             self._ignored_depth -= 1
+        elif not self._ignored_depth and tag in self._LINE_BREAK_TAGS:
+            self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
         if not self._ignored_depth:
             self.parts.append(data)
 
 
-_AUTOFAIL_MARKER_RE = re.compile(r"\bauto[\s-]?fail\b", re.IGNORECASE)
+_HSPACE = r"[^\S\r\n]"
+_UNICODE_DASHES = "‐‑‒–—−"
+_DASHES = f"{_UNICODE_DASHES}-"
+_AUTOFAIL_MARKER_RE = re.compile(
+    rf"\bauto{_HSPACE}*(?:[{_DASHES}]{_HSPACE}*)?fail\b",
+    re.IGNORECASE,
+)
+_AF_MARKER_RE = re.compile(
+    rf"\({_HSPACE}*af{_HSPACE}*\)"                          # mistake (AF)
+    rf"|\[{_HSPACE}*af{_HSPACE}*\]"                         # mistake [AF]
+    rf"|（{_HSPACE}*af{_HSPACE}*）"
+    rf"|(?:{_HSPACE}-|^-|[{_UNICODE_DASHES}]|-{_HSPACE}+){_HSPACE}*af\b(?![{_DASHES}])"
+    rf"|(?<![\w-])af(?:{_HSPACE}+-|-{_HSPACE}+|{_HSPACE}*[{_UNICODE_DASHES}]){_HSPACE}*(?=\S)"
+    rf"|(?<![\w-])af(?:{_HSPACE}+reason)?{_HSPACE}*[:：=]{_HSPACE}*(?=\S)"
+    rf"|\baf{_HSPACE}+(?:because|due{_HSPACE}+to|for){_HSPACE}+(?=\w)"
+    rf"|\b(?:received|given|assigned|marked{_HSPACE}+as){_HSPACE}+af\b"
+    rf"|^{_HSPACE}*af{_HSPACE}*[:.!]?{_HSPACE}*$",           # AF on its own line
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 def _has_explicit_autofail_marker(notes_html: str) -> bool:
     parser = _VisibleTextParser()
     try:
         parser.feed(notes_html)
+        parser.close()
     except Exception:
         return False
-    return bool(_AUTOFAIL_MARKER_RE.search(" ".join(parser.parts)))
+    text = "".join(parser.parts)
+    if _AUTOFAIL_MARKER_RE.search(text):
+        return True
+    if not _AF_MARKER_RE.search(text):
+        return False
+    # An abbreviation alone (possibly styled or wrapped in punctuation)
+    # does not describe an error. The model handles the semantic decision.
+    return bool(re.search(r"\w", re.sub(r"\baf\b", "", text, flags=re.IGNORECASE)))
 
 
 def _sanitize_autofail_reason(value: object) -> str | None:

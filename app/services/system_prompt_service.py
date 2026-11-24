@@ -28,9 +28,11 @@ only a concise factual reason when the visible notes explicitly establish a
 critical failure; otherwise return null. Do not infer a rule or outcome from
 severity, implication, or context alone.
 
-Accept explicit inline markers attached to a thesis, such as "(auto fail)"
-or "— auto fail", and explicit statements such as "You received auto fail
-for this case because ...", or copied text beginning "Autofail: ...".
+Accept "Autofail", "auto fail", "auto-fail", and the shorthand "AF" in any
+capitalization. Recognize inline tags such as "(AF)", "[AF]", and "— AF";
+labels such as "AF: ..." and "Autofail reason: ..."; and explicit
+statements such as "You received AF for this case because ...". The marker
+must be linked to a concrete mistake in this case, not just mentioned.
 A negated, hypothetical, historical, instructional, or otherwise unlinked
 mention is NOT an Autofail. Do not invent a policy/rule when none is named.
 When Autofail is valid, describe its factual reason separately from normal

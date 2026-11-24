@@ -13,7 +13,6 @@ from app.services import ai_service, system_prompt_service
 
 class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
     async def test_notes_score_uses_structured_contract_and_explicit_marker(self):
-        notes = "<p>Agent disclosed account data (auto fail).</p>"
         response = SimpleNamespace(
             choices=[
                 SimpleNamespace(
@@ -53,10 +52,11 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
                 ai_service,
                 "_active_system_prompt",
                 new=AsyncMock(
-                    side_effect=[
-                        "Custom scoring prompt: one violation, one most specific rule.",
-                        None,
-                    ]
+                    side_effect=lambda key, db: (
+                        "Stored detection prompt."
+                        if key == ai_service.AUTOFAIL_DETECTION_PROMPT_KEY
+                        else "Custom scoring prompt: one violation, one most specific rule."
+                    ),
                 ),
             ),
             patch.object(
@@ -66,24 +66,37 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
             ),
             patch.object(ai_service, "get_openrouter_client", return_value=client),
         ):
-            scorecard, reason = await ai_service.analyze_support_ticket(
-                notes, CaseTypeEnum.INITIAL_FIX, db, detect_autofail=True
+            labels = ("af", "AF", "Autofail", "AUTO FAIL", "Auto-Fail", "auto‑fail")
+            for label in labels:
+                with self.subTest(label=label):
+                    scorecard, reason = await ai_service.analyze_support_ticket(
+                        f"<p>Agent disclosed account data - {label}.</p>",
+                        CaseTypeEnum.INITIAL_FIX,
+                        db,
+                        detect_autofail=True,
+                    )
+                    self.assertEqual(scorecard, {"late_response": 5})
+                    self.assertEqual(reason, "Account data was disclosed.")
+            prompt = client.chat.completions.create.await_args.kwargs["messages"][0]["content"]
+            ordinary_scorecard, no_reason = await ai_service.analyze_support_ticket(
+                "<p>Agent disclosed account data; reference AF-123.</p>",
+                CaseTypeEnum.INITIAL_FIX,
+                db,
+                detect_autofail=True,
             )
 
-        self.assertEqual(scorecard, {"late_response": 5})
-        self.assertEqual(reason, "Account data was disclosed.")
-        prompt = client.chat.completions.create.await_args.kwargs["messages"][0][
-            "content"
-        ]
+        self.assertEqual(ordinary_scorecard, {"late_response": 5})
+        self.assertIsNone(no_reason)
         self.assertIn("Custom scoring prompt", prompt)
         self.assertIn("late_response (Late response): deduct 5", prompt)
         self.assertIn('"scorecard"', prompt)
         self.assertIn("autofail_reason", prompt)
         self.assertIn("Autofail reason: ...", prompt)
-        self.assertIn("visible notes explicitly", prompt)
+        self.assertIn("Stored detection prompt.", prompt)
+        self.assertIn("Skipped the check (AF)", " ".join(prompt.split()))
         self.assertNotIn("flat JSON object", prompt)
         self.assertNotIn("_JSON_OUTPUT_CONTRACT", prompt)
-        self.assertEqual(client.chat.completions.create.await_count, 1)
+        self.assertEqual(client.chat.completions.create.await_count, len(labels) + 1)
 
     async def test_legacy_flat_model_output_keeps_deductions_but_never_autofails(self):
         client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
@@ -108,44 +121,39 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, ({"late_response": 5}, None))
 
     def test_marker_requires_visible_explicit_text(self):
-        self.assertTrue(
-            ai_service._has_explicit_autofail_marker(
-                "<p>Account data disclosed (auto fail)</p>"
-            )
-        )
-        self.assertTrue(
-            ai_service._has_explicit_autofail_marker(
-                "<p>You received auto fail for this case because data was disclosed.</p>"
-            )
-        )
-        self.assertTrue(
-            ai_service._has_explicit_autofail_marker("<p>Autofail: disclosure.</p>")
-        )
-        self.assertTrue(
-            ai_service._has_explicit_autofail_marker("<p>Autofail reason: disclosure.</p>")
-        )
-        self.assertTrue(
-            ai_service._has_explicit_autofail_marker(
-                "<p><strong>Auto</strong>fail for this case.</p>"
-            )
-        )
-        # This is only the lexical gate; the detection model must reject
-        # negated/hypothetical mentions when choosing the structured reason.
-        self.assertTrue(
-            ai_service._has_explicit_autofail_marker(
-                "<p>This is not an Autofail.</p>"
-            )
-        )
-        self.assertFalse(
-            ai_service._has_explicit_autofail_marker(
-                '<p title="Autofail: disclosure">Routine review</p>'
-            )
-        )
-        self.assertFalse(
-            ai_service._has_explicit_autofail_marker(
-                "<script>Autofail: disclosure</script><p>Routine review</p>"
-            )
-        )
+        for label in (
+            "autofail", "AUTOFAIL", "Auto Fail", "auto fail", "auto-fail",
+            "AUTO-FAIL", "AuTo — fAiL", "auto‑fail", "<strong>Auto</strong>fail",
+        ):
+            with self.subTest(label=label):
+                self.assertTrue(ai_service._has_explicit_autofail_marker(f"<p>Skipped the check - {label}.</p>"))
+
+        for notes in (
+            "You didn't check LMI Calling card - af",
+            "Skipped the check — AF", "Skipped the check–Af", "Skipped the check (aF)",
+            "Skipped the check [AF]", "Skipped the check （AF）",
+            "AF: skipped the check", 'AF reason: "Skipped the check."',
+            "AF - skipped the check", "AF- skipped the check", "AF due to a skipped check",
+            "You received AF for skipping the check", "<p><b>AF</b></p><p>Skipped the check.</p>",
+            "Skipped the check (<strong>A</strong>F)", "Autofail reason: disclosure.",
+            # The model, not the lexical gate, handles negation.
+            "This is not an Autofail.",
+        ):
+            with self.subTest(notes=notes):
+                self.assertTrue(ai_service._has_explicit_autofail_marker(notes))
+
+        for notes in (
+            "", "AF", "(af)", "AF:", "AF-123", "Reference AF-123 for the check.",
+            "This was logged as team-af: reviewed.", "The AF app was checked.",
+            "Safe and sound.", "The auto-failure guide was consulted.",
+            '<p title="Autofail: disclosure">Routine review</p>',
+            '<p title="AF: disclosure">Routine review</p>',
+            "<script>Autofail: disclosure</script><p>Routine review</p>",
+            "<!-- AF: disclosure --><p>Routine review</p>",
+            "<p>auto</p><p>fail</p>", "tri<b>AF</b>ge: routine",
+        ):
+            with self.subTest(notes=notes):
+                self.assertFalse(ai_service._has_explicit_autofail_marker(notes))
 
     def test_detected_reason_is_validated(self):
         self.assertEqual(ai_service._sanitize_autofail_reason(" reason "), "reason")
