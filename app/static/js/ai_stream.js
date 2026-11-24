@@ -4,8 +4,7 @@
 
    window.gysAiStream.streamInto({
      url:         POST endpoint speaking the NDJSON /stream contract of
-                  the AI endpoints ({"d": delta} / {"final": html} / {"error"}).
-                  Score -> Notes may send {"autofail_reason": text} before final,
+                   the AI endpoints ({"d": delta} / {"final": html} / {"error"}),
      payload:     JSON body,
      quill:       the Quill instance to type into,
      sanitize:    per-surface sanitizer applied to EVERY fragment before
@@ -23,9 +22,8 @@
      emptyMessage: error thrown when the final fragment sanitizes to
                   nothing (per-surface wording),
      timeoutMs:   overall request cap (default 61000, mirrors aiFetch).
-   }) -> Promise; resolves with optional {autofail_reason} metadata after the
-   terminal {"final"} fragment has replaced the revealed content; rejects
-   with Error(message) on failure. The editor content is NEVER left mid-revealed: the original
+   }) -> Promise; resolves after the terminal {"final"} fragment has replaced
+   the revealed content; rejects with Error(message) on failure. The original
    content is captured up front and restored (silently) before the
    promise rejects, and nothing is touched at all until the first delta
    arrives — early failures (503, dead connection) leave the editor
@@ -163,7 +161,6 @@
             var started = false;
             var streamEnded = false;
             var finalHtml = null;
-            var autofailReason;
             var streamError = null;
 
             function replaceContent(html) {
@@ -239,9 +236,6 @@
                             try { evt = JSON.parse(line); } catch (e) { continue; }
                             if (evt.error) { streamError = new Error(evt.error); return; }
                             if (typeof evt.d === 'string') accumulated += evt.d;
-                            if (finalHtml === null && typeof evt.autofail_reason === 'string') {
-                                autofailReason = evt.autofail_reason;
-                            }
                             if (typeof evt.final === 'string') finalHtml = evt.final;
                         }
                     }
@@ -288,7 +282,6 @@
                 started = true;
                 replaceContent(finalClean);
                 if (opts.focusEnd) quill.setSelection(quill.getLength(), 0, 'silent');
-                if (autofailReason !== undefined) return { autofail_reason: autofailReason };
             } catch (error) {
                 error = streamError || error;
                 streamError = error; // Stop any queued frame on transport failure.

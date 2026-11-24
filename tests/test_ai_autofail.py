@@ -143,29 +143,11 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    def test_reason_validation_and_notes_section_use_only_supplied_fact(self):
+    def test_detected_reason_is_validated(self):
         self.assertEqual(ai_service._sanitize_autofail_reason(" reason "), "reason")
         for invalid in (None, "", "  ", "x" * 2001, "bad\x00reason", 42):
             with self.subTest(invalid=repr(invalid)):
                 self.assertIsNone(ai_service._sanitize_autofail_reason(invalid))
-        notes, reason = ai_service._canonical_autofail_notes(
-            "<p><strong>Autofail</strong></p>"
-            "<p>Edited factual reason.</p>"
-            "<ul><li>Normal deduction bullet.</li></ul>",
-            "Only this supplied fact & safely <tagged>.",
-        )
-        self.assertIn("Normal deduction bullet.", notes)
-        self.assertIn("Edited factual reason.", notes)
-        self.assertEqual(reason, "Edited factual reason.")
-        self.assertLess(notes.index("Edited factual reason."), notes.index("Normal deduction bullet."))
-        malformed, fallback = ai_service._canonical_autofail_notes(
-            "<ul><li>Preserve this</li></ul><p><strong>Autofail</strong></p>",
-            "Safe fallback reason.",
-        )
-        self.assertIn("Preserve this", malformed)
-        self.assertIn("Safe fallback reason.", malformed)
-        self.assertEqual(fallback, "Safe fallback reason.")
-        self.assertNotIn("exactly 0", ai_service._AUTOFAIL_NOTES_INSTRUCTIONS)
 
     def test_prompt_default_is_registered_only_for_autofail_slot(self):
         slots = system_prompt_service.PROMPT_SLOTS

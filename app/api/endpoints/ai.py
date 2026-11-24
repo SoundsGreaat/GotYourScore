@@ -26,9 +26,6 @@ Streaming contract (the ``/stream`` variants): the response is
   post-processed fragment (identical post-processing to the buffered
   endpoint's return value); the client MUST sanitize it before
   insertion, same trust boundary;
-- ``{"autofail_reason": "..."}`` — Notes-from-Score metadata emitted
-  before ``final`` when the request included an Autofail reason. It is
-  applied only after successful stream completion;
 - ``{"error": "..."}`` — terminal failure event. HTTP status is
   already 200 once streaming starts, so failures (including ones that
   would map to 502 on the buffered routes) travel as error events.
@@ -292,8 +289,8 @@ async def notes_from_score(
     scorecard rules (human-readable display names, categories and the
     deducted points); deduction keys unknown to those rules are skipped.
     When ``support_agent_id`` is sent, progressive multipliers and the
-    final score are computed for that agent (same engine as saving a
-    review) so the notes justify the real number. The system prompt is
+    score from ordinary deductions are computed for that agent.
+    The system prompt is
     the newest ACTIVE ``notes_from_score`` SystemPrompt row (hardcoded
     fallback when none exists). The response fragment is not sanitized
     server-side — the client sanitizes it with DOMPurify before
@@ -313,11 +310,10 @@ async def notes_from_score(
     lease = await reserve_ai_request(current_user.id)
     try:
         try:
-            notes_html, autofail_reason = await ai_service.draft_notes_from_score(
+            notes_html = await ai_service.draft_notes_from_score(
                 payload.case_type,
                 payload.raw_scorecard,
                 db,
-                autofail_reason=payload.autofail_reason,
                 support_agent_id=payload.support_agent_id,
                 exclude_review_id=payload.exclude_review_id,
                 no_multiplier_keys=payload.no_multiplier_keys,
@@ -337,9 +333,7 @@ async def notes_from_score(
             ) from exc
     finally:
         await lease.release()
-    return NotesFromScoreOut(
-        notes_html=notes_html, autofail_reason=autofail_reason
-    )
+    return NotesFromScoreOut(notes_html=notes_html)
 
 
 @router.post("/notes-from-score/stream")
@@ -373,7 +367,6 @@ async def notes_from_score_stream(
             payload.case_type,
             payload.raw_scorecard,
             db,
-            autofail_reason=payload.autofail_reason,
             support_agent_id=payload.support_agent_id,
             exclude_review_id=payload.exclude_review_id,
             no_multiplier_keys=payload.no_multiplier_keys,

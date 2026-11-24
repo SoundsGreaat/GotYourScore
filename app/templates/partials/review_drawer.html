@@ -1071,22 +1071,27 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         return error && error.message ? error.message : 'AI request failed.';
     }
 
-    function autofailContext() {
+    function reviewContext() {
         return {
             rules: rulesSeq,
             reviewId: drawerState.reviewId,
             agentId: document.getElementById('review-agent').value,
             caseNumber: document.getElementById('case-number').value,
-            caseType: caseTypeInput.value,
+            caseType: caseTypeInput.value
+        };
+    }
+
+    function autofailContext() {
+        return {
+            ...reviewContext(),
             enabled: isAutofail(),
             reason: autofailReason.value,
             revision: autofailRevision
         };
     }
 
-    function autofailContextIsCurrent(context) {
+    function reviewContextIsCurrent(context, current) {
         if (disposed || !drawerToggle.checked) return false;
-        var current = autofailContext();
         return Object.keys(context).every(function (key) { return context[key] === current[key]; });
     }
 
@@ -1177,7 +1182,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             });
             var suggestedReason = validAutofailReason(result.autofail_reason);
             var appliedAutofail = suggestedReason && canAutofail() && !autofailReason.value.trim()
-                && autofailContextIsCurrent(autofailAtRequest);
+                && reviewContextIsCurrent(autofailAtRequest, autofailContext());
             if (appliedAutofail) {
                 ++autofailRevision;
                 autofailCheckbox.checked = true;
@@ -1393,21 +1398,17 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     notesButton.addEventListener('click', async function () {
         if (rulesPending || rulesFailed || savingReview || notesDraftRequest || refactorButton.disabled || scoreButton.disabled) return;
-        if (!validateAutofailReason()) {
-            hideMenu(true);
-            return;
-        }
-        var autofailAtRequest = autofailContext();
+        var reviewAtRequest = reviewContext();
         var button = this;
         // A manual close hides the drawer without unmounting it. Cancel
         // the reveal on close as well as on disposal/replacement.
         var request = new AbortController();
         function cancel() { request.abort(); }
-        function isCurrent() { return autofailContextIsCurrent(autofailAtRequest); }
+        function isCurrent() { return reviewContextIsCurrent(reviewAtRequest, reviewContext()); }
         function cancelIfStale() { if (!isCurrent()) cancel(); }
         controller.signal.addEventListener('abort', cancel, { once: true, signal: request.signal });
         [
-            [drawerToggle, 'change'], [autofailCheckbox, 'change'], [autofailReason, 'input'],
+            [drawerToggle, 'change'],
             [document, 'review-agent-change'], [document, 'case-type-change'],
             [document.getElementById('case-number'), 'input']
         ].forEach(function (listener) {
@@ -1436,14 +1437,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             var payload = {
                 case_type: caseTypeInput.value,
                 raw_scorecard: collectDeductions(),
-                // Same multiplier context as the score preview: the
-                // drafted notes must justify the REAL final score.
+                // Keep the regular multiplier context for selected rules.
                 support_agent_id: agentId ? Number(agentId) : null,
                 exclude_review_id: drawerState.reviewId || null,
                 no_multiplier_keys: Object.keys(multiplierExemptions)
             };
-            if (autofailAtRequest.enabled) payload.autofail_reason = autofailAtRequest.reason.trim();
-            var result = await window.gysAiStream.streamInto({
+            await window.gysAiStream.streamInto({
                 url: '/api/ai/notes-from-score/stream',
                 payload: payload,
                 quill: notesEditor,
@@ -1453,12 +1452,6 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 canApply: isCurrent
             });
             if (!isCurrent() || request.signal.aborted) return;
-            var rewrittenReason = validAutofailReason(result && result.autofail_reason);
-            if (autofailAtRequest.enabled && rewrittenReason) {
-                ++autofailRevision;
-                autofailReason.value = rewrittenReason;
-                clearAutofailError();
-            }
             drafted = true;
             showToast('Notes drafted from the current score.', 'alert-success');
         } catch (error) {

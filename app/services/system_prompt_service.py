@@ -90,9 +90,7 @@ PROMPT_SLOTS = [
             "scorecard deductions. The deducted rules (display names, "
             "categories, points) are supplied automatically — write the "
             "reviewer voice, structure and tone, and demand a sanitized "
-            "HTML fragment as the output. If the reviewer marks Autofail, "
-            "the reason and instructions for a separate Autofail section "
-            "are supplied automatically."
+            "HTML fragment from those deductions only."
         ),
     },
 ]

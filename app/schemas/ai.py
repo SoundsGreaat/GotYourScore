@@ -5,7 +5,7 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import CaseTypeEnum
-from app.schemas.review import AutofailReason, RawScorecardValidation
+from app.schemas.review import RawScorecardValidation
 
 
 class _HtmlIn(BaseModel):
@@ -98,19 +98,9 @@ class NotesFromScoreIn(RawScorecardValidation, BaseModel):
     raw_scorecard: dict[str, Annotated[int, Field(ge=1)]] = Field(
         max_length=60
     )
-    autofail_reason: AutofailReason | None = None
     support_agent_id: int | None = None
     exclude_review_id: int | None = None
     no_multiplier_keys: set[str] = Field(default_factory=set, max_length=60)
-
-    @field_validator("autofail_reason")
-    @classmethod
-    def reject_blank_autofail_reason(cls, value: str | None) -> str | None:
-        """A provided reason must not be empty after trimming."""
-        if value == "":
-            raise ValueError("autofail_reason must not be blank.")
-        return value
-
 
 class NotesFromScoreOut(BaseModel):
     """Response for POST /api/ai/notes-from-score.
@@ -122,4 +112,3 @@ class NotesFromScoreOut(BaseModel):
     """
 
     notes_html: str
-    autofail_reason: str | None = None

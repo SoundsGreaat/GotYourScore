@@ -109,7 +109,7 @@ test("Generate Score discards every finding if the submitted notes were edited",
   await expect(page.getByLabel("Final score", { exact: true })).toHaveText("100");
 });
 
-test("Score → Notes rolls back rich notes and discards metadata on incomplete or stale streams", async ({ page }) => {
+test("Score → Notes rolls back rich notes on incomplete or stale streams", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await openNewReview(page);
   const checkbox = page.getByRole("checkbox", { name: "Autofail", exact: true });
@@ -118,7 +118,6 @@ test("Score → Notes rolls back rich notes and discards metadata on incomplete 
   const action = page.getByRole("button", { name: "Score → Notes", exact: true });
   const save = page.getByRole("button", { name: "Save Review", exact: true });
   const path = "**/api/ai/notes-from-score/stream";
-  const metadata = `${JSON.stringify({ autofail_reason: "Stale rewrite" })}\n`;
   await checkbox.check();
   await reason.fill("Original reason");
   await editor.evaluate((el) => {
@@ -130,7 +129,7 @@ test("Score → Notes rolls back rich notes and discards metadata on incomplete 
   const originalHtml = await editor.innerHTML();
   await page.route(path, (route) => route.fulfill({
     contentType: "application/x-ndjson",
-    body: metadata,
+    body: `${JSON.stringify({ d: "<p>Incomplete draft.</p>" })}\n`,
   }), { times: 1 });
   await editor.click({ button: "right" });
   await action.click();
@@ -141,7 +140,7 @@ test("Score → Notes rolls back rich notes and discards metadata on incomplete 
   await page.route(path, (route) => route.fulfill({
     contentType: "application/x-ndjson",
     body: `${JSON.stringify({ d: `<p>Revealing note ${"with details ".repeat(200)}</p>` })}\n`
-      + metadata + `${JSON.stringify({ final: "<p>Stale terminal notes.</p>" })}\n`,
+      + `${JSON.stringify({ final: "<p>Stale terminal notes.</p>" })}\n`,
   }));
   await editor.click({ button: "right" });
   await action.click();
@@ -150,15 +149,15 @@ test("Score → Notes rolls back rich notes and discards metadata on incomplete 
   await expect(save).toBeDisabled();
   await expect(page.getByRole("button", { name: "Save For Later", exact: true })).toBeDisabled();
 
-  await reason.fill("Reviewer changed the reason during the reveal.");
+  await page.getByRole("textbox", { name: "Case number", exact: true }).fill("Changed during generation");
   await expect(page.getByText("The review changed while notes were drafting. Try again.", { exact: true })).toBeVisible();
   await expect(editor).toHaveAttribute("contenteditable", "true");
   expect(await editor.innerHTML()).toBe(originalHtml);
-  await expect(reason).toHaveValue("Reviewer changed the reason during the reveal.");
+  await expect(reason).toHaveValue("Original reason");
   await expect(save).toBeEnabled();
 });
 
-test("Autofail previews instantly, validates by keyboard, and drafts notes without deductions", async ({ page }) => {
+test("Autofail previews instantly, validates on save, and stays separate from generated notes", async ({ page }) => {
   const failures = watchPage(page);
   await page.setViewportSize({ width: 390, height: 820 });
   await openNewReview(page);
@@ -199,10 +198,6 @@ test("Autofail previews instantly, validates by keyboard, and drafts notes witho
     await saveLater.press("Enter");
     await expect(reason).toBeFocused();
     await expect(reason).toHaveAttribute("aria-invalid", "true");
-    await draftNotes();
-    await notesAction.click();
-    await expect(reason).toBeFocused();
-    await expect(reason).toHaveAccessibleDescription("Enter an Autofail reason.");
   } finally {
     release();
   }
@@ -211,32 +206,31 @@ test("Autofail previews instantly, validates by keyboard, and drafts notes witho
   expect(previewResponse.request().postDataJSON()).toMatchObject({ autofail: true, raw_scorecard: {} });
   expect(previewResponse.request().postDataJSON()).not.toHaveProperty("autofail_reason");
 
-  const reasonText = "<critical> policy violation";
-  const rewrittenReason = "Confirmed a critical violation.";
-  await page.route("**/api/ai/notes-from-score/stream", (route) => {
-    const events = [];
-    if (route.request().postDataJSON().autofail_reason) events.push({ autofail_reason: rewrittenReason });
-    events.push({ final: "<p>Drafted score notes.<img></p>" });
-    return route.fulfill({
-      contentType: "application/x-ndjson",
-      body: events.map((event) => `${JSON.stringify(event)}\n`).join(""),
-    });
-  });
+  const reasonText = "Programs and Features was not checked.";
+  const rule = page.getByRole("checkbox", { name: "Regular error", exact: true });
+  await rule.check();
+  await page.route("**/api/ai/notes-from-score/stream", (route) => route.fulfill({
+    contentType: "application/x-ndjson",
+    body: `${JSON.stringify({ final: "<p>You didn't check Programs and Features.<img></p>" })}\n`,
+  }));
   await reason.fill(`  ${reasonText}  `);
   await expect(reason).toHaveAttribute("aria-invalid", "false");
   const activeStream = nextResponse(page, "/api/ai/notes-from-score/stream", "POST");
   await draftNotes();
   await notesAction.click();
-  expect((await activeStream).request().postDataJSON()).toMatchObject({
-    raw_scorecard: {}, autofail_reason: reasonText,
-  });
-  await expect(editor).toHaveText("Drafted score notes.");
+  const submitted = (await activeStream).request().postDataJSON();
+  expect(submitted.raw_scorecard).toEqual({ "ci-autofail-regular": 5 });
+  expect(submitted).not.toHaveProperty("autofail_reason");
+  expect(submitted).not.toHaveProperty("autofail");
+  await expect(editor).toHaveText("You didn't check Programs and Features.");
   await expect(editor.locator("img")).toHaveCount(0);
-  await expect(reason).toHaveValue(rewrittenReason);
+  await expect(reason).toHaveValue(`  ${reasonText}  `);
   await expect(notesAction).toBeHidden();
 
   await checkbox.press("Space");
   await expect(reason).toBeHidden();
+  await expect(rule).toBeChecked();
+  await rule.uncheck();
   await expect(score).toHaveText("100");
   const regularStream = nextResponse(page, "/api/ai/notes-from-score/stream", "POST");
   await draftNotes();
