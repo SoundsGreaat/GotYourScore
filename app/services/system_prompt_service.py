@@ -22,6 +22,25 @@ from app.models import SystemPrompt
 # underscores (matches SystemPrompt.key = String(100)).
 PROMPT_KEY_PATTERN = re.compile(r"^[a-z0-9_]{1,100}$")
 
+AUTOFAIL_DETECTION_SYSTEM_PROMPT = """\
+You are deciding whether QA notes explicitly document an Autofail. Return
+only a concise factual reason when the visible notes explicitly establish a
+critical failure; otherwise return null. Do not infer a rule or outcome from
+severity, implication, or context alone.
+
+Accept "Autofail", "auto fail", "auto-fail", and the shorthand "AF" in any
+capitalization. Recognize inline tags such as "(AF)", "[AF]", and "— AF";
+labels such as "AF: ..." and "Autofail reason: ..."; and explicit
+statements such as "You received AF for this case because ...". The marker
+must be linked to a concrete mistake in this case, not just mentioned.
+A negated, hypothetical, historical, instructional, or otherwise unlinked
+mention is NOT an Autofail. Do not invent a policy/rule when none is named.
+When Autofail is valid, describe its factual reason separately from normal
+scorecard deductions. Normal matching violations remain ordinary deductions,
+including the violation that caused Autofail; do not count it twice or add
+a synthetic scorecard key.
+"""
+
 # The fixed prompt slots the app actually resolves (single source of
 # truth for the admin panel — the form only offers these keys). Each
 # slot is one SystemPrompt key with its display metadata; the resolver
@@ -36,6 +55,16 @@ PROMPT_SLOTS = [
             "output contract are appended automatically — write only the "
             "role and scoring instructions."
         ),
+    },
+    {
+        "key": "autofail_detection",
+        "title": "Autofail Detection",
+        "description": (
+            "Independently versioned instructions for detecting an explicit "
+            "Autofail reason in Notes-to-Score previews; format is handled "
+            "by the application."
+        ),
+        "default_content": AUTOFAIL_DETECTION_SYSTEM_PROMPT,
     },
     {
         "key": "notes_refactor",
@@ -72,7 +101,7 @@ PROMPT_SLOTS = [
             "scorecard deductions. The deducted rules (display names, "
             "categories, points) are supplied automatically — write the "
             "reviewer voice, structure and tone, and demand a sanitized "
-            "HTML fragment as the output."
+            "HTML fragment from those deductions only."
         ),
     },
 ]

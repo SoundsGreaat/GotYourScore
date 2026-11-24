@@ -4,13 +4,15 @@
 
    window.gysAiStream.streamInto({
      url:         POST endpoint speaking the NDJSON /stream contract of
-                  the AI endpoints ({"d": delta} / {"final": html} / {"error"}),
+                   the AI endpoints ({"d": delta} / {"final": html} / {"error"}),
      payload:     JSON body,
      quill:       the Quill instance to type into,
      sanitize:    per-surface sanitizer applied to EVERY fragment before
                   it reaches the editor (default: DOMPurify),
      signal:      optional external AbortSignal (drawer dispose / editor
                   destroy) that cancels the request,
+     canApply:    optional predicate checked during reveal and before final;
+                  a false value rolls back rather than applying stale output,
      focusEnd:    keep the caret at the end of the revealed text (Score
                   -> Notes sets the selection; Refactor does not),
      preserveImages: replace editor images with lightweight markers in a
@@ -20,9 +22,8 @@
      emptyMessage: error thrown when the final fragment sanitizes to
                   nothing (per-surface wording),
      timeoutMs:   overall request cap (default 61000, mirrors aiFetch).
-   }) -> Promise; resolves after the terminal {"final"} fragment has
-   replaced the revealed content, rejects with Error(message) on any
-   failure. The editor content is NEVER left mid-revealed: the original
+   }) -> Promise; resolves after the terminal {"final"} fragment has replaced
+   the revealed content; rejects with Error(message) on failure. The original
    content is captured up front and restored (silently) before the
    promise rejects, and nothing is touched at all until the first delta
    arrives — early failures (503, dead connection) leave the editor
@@ -139,7 +140,10 @@
             var sanitize = opts.sanitize || defaultSanitize;
             var ctrl = new AbortController();
             var timer = window.setTimeout(function () { ctrl.abort(); }, opts.timeoutMs || 61000);
-            var onExternalAbort = function () { ctrl.abort(); };
+            var onExternalAbort = function () {
+                ctrl.abort();
+                restoreOriginal();
+            };
             if (opts.signal) {
                 if (opts.signal.aborted) ctrl.abort();
                 else opts.signal.addEventListener('abort', onExternalAbort, { once: true });
@@ -147,8 +151,8 @@
 
             // Captured BEFORE any mutation; restoring is a no-op while
             // the reveal never started (editor untouched).
-            var originalHtml = quill.root.innerHTML;
-            var imageSnapshot = opts.preserveImages ? protectImages(originalHtml) : null;
+            var originalContents = quill.getContents();
+            var imageSnapshot = opts.preserveImages ? protectImages(quill.root.innerHTML) : null;
             var requestPayload = imageSnapshot
                 ? Object.assign({}, opts.payload, { html: imageSnapshot.html })
                 : opts.payload;
@@ -166,7 +170,14 @@
 
             function restoreOriginal() {
                 if (!started) return;
-                replaceContent(sanitize(originalHtml));
+                started = false;
+                quill.setContents(originalContents, 'silent');
+            }
+
+            function requireCurrent() {
+                if (opts.canApply && !opts.canApply()) {
+                    throw new Error('The review changed while notes were drafting. Try again.');
+                }
             }
 
             function renderFrame() {
@@ -239,16 +250,41 @@
 
                 var render = new Promise(function (resolve) {
                     function frame() {
-                        if (streamError) { resolve(); return; }
-                        var state = renderFrame();
-                        if (streamEnded && finalHtml !== null && revealed >= state.total) { resolve(); return; }
+                        if (streamError || ctrl.signal.aborted) { resolve(); return; }
+                        try {
+                            requireCurrent();
+                            var state = renderFrame();
+                            if (streamEnded && finalHtml !== null && revealed >= state.total) { resolve(); return; }
+                        } catch (error) {
+                            streamError = error;
+                            ctrl.abort();
+                            resolve();
+                            return;
+                        }
                         requestAnimationFrame(frame);
                     }
                     requestAnimationFrame(frame);
                 });
 
                 await Promise.all([pump, render]);
+                if (streamError) throw streamError;
+                ctrl.signal.throwIfAborted();
+                if (finalHtml === null) throw new Error('AI request failed.');
+                var finalWithImages = imageSnapshot
+                    ? restoreImages(finalHtml, imageSnapshot.images)
+                    : finalHtml;
+                var finalClean = sanitize(finalWithImages);
+                if (!finalClean.trim()) {
+                    throw new Error(opts.emptyMessage || 'The AI returned an empty note.');
+                }
+                requireCurrent();
+                // Commit only the sanitized, post-processed terminal fragment.
+                started = true;
+                replaceContent(finalClean);
+                if (opts.focusEnd) quill.setSelection(quill.getLength(), 0, 'silent');
             } catch (error) {
+                error = streamError || error;
+                streamError = error; // Stop any queued frame on transport failure.
                 restoreOriginal();
                 if (error && error.name === 'AbortError') {
                     throw new Error('AI request timed out.');
@@ -259,27 +295,6 @@
                 if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort);
             }
 
-            if (streamError) {
-                restoreOriginal();
-                throw streamError;
-            }
-            if (finalHtml === null) {
-                restoreOriginal();
-                throw new Error('AI request failed.');
-            }
-            var finalWithImages = imageSnapshot
-                ? restoreImages(finalHtml, imageSnapshot.images)
-                : finalHtml;
-            var finalClean = sanitize(finalWithImages);
-            if (!finalClean.trim()) {
-                restoreOriginal();
-                throw new Error(opts.emptyMessage || 'The AI returned an empty note.');
-            }
-            // Terminal swap: the post-processed fragment replaces the
-            // revealed approximation — byte-for-byte parity with what
-            // the buffered endpoints return today.
-            replaceContent(finalClean);
-            if (opts.focusEnd) quill.setSelection(quill.getLength(), 0, 'silent');
         }
     };
 })();

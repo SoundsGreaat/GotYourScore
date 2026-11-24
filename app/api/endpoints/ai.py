@@ -247,8 +247,8 @@ async def score_notes(
     lease = await reserve_ai_request(current_user.id)
     try:
         try:
-            scorecard = await ai_service.analyze_support_ticket(
-                payload.html, payload.case_type, db
+            scorecard, autofail_reason = await ai_service.analyze_support_ticket(
+                payload.html, payload.case_type, db, detect_autofail=True
             )
         except ValueError as exc:
             raise HTTPException(
@@ -271,7 +271,10 @@ async def score_notes(
         scorecard=scorecard,
         total_deduction=total_deduction,
         base_score=100,
-        final_score=max(0, 100 - total_deduction),
+        final_score=(
+            0 if autofail_reason is not None else max(0, 100 - total_deduction)
+        ),
+        autofail_reason=autofail_reason,
     )
 
 
@@ -287,8 +290,8 @@ async def notes_from_score(
     scorecard rules (human-readable display names, categories and the
     deducted points); deduction keys unknown to those rules are skipped.
     When ``support_agent_id`` is sent, progressive multipliers and the
-    final score are computed for that agent (same engine as saving a
-    review) so the notes justify the real number. The system prompt is
+    score from ordinary deductions are computed for that agent.
+    The system prompt is
     the newest ACTIVE ``notes_from_score`` SystemPrompt row (hardcoded
     fallback when none exists). The response fragment is not sanitized
     server-side — the client sanitizes it with DOMPurify before

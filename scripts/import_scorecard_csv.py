@@ -35,7 +35,7 @@ from pathlib import Path
 # repo root, to sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.core.text import slugify_error_name, unique_error_name
+from app.core.text import is_autofail_error, slugify_error_name, unique_error_name
 from app.db.database import async_session_factory
 from app.models import CaseTypeEnum, ScorecardItem
 from app.services import scorecard_service
@@ -56,6 +56,10 @@ def parse_csv(path: Path) -> list[tuple[str, str, int]]:
                 # Category header: trailing comma, empty second field.
                 category = name or "General"
                 continue
+            if is_autofail_error(name):
+                raise SystemExit(
+                    f"Line {line_number}: Autofail is a separate review outcome, not a scorecard error."
+                )
             try:
                 penalty = int(second)
             except ValueError:

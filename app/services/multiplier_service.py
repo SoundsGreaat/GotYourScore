@@ -18,7 +18,7 @@ Business rules:
 Stored shape compatibility: reviews saved since the rules-snapshot
 feature nest the breakdown under a top-level ``"breakdown"`` key;
 legacy rows store the flat breakdown at the top level. The past-
-occurrence scan accepts both shapes (see ``_stored_breakdown``), so
+occurrence scan accepts both shapes (see ``stored_breakdown``), so
 progressive multipliers keep working across old and new rows.
 """
 
@@ -27,31 +27,33 @@ from typing import Any, Iterator
 from sqlalchemy import select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.text import is_autofail_error
 from app.models import Review, ReviewStatusEnum
 
 BASE_SCORE: int = 100
 MIN_FINAL_SCORE: int = 0
 
 
-def _stored_breakdown(scorecard: Any) -> dict:
+def stored_breakdown(scorecard: Any) -> dict:
     """Return the breakdown dict from one stored scorecard JSONB.
 
     New rows look like ``{"rules_snapshot": ..., "breakdown": {...}}``;
-    legacy rows are the flat breakdown itself. A dict-valued top-level
-    ``"breakdown"`` key decides which shape we are looking at.
+    legacy rows are the flat breakdown itself and can have an error
+    named ``"breakdown"``. Only nested scorecards carry a base score.
     """
     if not isinstance(scorecard, dict):
         return {}
     nested = scorecard.get("breakdown")
-    if isinstance(nested, dict):
+    if isinstance(scorecard.get("base_score"), int) and isinstance(nested, dict):
         return nested
     return scorecard
 
 
 def _iter_stored_deductions(scorecard: Any) -> Iterator[tuple[str, int]]:
     """Yield ``(error_key, deducted)`` pairs from a stored scorecard."""
-    for error_key, entry in _stored_breakdown(scorecard).items():
-        if not isinstance(entry, dict):
+    for error_key, entry in stored_breakdown(scorecard).items():
+        # A legacy rule with the now-reserved key is not an occurrence.
+        if not isinstance(entry, dict) or is_autofail_error(error_key):
             continue
         try:
             deducted = int(entry.get("deducted") or 0)
@@ -174,5 +176,9 @@ async def calculate_final_score(
         }
         total_penalty += final_penalty
 
-    final_score = max(MIN_FINAL_SCORE, BASE_SCORE - total_penalty)
+    final_score = score_after_penalties(total_penalty)
     return detailed, final_score, total_penalty
+
+
+def score_after_penalties(total_penalty: int) -> int:
+    return max(MIN_FINAL_SCORE, BASE_SCORE - total_penalty)

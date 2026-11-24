@@ -3,26 +3,44 @@
 from datetime import datetime
 from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
+from app.core.text import is_autofail_error
 from app.models.enums import CaseTypeEnum, ReviewStatusEnum
+
+AutofailReason = Annotated[
+    str, StringConstraints(strip_whitespace=True, max_length=2000, pattern=r"^[^\x00]*$")
+]
+
+
+def validate_autofail_reason(
+    case_type: CaseTypeEnum, autofail: bool, reason: str | None
+) -> str | None:
+    """Normalize the reason for the effective review state."""
+    if not autofail:
+        return None
+    if case_type is CaseTypeEnum.NO_CASES:
+        raise ValueError("Autofail is only available for scored QA Score reviews.")
+    if not reason:
+        raise ValueError("An Autofail reason is required.")
+    return reason
 
 
 class RawScorecardValidation:
     """Mixin with the shared ``raw_scorecard`` field validators.
 
-    Used by both :class:`ReviewCreate` and :class:`ReviewUpdate` so the
-    bool/negative deduction rules can never drift apart between create
-    and edit. Deductions are whole numbers >= 0; booleans are rejected
-    because ``True`` would silently coerce to ``1`` deduction point.
+    Deductions are whole numbers >= 0; booleans are rejected because
+    ``True`` would silently coerce to ``1`` deduction point. Autofail
+    is an outcome, never an error key.
     """
 
     @field_validator("raw_scorecard", mode="before")
     @classmethod
-    def reject_bool_deductions(cls, value: object) -> object:
-        """Booleans are not valid deduction points (``true`` != 1)."""
+    def reject_invalid_raw_deductions(cls, value: object) -> object:
         if isinstance(value, dict):
             for error_key, deduction in value.items():
+                if isinstance(error_key, str) and is_autofail_error(error_key):
+                    raise ValueError("Autofail is a separate review outcome, not a scorecard error.")
                 if isinstance(deduction, bool):
                     raise ValueError(
                         f"Deduction for error key '{error_key}' must be a "
@@ -68,6 +86,8 @@ class ReviewCreate(RawScorecardValidation, BaseModel):
     case_number: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     raw_scorecard: dict[str, int] | None = None
+    autofail: bool = False
+    autofail_reason: AutofailReason | None = None
     # Error keys whose progressive multiplier is waived for this review
     # (persisted in scorecard_data.multiplier_exemptions).
     no_multiplier_keys: list[str] = Field(default_factory=list, max_length=60)
@@ -88,13 +108,16 @@ class ReviewCreate(RawScorecardValidation, BaseModel):
     save_for_later: bool = False
 
     @model_validator(mode="after")
-    def validate_no_cases_has_empty_scorecard(self) -> "ReviewCreate":
-        """A 'No Cases' review must not carry any scorecard data."""
+    def validate_case_outcome(self) -> "ReviewCreate":
+        """Validate scoring inputs for the selected case type."""
         if self.case_type is CaseTypeEnum.NO_CASES and self.raw_scorecard:
             raise ValueError(
                 "Reviews with case_type='No Cases' must have a null or empty "
                 "raw_scorecard."
             )
+        self.autofail_reason = validate_autofail_reason(
+            self.case_type, self.autofail, self.autofail_reason
+        )
         return self
 
 
@@ -276,6 +299,10 @@ class ReviewUpdate(RawScorecardValidation, BaseModel):
     case_number: str | None = Field(default=None, max_length=255)
     notes: str | None = None
     raw_scorecard: dict[str, int] | None = None
+    # Omitted fields keep the existing outcome/reason; explicitly disabling
+    # Autofail also clears the reason.
+    autofail: bool = False
+    autofail_reason: AutofailReason | None = None
     # Tri-state like the other rescore fields: ABSENT = keep the stored
     # multiplier_exemptions, PRESENT (even empty) = replace them.
     no_multiplier_keys: list[str] | None = Field(default=None, max_length=60)
@@ -326,7 +353,7 @@ class AutoScoreCreate(BaseModel):
         return self
 
 
-class ScorePreviewRequest(BaseModel):
+class ScorePreviewRequest(RawScorecardValidation, BaseModel):
     """Payload for the read-only score preview
     (POST /api/reviews/score-preview).
 
@@ -352,6 +379,8 @@ class ScorePreviewRequest(BaseModel):
     raw_scorecard: dict[str, Annotated[int, Field(ge=1)]] = Field(
         max_length=60
     )
+    # The score can be previewed before the reviewer enters the reason.
+    autofail: bool = False
     # Error keys whose progressive multiplier the preview must waive.
     no_multiplier_keys: list[str] = Field(default_factory=list, max_length=60)
 
@@ -411,6 +440,8 @@ class ReviewRead(BaseModel):
     scorecard_data: dict[str, Any] | None = None
     notes: str | None = None
     final_score: int | None = None
+    autofail: bool = False
+    autofail_reason: str | None = None
     status: ReviewStatusEnum = ReviewStatusEnum.COMPLETED
     assigned_qa_id: int | None = None
     # Resolved on GET for the pending drawer when the assignee is not in

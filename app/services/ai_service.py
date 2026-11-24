@@ -41,6 +41,7 @@ import json
 import logging
 import math
 import re
+from html.parser import HTMLParser
 from collections.abc import AsyncIterator
 from functools import lru_cache
 from typing import Sequence
@@ -50,9 +51,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.text import is_autofail_error
 from app.models import CaseTypeEnum, SystemPrompt
 from app.services import app_setting_service, multiplier_service
 from app.services.scorecard_service import get_active_rules
+from app.services.system_prompt_service import AUTOFAIL_DETECTION_SYSTEM_PROMPT
 
 
 logger = logging.getLogger(__name__)
@@ -78,6 +81,7 @@ REFACTOR_PROMPT_KEY = "notes_refactor"
 # SystemPrompt key whose newest active row replaces the hardcoded
 # notes-from-score system prompt (see draft_notes_from_score).
 NOTES_FROM_SCORE_PROMPT_KEY = "notes_from_score"
+AUTOFAIL_DETECTION_PROMPT_KEY = "autofail_detection"
 
 # OpenRouter provider routing:
 # - "price" = prefer the provider with the lowest price;
@@ -197,7 +201,7 @@ def _refactor_prompt_with_image_marker_rule(system_prompt: str, raw_html: str) -
 # Prompts
 # ---------------------------------------------------------------------------
 
-SYSTEM_PROMPT = """\
+_BASE_SCORING_INSTRUCTIONS = """\
 You are a QA scoring assistant for a customer support team.
 
 You will receive the QA notes (rich text/HTML) about a support agent's
@@ -215,6 +219,9 @@ what the agent actually did, and which quality criteria were violated,
 BEFORE producing the final answer. Keep that reasoning internal: it must
 NOT appear in the output.
 
+"""
+
+SYSTEM_PROMPT = _BASE_SCORING_INSTRUCTIONS + """\
 The final output must be ONLY a JSON object mapping snake_case error names
 to integer deduction points, e.g. {"late_response": 5, "poor_tone": 3}:
 - Keys are snake_case error names; use the names above when they fit,
@@ -322,11 +329,10 @@ Strict output rules:
 - Never invent violations, details, names, or numbers that were not
   provided.
 - When nothing was deducted, write a brief positive all-clear note
-  referencing the clean review.
+  referencing the clean scorecard.
 - Keep a neutral, factual tone suitable for an internal QA record: no
   greetings, no signatures, no filler.
 """
-
 
 # ---------------------------------------------------------------------------
 # Prompt builders
@@ -356,10 +362,29 @@ _STEP_BY_STEP_DIRECTIVE = (
     "must NOT appear in the output.\n"
 )
 
+_AUTOFAIL_JSON_OUTPUT_CONTRACT = """\
+For Notes-to-Score previews this output format overrides any conflicting
+format instructions above. Return only a JSON object, for example
+{"scorecard": {"late_response": 5}, "autofail_reason": null}.
+Use a concise factual string for an explicit Autofail reason, otherwise null.
+Treat an appended "Autofail reason: ..." line as an explicit label when it
+states a concrete reason for this case (including in copied notes).
+The labels "Autofail", "auto fail", "auto-fail", and "AF" are case-insensitive.
+Recognize "AF" when it labels a concrete mistake, for example "Skipped the
+check — AF", "Skipped the check (AF)", or "AF: skipped the check". An
+unexplained "AF" or a mention that doesn't assign Autofail to this case must
+not produce a reason.
+All ordinary scoring deductions belong inside "scorecard". Do not return
+an Autofail key or count the Autofail outcome as an additional deduction.
+Configured allowed keys and exact penalty values apply within scorecard.
+"""
+
 
 def _build_scoring_prompt(
     rules: Sequence[tuple[str, str, int, str]],
     base_system_text: str | None = None,
+    *,
+    autofail_detection_prompt: str | None = None,
 ) -> str:
     """Build the scoring system prompt.
 
@@ -368,18 +393,19 @@ def _build_scoring_prompt(
     the hardcoded ``SYSTEM_PROMPT`` constant (identical behavior to
     before the system-prompt feature). With configured rules, the rule
     lines and the shared JSON-output contract are appended to the base
-    text; with no rules the base text is returned unchanged.
+    text. Notes-to-Score adds the independently configured Autofail
+    instructions and its structured result contract without changing the
+    legacy flat contract used by persisted auto-scoring.
 
     Each rule is ``(error_name, display_name, penalty_points,
     category)``. Rule lines are grouped under their category as short
     section headers so the model sees the taxonomy; blank categories
-    fall under "General". The output contract stays flat: the model
-    still returns a single ``{error_key: deduction}`` object.
+    fall under "General".
     """
-    base = base_system_text if base_system_text else SYSTEM_PROMPT
-
-    if not rules:
-        return base
+    detect_autofail = autofail_detection_prompt is not None
+    scoring_prompt = base_system_text or (
+        _BASE_SCORING_INSTRUCTIONS if detect_autofail else SYSTEM_PROMPT
+    )
 
     # dict preserves first-appearance order of the categories (rules
     # arrive ordered by template id, then error name).
@@ -400,17 +426,42 @@ def _build_scoring_prompt(
         for name, _, points, _ in rules
     )
 
+    if rules:
+        scoring_prompt = (
+            scoring_prompt.rstrip("\n")
+            + "\n\n"
+            + "You will receive the rich-text (HTML) QA notes about a support agent's\n"
+            "case. Judge each of the configured scoring rules below:\n"
+            "\n"
+            + "\n".join(rule_lines)
+            + "\n"
+            + "\n"
+            + _STEP_BY_STEP_DIRECTIVE
+        )
+        if detect_autofail:
+            scoring_prompt += (
+                "\nOnly include matching violations in scorecard; keys outside "
+                "the list are forbidden. Values must equal the configured "
+                f"penalty points ({penalty_map}). Use {{}} when no listed "
+                "rule is violated."
+            )
+        else:
+            scoring_prompt += _JSON_OUTPUT_CONTRACT.format(penalty_map=penalty_map)
+    if autofail_detection_prompt is None:
+        return scoring_prompt
+    if not rules:
+        scoring_prompt += (
+            '\nThere are no configured rules. Return an empty "scorecard", '
+            "but still check the explicit Autofail criteria below."
+        )
     return (
-        base.rstrip("\n")
+        scoring_prompt.rstrip()
         + "\n\n"
-        + "You will receive the rich-text (HTML) QA notes about a support agent's\n"
-        "case. Judge each of the configured scoring rules below:\n"
-        "\n"
-        + "\n".join(rule_lines)
-        + "\n"
-        "\n"
-        + _STEP_BY_STEP_DIRECTIVE
-        + _JSON_OUTPUT_CONTRACT.format(penalty_map=penalty_map)
+        + autofail_detection_prompt.rstrip()
+        + "\n\n"
+        + _AUTOFAIL_JSON_OUTPUT_CONTRACT
+        + "A non-null reason requires a visible lexical Autofail label and "
+        "satisfaction of the semantic criteria above."
     )
 
 
@@ -526,7 +577,7 @@ def _sanitize_scorecard(data: dict) -> dict[str, int]:
         if not isinstance(key, str):
             continue
 
-        if len(key) > MAX_KEY_LENGTH:
+        if len(key) > MAX_KEY_LENGTH or is_autofail_error(key):
             continue
 
         if isinstance(value, bool):
@@ -548,6 +599,84 @@ def _sanitize_scorecard(data: dict) -> dict[str, int]:
         sanitized[key] = deduction
 
     return sanitized
+
+
+class _VisibleTextParser(HTMLParser):
+    """Collect visible textual HTML content, ignoring markup and attributes."""
+
+    _IGNORED_TAGS = {"script", "style", "template"}
+    _LINE_BREAK_TAGS = {
+        "br", "div", "p", "li", "blockquote", "pre", "h1", "h2", "h3",
+        "h4", "h5", "h6", "tr", "td", "th",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._ignored_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in self._IGNORED_TAGS:
+            self._ignored_depth += 1
+        elif not self._ignored_depth and tag in self._LINE_BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in self._IGNORED_TAGS and self._ignored_depth:
+            self._ignored_depth -= 1
+        elif not self._ignored_depth and tag in self._LINE_BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if not self._ignored_depth:
+            self.parts.append(data)
+
+
+_HSPACE = r"[^\S\r\n]"
+_UNICODE_DASHES = "‐‑‒–—−"
+_DASHES = f"{_UNICODE_DASHES}-"
+_AUTOFAIL_MARKER_RE = re.compile(
+    rf"\bauto{_HSPACE}*(?:[{_DASHES}]{_HSPACE}*)?fail\b",
+    re.IGNORECASE,
+)
+_AF_MARKER_RE = re.compile(
+    rf"\({_HSPACE}*af{_HSPACE}*\)"                          # mistake (AF)
+    rf"|\[{_HSPACE}*af{_HSPACE}*\]"                         # mistake [AF]
+    rf"|（{_HSPACE}*af{_HSPACE}*）"
+    rf"|(?:{_HSPACE}-|^-|[{_UNICODE_DASHES}]|-{_HSPACE}+){_HSPACE}*af\b(?![{_DASHES}])"
+    rf"|(?<![\w-])af(?:{_HSPACE}+-|-{_HSPACE}+|{_HSPACE}*[{_UNICODE_DASHES}]){_HSPACE}*(?=\S)"
+    rf"|(?<![\w-])af(?:{_HSPACE}+reason)?{_HSPACE}*[:：=]{_HSPACE}*(?=\S)"
+    rf"|\baf{_HSPACE}+(?:because|due{_HSPACE}+to|for){_HSPACE}+(?=\w)"
+    rf"|\b(?:received|given|assigned|marked{_HSPACE}+as){_HSPACE}+af\b"
+    rf"|^{_HSPACE}*af{_HSPACE}*[:.!]?{_HSPACE}*$",           # AF on its own line
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _has_explicit_autofail_marker(notes_html: str) -> bool:
+    parser = _VisibleTextParser()
+    try:
+        parser.feed(notes_html)
+        parser.close()
+    except Exception:
+        return False
+    text = "".join(parser.parts)
+    if _AUTOFAIL_MARKER_RE.search(text):
+        return True
+    if not _AF_MARKER_RE.search(text):
+        return False
+    # An abbreviation alone (possibly styled or wrapped in punctuation)
+    # does not describe an error. The model handles the semantic decision.
+    return bool(re.search(r"\w", re.sub(r"\baf\b", "", text, flags=re.IGNORECASE)))
+
+
+def _sanitize_autofail_reason(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    reason = value.strip()
+    if not reason or len(reason) > 2000 or "\x00" in reason:
+        return None
+    return reason
 
 
 # ---------------------------------------------------------------------------
@@ -611,8 +740,14 @@ async def analyze_support_ticket(
     notes_html: str,
     case_type: CaseTypeEnum,
     db_session: AsyncSession,
-) -> dict[str, int]:
-    """Analyze rich-text (HTML) QA notes into a raw scorecard."""
+    *,
+    detect_autofail: bool = False,
+) -> dict[str, int] | tuple[dict[str, int], str | None]:
+    """Analyze rich-text notes, optionally detecting Notes-to-Score Autofail.
+
+    The default remains the legacy flat scorecard contract for the
+    persisted ``/reviews/auto-score`` route.
+    """
     # One rule-reading path: the same active-template/dedup/ordering
     # logic that saving a review snapshots — an inactive template must
     # never leak its rules into the prompt or the allowed-key whitelist.
@@ -633,7 +768,17 @@ async def analyze_support_ticket(
     # DB-stored prompt wins; the hardcoded constant is only a fallback
     # for an empty/inactive system_prompts table.
     db_prompt = await _active_system_prompt(SCORING_PROMPT_KEY, db_session)
-    system_prompt = _build_scoring_prompt(rules, base_system_text=db_prompt)
+    autofail_prompt = None
+    if detect_autofail:
+        autofail_prompt = (
+            await _active_system_prompt(AUTOFAIL_DETECTION_PROMPT_KEY, db_session)
+            or AUTOFAIL_DETECTION_SYSTEM_PROMPT
+        )
+    system_prompt = _build_scoring_prompt(
+        rules,
+        base_system_text=db_prompt,
+        autofail_detection_prompt=autofail_prompt,
+    )
     model, extra_body = await resolve_openrouter_request_config(db_session)
 
     # Release the DB connection before the multi-second network request.
@@ -691,8 +836,24 @@ async def analyze_support_ticket(
 
     parsed = _extract_json(content)
 
-    sanitized = _sanitize_scorecard(parsed)
+    if detect_autofail:
+        nested = parsed.get("scorecard")
+        # Existing custom scoring prompts may still produce the older flat
+        # shape. Keep any real deductions without accepting an unscoped reason.
+        structured = isinstance(nested, dict)
+        deductions = _sanitize_scorecard(nested if structured else parsed)
+        scorecard = {
+            key: points for key, _, points, _ in rules
+            if deductions.get(key, 0) > 0 and points > 0
+        }
+        autofail_reason = None
+        if structured and _has_explicit_autofail_marker(notes_html):
+            autofail_reason = _sanitize_autofail_reason(
+                parsed.get("autofail_reason")
+            )
+        return scorecard, autofail_reason
 
+    sanitized = _sanitize_scorecard(parsed)
     if rules:
         allowed = {rule[0] for rule in rules}
 
@@ -970,7 +1131,7 @@ async def draft_notes_from_score(
     exclude_review_id: int | None = None,
     no_multiplier_keys: set[str] | None = None,
 ) -> str:
-    """Draft review notes (sanitized HTML fragment) from ticked deductions.
+    """Draft review notes as an HTML fragment from ticked deductions.
 
     The base system prompt is the newest ACTIVE SystemPrompt row for
     ``NOTES_FROM_SCORE_PROMPT_KEY``; the hardcoded
@@ -984,10 +1145,9 @@ async def draft_notes_from_score(
     ``multiplier_service.calculate_final_score``, including
     ``exclude_review_id`` and ``no_multiplier_keys`` semantics) and the
     user message carries the amplified per-rule penalties plus the
-    final score, so the drafted notes justify the real number.
-    The output is NOT sanitized server-side — the client sanitizes it
-    with DOMPurify before insertion (same trust boundary as
-    ``refactor_qa_notes``).
+    score calculated from those deductions. The output HTML is NOT
+    sanitized server-side — the client sanitizes it with DOMPurify before
+    insertion (same trust boundary as ``refactor_qa_notes``).
     """
     system_prompt, user_content = await _notes_from_score_messages(
         case_type,
@@ -1086,10 +1246,8 @@ async def _notes_from_score_messages(
         if error_key in rules_by_key
     }
 
-    # Multiplier context: identical math to what saving the review will
-    # produce, so the notes match the persisted final score. Without an
-    # agent (or with no rules matched) the request degrades gracefully
-    # to raw deductions only.
+    # Describe ordinary deductions and multipliers only. Without an
+    # agent, the request degrades gracefully to raw deductions.
     breakdown: dict[str, dict[str, int]] = {}
     final_score: int | None = None
     if support_agent_id is not None:
@@ -1139,7 +1297,6 @@ async def _notes_from_score_messages(
             f"{final_score}/100 (a repeated recent mistake counts "
             f"several times; '×1' means first occurrence or waived)."
         )
-
     # DB-stored prompt wins; the hardcoded constant is only a fallback.
     db_prompt = await _active_system_prompt(NOTES_FROM_SCORE_PROMPT_KEY, db_session)
     system_prompt = db_prompt if db_prompt else NOTES_FROM_SCORE_SYSTEM_PROMPT
@@ -1157,11 +1314,9 @@ async def stream_draft_notes_from_score(
 ) -> AsyncIterator[tuple[str, str]]:
     """Streaming variant of ``draft_notes_from_score``.
 
-    Yields ``("d", delta)`` for every raw content delta, then a terminal
-    ``("final", notes_html)`` carrying the fence-stripped fragment (the
-    buffered endpoint's return value). Raises ``AnalyzeError`` when the
-    model produced nothing — the endpoint converts it into a terminal
-    ``{"error": ...}`` NDJSON event.
+    Yields ``("d", delta)`` for every raw content delta, then the terminal
+    ``("final", notes_html)``. The final fragment matches the buffered
+    endpoint. Raises ``AnalyzeError`` when the model produced nothing.
     """
     system_prompt, user_content = await _notes_from_score_messages(
         case_type,

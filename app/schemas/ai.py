@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.enums import CaseTypeEnum
+from app.schemas.review import RawScorecardValidation
 
 
 class _HtmlIn(BaseModel):
@@ -72,9 +73,10 @@ class ScoreOut(BaseModel):
     total_deduction: int
     base_score: int
     final_score: int
+    autofail_reason: str | None = None
 
 
-class NotesFromScoreIn(BaseModel):
+class NotesFromScoreIn(RawScorecardValidation, BaseModel):
     """Payload for POST /api/ai/notes-from-score (drafting only, nothing saved).
 
     ``raw_scorecard`` maps error keys to the deducted points the QA
@@ -105,7 +107,6 @@ class NotesFromScoreIn(BaseModel):
     support_agent_id: int | None = None
     exclude_review_id: int | None = None
     no_multiplier_keys: set[str] = Field(default_factory=set, max_length=60)
-
 
 class NotesFromScoreOut(BaseModel):
     """Response for POST /api/ai/notes-from-score.
