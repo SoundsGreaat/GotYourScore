@@ -5,7 +5,8 @@
  */
 
 /* Resize from the current rendered height or a height captured immediately
- * before a DOM swap. Return to natural sizing when the motion ends. */
+ * before a DOM swap. Return to natural sizing when the motion ends, and
+ * return the animation to callers that need to finalize a collapse. */
 var gysResizeAnimations = new WeakMap();
 window.gysResizePanel = function (panel, update, fromHeight) {
     var previous = gysResizeAnimations.get(panel);
@@ -30,6 +31,7 @@ window.gysResizePanel = function (panel, update, fromHeight) {
     animation.finished.then(function () {
         if (gysResizeAnimations.get(panel) === animation) gysResizeAnimations.delete(panel);
     }, function () { /* A newer update can interrupt this resize. */ });
+    return animation;
 };
 
 /* Floating notifications: every transient note surfaces bottom-center

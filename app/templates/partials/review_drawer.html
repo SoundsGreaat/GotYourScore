@@ -96,11 +96,13 @@
                         Autofail
                     </label>
                     <p id="review-autofail-help" class="mt-1 text-xs text-base-content/60">Sets the final score to 0 without changing deductions or multiplier exemptions.</p>
-                    <div id="review-autofail-details" class="mt-3" hidden>
-                        <label for="review-autofail-reason" class="mb-1 block text-sm font-semibold">Autofail reason <span aria-hidden="true">(required)</span></label>
-                        <textarea id="review-autofail-reason" name="autofail_reason" rows="3" maxlength="2000"
-                                  class="textarea w-full aria-[invalid=true]:border-error" aria-invalid="false" disabled></textarea>
-                        <p id="review-autofail-error" class="mt-1 text-sm text-error" hidden></p>
+                    <div class="relative flow-root">
+                        <div id="review-autofail-details" class="inset-x-0 top-0 pt-3" hidden inert>
+                            <label for="review-autofail-reason" class="mb-1 block text-sm font-semibold">Autofail reason <span aria-hidden="true">(required)</span></label>
+                            <textarea id="review-autofail-reason" name="autofail_reason" rows="3" maxlength="2000"
+                                      class="textarea w-full aria-[invalid=true]:border-error" aria-invalid="false" disabled></textarea>
+                            <p id="review-autofail-error" class="mt-1 text-sm text-error" hidden></p>
+                        </div>
                     </div>
                 </div>
 
@@ -284,15 +286,35 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         autofailError.hidden = true;
     }
 
-    function syncAutofailField() {
+    function syncAutofailField(animate) {
         autofailPanel.hidden = !canAutofail();
         if (autofailPanel.hidden) autofailCheckbox.checked = false;
         var enabled = isAutofail();
-        autofailDetails.hidden = !enabled;
-        autofailReason.disabled = !enabled;
-        autofailReason.required = enabled;
-        if (!enabled) autofailReason.value = '';
-        clearAutofailError();
+        var collapsing = animate && !enabled;
+        function update() {
+            // During exit, clip the reason as the wrapper shrinks while
+            // removing it from layout and keyboard navigation immediately.
+            autofailDetails.classList.toggle('absolute', !!collapsing);
+            autofailDetails.hidden = !enabled && !collapsing;
+            autofailDetails.inert = !enabled;
+            autofailReason.disabled = !enabled;
+            autofailReason.required = enabled;
+            if (!enabled) autofailReason.value = '';
+            clearAutofailError();
+        }
+        if (!animate) {
+            update();
+            return;
+        }
+        var resize = window.gysResizePanel(autofailDetails.parentElement, update);
+        if (!collapsing) return;
+        function finishCollapse() {
+            if (!autofailDetails.inert) return;
+            autofailDetails.hidden = true;
+            autofailDetails.classList.remove('absolute');
+        }
+        if (resize) resize.finished.then(finishCollapse, function () { /* Reopened. */ });
+        else finishCollapse();
     }
 
     function restoreAutofail(entry) {
@@ -917,7 +939,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     autofailCheckbox.addEventListener('change', function () {
-        syncAutofailField();
+        syncAutofailField(true);
         if (isAutofail()) {
             // The override is known locally; the API still fills in the
             // regular breakdown and multiplier controls.
