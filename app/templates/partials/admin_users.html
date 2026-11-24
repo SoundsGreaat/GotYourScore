@@ -1,17 +1,19 @@
-{# Account changes re-render this partial; admin.js restores the local search. #}
+{# Account changes morph the directory; admin.js keeps local search and drafts. #}
 {% import "macros/admin.html" as admin %}
-<div id="users-root" class="space-y-4">
-    {% if status %}<script>window.gysToast && window.gysToast({{ status | tojson }}, 'alert-success');</script>{% endif %}
+<div id="users-root" class="space-y-4" data-admin-state-scope
+     hx-select:inherited="#users-root" hx-target:inherited="#users-root" hx-swap:inherited="outerMorph"
+     hx-sync:inherited="#users-root:queue all"
+     {% if status %}data-admin-state-saved="{{ status }}"{% endif %}>
 
     {{ admin.page_heading("Users and roles", "Manage access for active accounts. Restore removed accounts in Deleted Users.") }}
 
-    <details class="gys-admin-disclosure gys-admin-surface">
+    <details id="add-user-details" class="gys-admin-disclosure gys-admin-surface">
         <summary id="add-user-summary" class="flex items-center justify-between gap-3 rounded-box px-4 py-3 text-sm font-semibold">
             Add user
             {{ admin.chevron() }}
         </summary>
-        <form method="post" action="/admin/users/create" hx-post="/admin/users/create" hx-target="#admin-view"
-              hx-swap="innerHTML" aria-labelledby="add-user-summary" class="space-y-3 border-t border-base-300 p-4">
+        <form id="add-user-form" data-admin-keep-form method="post" action="/admin/users/create" hx-post="/admin/users/create"
+              aria-labelledby="add-user-summary" class="space-y-3 border-t border-base-300 p-4">
             <div class="grid gap-1">
                 <label for="new-user-nickname" class="text-sm font-medium">Nickname <span class="text-xs text-base-content/75">(required)</span></label>
                 <input id="new-user-nickname" type="text" name="nickname" maxlength="50" required
@@ -44,8 +46,8 @@
             {% set user_id = row.u.id %}
             {% set own_account = user_id == current_user_id %}
             {% set roles = row.roles | map(attribute='value') | list %}
-            <li data-user-match="{{ row.u.nickname }} {{ row.name or '' }} {{ row.u.email }}">
-                <details class="gys-admin-disclosure">
+            <li id="user-{{ user_id }}-row" data-user-match="{{ row.u.nickname }} {{ row.name or '' }} {{ row.u.email }}">
+                <details id="user-{{ user_id }}-roles" class="gys-admin-disclosure">
                     <summary id="user-{{ user_id }}-summary"
                              class="gys-admin-user-summary flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3"
                              aria-labelledby="user-{{ user_id }}-action user-{{ user_id }}-name">
@@ -67,8 +69,8 @@
                             {{ admin.chevron() }}
                         </span>
                     </summary>
-                    <form method="post" action="/admin/users/{{ user_id }}/roles" hx-post="/admin/users/{{ user_id }}/roles"
-                          hx-target="#admin-view" hx-swap="innerHTML" aria-labelledby="user-{{ user_id }}-action user-{{ user_id }}-name"
+                    <form id="user-{{ user_id }}-form" data-admin-keep-form method="post" action="/admin/users/{{ user_id }}/roles"
+                          hx-post="/admin/users/{{ user_id }}/roles" aria-labelledby="user-{{ user_id }}-action user-{{ user_id }}-name"
                           class="space-y-3 border-t border-base-300 bg-base-200 p-4">
                         {{ admin.role_choices(role_choices, roles, own_account) }}
                         {% if own_account %}
@@ -79,7 +81,6 @@
                             {% if not own_account %}
                             <button type="button" class="btn btn-outline btn-error btn-sm"
                                     hx-post="/admin/users/{{ user_id }}/delete"
-                                    hx-target="#admin-view" hx-swap="innerHTML"
                                     hx-confirm="Delete {{ row.name or row.u.nickname }}? Their past reviews stay intact.">Delete user</button>
                             {% endif %}
                         </div>

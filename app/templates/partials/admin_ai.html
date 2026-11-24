@@ -6,12 +6,13 @@
 {% import "macros/dropdowns.html" as dd %}
 {% import "macros/admin.html" as admin %}
 <div id="admin-ai-root" class="space-y-4">
-    {% if saved == 'provider' %}<script>window.gysToast && window.gysToast('Provider routing saved.', 'alert-success');</script>{% endif %}
-    {% if saved == 'request' %}<script>window.gysToast && window.gysToast('AI request settings saved.', 'alert-success');</script>{% endif %}
-
     {{ admin.page_heading("AI settings", "Configure which models and providers the app uses for AI requests.") }}
 
-    <section class="card gys-admin-surface" aria-labelledby="provider-title">
+    {# Each action receives the full partial but only morphs its own card. #}
+    <section id="admin-ai-provider" class="card gys-admin-surface" aria-labelledby="provider-title"
+             hx-target:inherited="#admin-ai-provider" hx-select:inherited="#admin-ai-provider"
+             hx-swap:inherited="outerMorph" hx-sync:inherited="#admin-ai-provider:queue all" data-admin-state-scope
+             {% if saved == 'provider' %}data-admin-state-saved="Provider routing saved."{% endif %}>
         <div class="card-body min-w-0 gap-3 p-4 sm:p-5">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <h3 id="provider-title" class="text-base font-semibold">OpenRouter provider routing</h3>
@@ -24,8 +25,8 @@
             <p id="provider-help" class="text-sm text-base-content/75">
                 Control how OpenRouter picks providers. An empty object <code>{}</code> lets OpenRouter decide.
             </p>
-            <details class="gys-admin-disclosure rounded-field bg-base-200">
-                <summary class="flex items-center justify-between gap-2 rounded-field px-3 py-2 text-sm font-medium">
+            <details id="provider-guidance" class="gys-admin-disclosure rounded-field bg-base-200">
+                <summary id="provider-guidance-summary" class="flex items-center justify-between gap-2 rounded-field px-3 py-2 text-sm font-medium">
                     Supported JSON fields
                     {{ admin.chevron() }}
                 </summary>
@@ -41,25 +42,28 @@
                 </p>
             </details>
 
-            <form method="post" action="/admin/ai/provider" hx-post="/admin/ai/provider" hx-target="#admin-view"
-                  hx-swap="innerHTML" aria-labelledby="provider-title" class="flex flex-col gap-2">
+            <form id="admin-ai-provider-form" method="post" action="/admin/ai/provider" hx-post="/admin/ai/provider"
+                  aria-labelledby="provider-title" class="flex flex-col gap-2">
                 <label for="provider-json" class="text-sm font-medium">Provider routing JSON</label>
-                <textarea id="provider-json" name="provider" rows="7" required spellcheck="false" aria-describedby="provider-help"
+                <textarea id="provider-json" name="provider" rows="7" required spellcheck="false"
+                          aria-describedby="provider-help" data-admin-keep-draft
                           class="textarea gys-admin-field w-full min-w-0 resize-y font-mono text-sm leading-relaxed">{{ (provider_stored if provider_stored is not none else provider_default) | tojson(indent=2) }}</textarea>
                 <div class="flex flex-wrap items-center gap-2">
-                    <button type="submit" class="btn btn-primary btn-sm">Save routing</button>
+                    <button id="admin-ai-provider-save" type="submit" class="btn btn-primary btn-sm" data-admin-state-focus>Save routing</button>
                     {% if provider_stored is not none %}
-                    <button type="button" class="btn gys-btn-secondary btn-sm"
+                    <button id="admin-ai-provider-reset" type="button" class="btn gys-btn-secondary btn-sm" data-admin-discard-draft
                             hx-post="/admin/ai/provider/reset"
-                            hx-confirm="Delete the stored config and fall back to the built-in default?"
-                            hx-target="#admin-view" hx-swap="innerHTML">Reset to default</button>
+                            hx-confirm="Delete the stored config and fall back to the built-in default?">Reset to default</button>
                     {% endif %}
                 </div>
             </form>
         </div>
     </section>
 
-    <section class="card gys-admin-surface" aria-labelledby="request-title">
+    <section id="admin-ai-request" class="card gys-admin-surface" aria-labelledby="request-title"
+             hx-target:inherited="#admin-ai-request" hx-select:inherited="#admin-ai-request"
+             hx-swap:inherited="outerMorph" hx-sync:inherited="#admin-ai-request:queue all" data-admin-state-scope
+             {% if saved == 'request' %}data-admin-state-saved="AI request settings saved."{% endif %}>
         <div class="card-body min-w-0 gap-3 p-4 sm:p-5">
             <div class="flex flex-wrap items-center justify-between gap-2">
                 <h3 id="request-title" class="text-base font-semibold">OpenRouter model and reasoning</h3>
@@ -76,8 +80,8 @@
                 unsupported combinations are rejected by OpenRouter.
             </p>
 
-            <form method="post" action="/admin/ai/request" hx-post="/admin/ai/request" hx-target="#admin-view"
-                  hx-swap="innerHTML" aria-labelledby="request-title" class="flex flex-col gap-3">
+            <form id="admin-ai-request-form" method="post" action="/admin/ai/request" hx-post="/admin/ai/request"
+                  aria-labelledby="request-title" class="flex flex-col gap-3">
                 <div class="grid gap-1">
                 <label for="ai-model" class="text-sm font-medium">Model override</label>
                 <input id="ai-model" name="model" type="text" maxlength="200"
@@ -102,12 +106,11 @@
                 </div>
 
                 <div class="flex flex-wrap items-center gap-2">
-                    <button type="submit" class="btn btn-primary btn-sm">Save model settings</button>
+                    <button id="admin-ai-request-save" type="submit" class="btn btn-primary btn-sm" data-admin-state-focus>Save model settings</button>
                     {% if request_stored %}
-                    <button type="button" class="btn gys-btn-secondary btn-sm"
+                    <button id="admin-ai-request-reset" type="button" class="btn gys-btn-secondary btn-sm" data-admin-discard-draft
                             hx-post="/admin/ai/request/reset"
-                            hx-confirm="Delete the stored model and reasoning overrides and use built-in defaults?"
-                            hx-target="#admin-view" hx-swap="innerHTML">Reset to defaults</button>
+                            hx-confirm="Delete the stored model and reasoning overrides and use built-in defaults?">Reset to defaults</button>
                     {% endif %}
                 </div>
             </form>

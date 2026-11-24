@@ -18,7 +18,8 @@ toggling one ON demotes its same-type siblings server-side. #}
                 <div class="card-body gap-3 p-3 sm:p-4">
                     <h3 id="new-template-title" class="text-sm font-semibold">New template</h3>
                     <form method="post" action="/admin/scorecards/create" hx-post="/admin/scorecards/create"
-                          hx-target="#admin-view" hx-swap="innerHTML" aria-labelledby="new-template-title"
+                          hx-target="#template-list" hx-select="#template-list" hx-swap="outerMorph"
+                          hx-sync="#template-list:queue all" data-template-create aria-labelledby="new-template-title"
                           class="flex flex-col gap-2">
                         <label for="new-template-name" class="text-sm font-medium">Template name</label>
                         <input id="new-template-name" name="name" required maxlength="200" class="input gys-admin-field w-full">
@@ -39,14 +40,14 @@ toggling one ON demotes its same-type siblings server-side. #}
             <h3 class="px-1 text-sm font-semibold">Templates</h3>
             <div class="space-y-2" id="template-list">
                 {% for t in templates %}
-                <div class="card gys-admin-template
+                <div id="scorecard-template-{{ t.id }}" class="card gys-admin-template
                             {{ 'card-selected' if t.id == selected_id }}"
                      data-template-card data-template-id="{{ t.id }}">
                     <div class="card-body flex-col gap-2 p-3 sm:flex-row sm:items-center">
                         <button type="button" class="focus-halo min-w-0 flex-1 rounded-field text-start"
                                 data-template-open {% if t.id == selected_id %}aria-current="true"{% endif %}
                                 hx-get="/admin/partials/scorecard-editor/{{ t.id }}"
-                                hx-target="#scorecard-editor" hx-swap="innerHTML">
+                                hx-target="#scorecard-editor" hx-swap="innerHTML" hx-indicator="#scorecard-editor">
                             <span class="block wrap-anywhere text-sm font-semibold">{{ t.name }}</span>
                             <span class="mt-1 flex flex-wrap items-center gap-1.5">
                                 <span class="badge badge-ghost badge-sm">{{ t.case_type.value }}</span>
@@ -79,7 +80,7 @@ toggling one ON demotes its same-type siblings server-side. #}
                 <div hx-get="/admin/partials/scorecard-editor/{{ selected_id }}" hx-trigger="load"
                      hx-swap="innerHTML"></div>
                 {% else %}
-                <div class="gys-admin-surface p-6 text-center text-sm text-base-content/75">
+                <div data-scorecard-editor-empty class="gys-admin-surface p-6 text-center text-sm text-base-content/75">
                     Select a template to edit its rules.
                 </div>
                 {% endif %}

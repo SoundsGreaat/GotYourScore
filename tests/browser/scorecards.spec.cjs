@@ -84,16 +84,17 @@ test("admin scorecard toggles retain the editor, dirty fields and keyboard focus
   await signIn(page);
   await page.goto(`${base}/admin#scorecards`);
   const editor = page.locator("#scorecard-editor");
-  const create = async (name) => {
+  const create = async (name, open = false) => {
     const form = page.getByRole("form", { name: "New template" });
     await form.getByRole("textbox", { name: "Template name" }).fill(name);
     await form.getByRole("button", { name: "Create", exact: true }).click();
+    if (open) await page.getByRole("button", { name: new RegExp(name) }).click();
     await expect(editor.getByRole("textbox", { name: "Template name" })).toHaveValue(name);
   };
   const name = `CI toggle ${randomUUID()}`;
   const sibling = `${name} sibling`;
   await create(name);
-  await create(sibling);
+  await create(sibling, true);
   const editorField = editor.getByRole("textbox", { name: "Template name" });
   await editorField.fill(`${sibling} unsaved`);
   const original = await editorField.elementHandle();
@@ -145,6 +146,62 @@ test("admin scorecard toggles retain the editor, dirty fields and keyboard focus
   await expect(first).toBeChecked();
   await expect(second).not.toBeChecked();
   await expect(editor.locator("[data-template-status]")).toHaveText("Inactive");
+  expect(failures).toEqual([]);
+});
+
+test("creating a template keeps the open scorecard's unsaved editor and selection", async ({ page }) => {
+  const failures = watchPage(page);
+  await signIn(page);
+  await page.goto(`${base}/admin#scorecards`);
+  const editor = page.locator("#scorecard-editor");
+  const editorName = editor.getByRole("textbox", { name: "Template name" });
+  const form = page.getByRole("form", { name: "New template" });
+  const templateName = form.getByRole("textbox", { name: "Template name" });
+  const original = `CI preserved ${randomUUID()}`;
+  const created = `${original} sibling`;
+  await templateName.fill(original);
+  await templateName.press("Enter");
+  await expect(editorName).toHaveValue(original);
+  await expect(templateName).toHaveValue("");
+  await editorName.fill(`${original} unsaved`);
+  await editor.getByRole("button", { name: "+ Add rule (new category)" }).click();
+  const rule = editor.getByRole("textbox", { name: "Rule display name" });
+  await rule.fill("Unsaved rule");
+  const ruleNode = await rule.elementHandle();
+
+  const createPath = "/admin/scorecards/create";
+  let release;
+  const holdCreate = new Promise((resolve) => { release = resolve; });
+  await page.route(`**${createPath}`, async (route) => {
+    await holdCreate;
+    await route.continue();
+  }, { times: 1 });
+  const response = nextResponse(page, createPath, "POST");
+  try {
+    const submitted = page.waitForRequest((request) => new URL(request.url()).pathname === createPath);
+    await templateName.fill(created);
+    await templateName.press("Enter");
+    await submitted;
+    await templateName.fill("Another template draft");
+    await rule.focus();
+  } finally {
+    release();
+  }
+  expect((await response).status()).toBe(200);
+
+  const currentCard = page.getByRole("checkbox", { name: `Active template: ${original}`, exact: true });
+  const createdCard = page.getByRole("checkbox", { name: `Active template: ${created}`, exact: true });
+  await expect(createdCard).toBeChecked();
+  await expect(currentCard).not.toBeChecked();
+  await expect(editor.locator("[data-template-status]")).toHaveText("Inactive");
+  const selected = page.locator("[data-template-open][aria-current=true]");
+  await expect(selected).toHaveCount(1);
+  await expect(selected.locator("span").first()).toHaveText(original);
+  await expect(editorName).toHaveValue(`${original} unsaved`);
+  await expect(rule).toHaveValue("Unsaved rule");
+  await expect(rule).toBeFocused();
+  expect(await ruleNode.evaluate((node) => node.isConnected)).toBe(true);
+  await expect(templateName).toHaveValue("Another template draft");
   expect(failures).toEqual([]);
 });
 

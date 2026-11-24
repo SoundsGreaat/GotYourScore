@@ -19,7 +19,7 @@
                     </thead>
                     <tbody>
                         {% for row in rows %}
-                        <tr>
+                        <tr id="deleted-user-{{ row.u.id }}">
                             <th scope="row" class="font-medium">{{ row.name }}</th>
                             <td>{{ row.u.email }}</td>
                             <td>
@@ -32,8 +32,7 @@
                             <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
                             <td>
                                 <button type="button" class="btn gys-btn-secondary btn-sm" aria-label="Restore {{ row.name }}"
-                                        hx-post="/admin/users/{{ row.u.id }}/restore"
-                                        hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
+                                        data-admin-restore hx-post="/admin/users/{{ row.u.id }}/restore">Restore</button>
                             </td>
                         </tr>
                         {% endfor %}
