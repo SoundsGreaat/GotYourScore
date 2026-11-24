@@ -99,7 +99,7 @@ def _not_found() -> PlainTextResponse:
     return PlainTextResponse("Not Found", status_code=status.HTTP_404_NOT_FOUND)
 
 
-def _error_json(message: str) -> Response:
+def _error_json(message: str, *, safe_detail: str = "Invalid request.") -> Response:
     """400 response with a client-safe generic detail message.
 
     The global htmx:response:error handler in common.js extracts this detail
@@ -108,7 +108,7 @@ def _error_json(message: str) -> Response:
     """
     _ = message  # keep signature/callers stable while avoiding exception detail exposure
     return JSONResponse(
-        content={"detail": "Invalid request."},
+        content={"detail": safe_detail},
         status_code=status.HTTP_400_BAD_REQUEST,
     )
 
@@ -480,7 +480,13 @@ async def save_scorecard(
             deletions=deletions,
         )
         await db.commit()
+    except scorecard_service.AutofailRuleError as exc:
+        # This exception uses only fixed messages, not submitted values.
+        await db.rollback()
+        return _error_json(str(exc), safe_detail=str(exc))
     except ValueError as exc:
+        # Returning a response does not make the DB dependency roll back.
+        await db.rollback()
         return _error_json(str(exc))
 
     not_found, context = await _editor_context(db, template_id, saved=True)

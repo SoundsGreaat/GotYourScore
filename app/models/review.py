@@ -24,11 +24,13 @@ Lifecycle / audit columns:
 from datetime import datetime
 
 from sqlalchemy import (
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
     String,
     Text,
+    false,
     func,
 )
 from sqlalchemy import Enum as SAEnum
@@ -43,6 +45,17 @@ class Review(Base):
     """A QA review of a support agent's case (or a 'No Cases' placeholder)."""
 
     __tablename__ = "reviews"
+    __table_args__ = (
+        CheckConstraint(
+            """
+            (NOT autofail AND autofail_reason IS NULL)
+            OR (autofail AND case_type <> 'No Cases'
+                AND autofail_reason IS NOT NULL AND autofail_reason ~ '[^[:space:]]'
+                AND (status <> 'completed' OR final_score IS NOT DISTINCT FROM 0))
+            """,
+            name="ck_reviews_autofail",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     support_agent_id: Mapped[int] = mapped_column(
@@ -71,6 +84,9 @@ class Review(Base):
     # Whole numbers only: deductions, multipliers and the final score
     # are integers per business rules.
     final_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # An outcome, not a rule in the stored deduction breakdown.
+    autofail: Mapped[bool] = mapped_column(nullable=False, server_default=false())
+    autofail_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Lifecycle: 'pending' (delegated handoff) or 'completed'. Server
     # default keeps plain creations and pre-existing rows completed.
     status: Mapped[ReviewStatusEnum] = mapped_column(

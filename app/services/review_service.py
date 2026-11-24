@@ -36,16 +36,18 @@ async def build_scorecard_data(
     *,
     exclude_review_id: int | None = None,
     multiplier_exemptions: list[str] | None = None,
+    autofail: bool = False,
 ) -> tuple[dict[str, Any], int]:
     """Score a review and build a fresh snapshot for storage.
 
     None leaves multiplier_exemptions out of the JSON (auto-scoring);
     manual scoring records the list even when empty.
     """
-    breakdown, final_score, total_penalty = await multiplier_service.calculate_final_score(
-        agent_id, raw_scorecard, db,
+    breakdown, final_score, total_penalty = await calculate_score(
+        db, agent_id, raw_scorecard,
         exclude_review_id=exclude_review_id,
-        no_multiplier_keys=set(multiplier_exemptions or ()),
+        multiplier_exemptions=multiplier_exemptions,
+        autofail=autofail,
     )
     data: dict[str, Any] = {
         "rules_snapshot": await scorecard_service.get_active_rules(case_type, db),
@@ -56,4 +58,45 @@ async def build_scorecard_data(
     }
     if multiplier_exemptions is not None:
         data["multiplier_exemptions"] = multiplier_exemptions
+    return data, final_score
+
+
+def _apply_autofail(final_score: int, autofail: bool) -> int:
+    return 0 if autofail else final_score
+
+
+async def calculate_score(
+    db: AsyncSession,
+    agent_id: int,
+    raw_scorecard: dict[str, int],
+    *,
+    exclude_review_id: int | None = None,
+    multiplier_exemptions: list[str] | None = None,
+    autofail: bool = False,
+) -> tuple[dict[str, dict[str, int]], int, int]:
+    """Calculate the regular deductions, then apply the outcome to the score only."""
+    breakdown, regular_score, total_penalty = await multiplier_service.calculate_final_score(
+        agent_id, raw_scorecard, db,
+        exclude_review_id=exclude_review_id,
+        no_multiplier_keys=set(multiplier_exemptions or ()),
+    )
+    return breakdown, _apply_autofail(regular_score, autofail), total_penalty
+
+
+def update_stored_outcome(
+    data: dict[str, Any], autofail: bool
+) -> tuple[dict[str, Any], int]:
+    """Apply an outcome-only edit without changing historical deductions or rules."""
+    breakdown = multiplier_service.stored_breakdown(data)
+    total_penalty = data.get("total_penalty")
+    if not isinstance(total_penalty, int):
+        # Legacy scorecards store only the flat breakdown.
+        total_penalty = sum(
+            int(entry.get("final_penalty") or 0)
+            for entry in breakdown.values()
+            if isinstance(entry, dict)
+        )
+    final_score = _apply_autofail(multiplier_service.score_after_penalties(total_penalty), autofail)
+    if breakdown is not data:
+        data = {**data, "final_score": final_score}
     return data, final_score

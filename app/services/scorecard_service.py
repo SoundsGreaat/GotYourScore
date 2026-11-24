@@ -18,7 +18,7 @@ transaction for testing).
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.text import slugify_error_name, unique_error_name
+from app.core.text import is_autofail_error, slugify_error_name, unique_error_name
 from app.models import CaseTypeEnum, ScorecardItem, ScorecardTemplate
 
 # Keep in sync with ScorecardItem.category (String(200)) and
@@ -29,6 +29,10 @@ _MAX_NAME_LENGTH = 255
 # Upper bound for penalty points; mirrors ai_service.MAX_DEDUCTION so an
 # item can never ask the model for more than the sanitizer allows.
 _MAX_PENALTY_POINTS = 100
+
+
+class AutofailRuleError(ValueError):
+    """A scorecard editor tried to use the reserved outcome as a rule."""
 
 
 async def get_active_rules(
@@ -75,6 +79,10 @@ async def get_active_rules(
     seen: set[str] = set()
 
     for item in items:
+        # Old configurations can be edited/removed in Admin, but the
+        # reserved outcome must not appear among selectable rules.
+        if is_autofail_error(item.error_name) or is_autofail_error(item.display_name):
+            continue
         if item.template_id not in template_ids:
             template_ids.append(item.template_id)
 
@@ -113,6 +121,8 @@ def _clean_display_name(raw: object, *, row_label: str) -> str:
     display_name = str(raw or "").strip()
     if not display_name:
         raise ValueError(f"{row_label}: the rule name cannot be empty.")
+    if is_autofail_error(display_name):
+        raise AutofailRuleError("Autofail is a separate review outcome, not a scorecard error.")
     if len(display_name) > _MAX_NAME_LENGTH:
         raise ValueError(
             f"{row_label}: the rule name is too long "
@@ -403,6 +413,8 @@ async def bulk_save(
             update.get("penalty_points"), row_label=row_label
         )
         item.is_active = bool(update.get("is_active", True))
+        if item.is_active and is_autofail_error(item.error_name):
+            raise AutofailRuleError("The Autofail rule key is reserved; remove the old rule.")
         raw_position = update.get("position")
         if raw_position is not None:
             item.position = int(raw_position)

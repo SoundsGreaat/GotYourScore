@@ -97,10 +97,10 @@ from app.schemas.review import (
     ReviewUpdate,
     ScorePreviewRequest,
     ScorePreviewResponse,
+    validate_autofail_reason,
 )
 from app.services import (
     ai_service,
-    multiplier_service,
     quota_service,
     reporting_period,
     review_service,
@@ -367,6 +367,8 @@ async def _create_saved_for_later_review(
         scorecard_data=scorecard_data,
         notes=payload.notes,
         final_score=None,
+        autofail=payload.autofail,
+        autofail_reason=payload.autofail_reason,
     )
     db.add(review)
     await db.commit()
@@ -425,6 +427,7 @@ async def create_review(
         scorecard_data, final_score = await review_service.build_scorecard_data(
             db, agent.id, payload.case_type, payload.raw_scorecard or {},
             multiplier_exemptions=sorted(payload.no_multiplier_keys),
+            autofail=payload.autofail,
         )
 
     # Backfill: pin the row to the chosen period's last second so it
@@ -445,6 +448,8 @@ async def create_review(
         scorecard_data=scorecard_data,
         notes=payload.notes,
         final_score=final_score,
+        autofail=payload.autofail,
+        autofail_reason=payload.autofail_reason,
         created_at=created_at,
     )
     db.add(review)
@@ -492,12 +497,11 @@ async def score_preview(
     # Same 404/400 contract and messages as create_review.
     agent = await _get_support_agent_or_error(payload.support_agent_id, db)
 
-    breakdown, final_score, total_penalty = (
-        await multiplier_service.calculate_final_score(
-            agent.id, payload.raw_scorecard, db,
-            exclude_review_id=payload.exclude_review_id,
-            no_multiplier_keys=set(payload.no_multiplier_keys),
-        )
+    breakdown, final_score, total_penalty = await review_service.calculate_score(
+        db, agent.id, payload.raw_scorecard,
+        exclude_review_id=payload.exclude_review_id,
+        multiplier_exemptions=payload.no_multiplier_keys,
+        autofail=payload.autofail,
     )
     return ScorePreviewResponse(
         breakdown=breakdown,
@@ -1074,10 +1078,11 @@ async def update_review(
       who-was-asked/who-delegated).
     - Quota: completion deliberately skips the quota-reached gate — a
       delegated case the QA actually reviewed is never blocked, so the
-      agent can end the period above target (e.g. 7/6). Pending rows
+     agent can end the period above target (e.g. 7/6). Pending rows
       were quota-neutral, so the count only grows at completion.
     """
-    review = await db.get(Review, review_id)
+    # Serialize edits before reading the effective flag, reason and status.
+    review = await db.get(Review, review_id, with_for_update=True)
     if review is None or review.deleted_at is not None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1147,7 +1152,7 @@ async def update_review(
                     "empty raw_scorecard."
                 ),
             )
-    elif not payload.raw_scorecard and review.scorecard_data is None:
+    elif payload.raw_scorecard is None and review.scorecard_data is None:
         # Completed rows only (the pending case was consumed by the
         # first branch): a pending row legitimately has no stored
         # scorecard yet (kept null until completion).
@@ -1159,22 +1164,56 @@ async def update_review(
             ),
         )
 
+    autofail = payload.autofail if "autofail" in provided else review.autofail
+    if effective_case_type is CaseTypeEnum.NO_CASES and "autofail" not in provided:
+        # Changing the case type clears a previously stored outcome.
+        autofail = False
+    reason = (
+        payload.autofail_reason if "autofail_reason" in provided else review.autofail_reason
+    )
+    try:
+        reason = validate_autofail_reason(effective_case_type, autofail, reason)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    outcome_changed = autofail != review.autofail
+
     # Duplicate-guard parity with creation: an edited PENDING row must
     # not collide with ANOTHER open handoff for the resulting
     # (support agent, case number) pair — checked against the EFFECTIVE
     # post-PATCH values, before any mutation touches the row.
+    effective_agent_id = (
+        new_support_agent.id if new_support_agent is not None else review.support_agent_id
+    )
     if is_pending:
-        effective_agent_id = (
-            new_support_agent.id
-            if new_support_agent is not None
-            else review.support_agent_id
-        )
         effective_case_number = review.case_number
         if "case_number" in provided:
             effective_case_number = (payload.case_number or "").strip() or None
         await _reject_duplicate_pending(
             db, effective_agent_id, effective_case_number, exclude_review_id=review.id
         )
+
+    # Calculate before mutating the row: scoring queries may autoflush,
+    # and the stored outcome, reason and earned score must change together.
+    scorecard_data, final_score = review.scorecard_data, review.final_score
+    if effective_case_type is CaseTypeEnum.NO_CASES:
+        scorecard_data, final_score = None, None
+    elif payload.raw_scorecard is not None:
+        # Absent no_multiplier_keys keeps the stored exemptions so a
+        # rescore reproduces the original waives; present replaces them.
+        if "no_multiplier_keys" in provided:
+            multiplier_exemptions = sorted(payload.no_multiplier_keys or [])
+        else:
+            multiplier_exemptions = list((scorecard_data or {}).get("multiplier_exemptions") or [])
+        scorecard_data, final_score = await review_service.build_scorecard_data(
+            db, effective_agent_id, effective_case_type, payload.raw_scorecard,
+            exclude_review_id=review.id,
+            multiplier_exemptions=multiplier_exemptions,
+            autofail=autofail,
+        )
+    elif not is_pending and outcome_changed and scorecard_data is not None:
+        scorecard_data, final_score = review_service.update_stored_outcome(scorecard_data, autofail)
 
     # Only provided fields change.
     if payload.case_type is not None:
@@ -1190,32 +1229,15 @@ async def update_review(
         review.case_number = payload.case_number
     if payload.notes is not None:
         review.notes = payload.notes
+    review.autofail = autofail
+    review.autofail_reason = reason
+    review.scorecard_data = scorecard_data
+    review.final_score = final_score
     if new_support_agent is not None:
         review.support_agent_id = new_support_agent.id
     if "assigned_qa_id" in provided:
         review.assigned_qa_id = (
             new_assigned_qa.id if new_assigned_qa is not None else None
-        )
-
-    if effective_case_type is CaseTypeEnum.NO_CASES:
-        review.scorecard_data = None
-        review.final_score = None
-    elif payload.raw_scorecard is not None:
-        # Absent no_multiplier_keys keeps the stored exemptions so a
-        # rescore reproduces the original waives; present replaces them.
-        if "no_multiplier_keys" in provided:
-            multiplier_exemptions = sorted(payload.no_multiplier_keys or [])
-        else:
-            multiplier_exemptions = list(
-                (review.scorecard_data or {}).get("multiplier_exemptions")
-                or []
-            )
-        # Rebuild the whole dict (never mutate in place): JSONB change
-        # tracking relies on attribute reassignment.
-        review.scorecard_data, review.final_score = await review_service.build_scorecard_data(
-            db, review.support_agent_id, effective_case_type, payload.raw_scorecard,
-            exclude_review_id=review.id,
-            multiplier_exemptions=multiplier_exemptions,
         )
 
     # LAST EDITOR BECOMES EXECUTOR: every successful pending PATCH —
