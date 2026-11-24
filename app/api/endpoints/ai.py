@@ -26,6 +26,9 @@ Streaming contract (the ``/stream`` variants): the response is
   post-processed fragment (identical post-processing to the buffered
   endpoint's return value); the client MUST sanitize it before
   insertion, same trust boundary;
+- ``{"autofail_reason": "..."}`` — Notes-from-Score metadata emitted
+  before ``final`` when the request included an Autofail reason. It is
+  applied only after successful stream completion;
 - ``{"error": "..."}`` — terminal failure event. HTTP status is
   already 200 once streaming starts, so failures (including ones that
   would map to 502 on the buffered routes) travel as error events.
@@ -246,8 +249,8 @@ async def score_notes(
     lease = await reserve_ai_request(current_user.id)
     try:
         try:
-            scorecard = await ai_service.analyze_support_ticket(
-                payload.html, payload.case_type, db
+            scorecard, autofail_reason = await ai_service.analyze_support_ticket(
+                payload.html, payload.case_type, db, detect_autofail=True
             )
         except ValueError as exc:
             raise HTTPException(
@@ -270,7 +273,10 @@ async def score_notes(
         scorecard=scorecard,
         total_deduction=total_deduction,
         base_score=100,
-        final_score=max(0, 100 - total_deduction),
+        final_score=(
+            0 if autofail_reason is not None else max(0, 100 - total_deduction)
+        ),
+        autofail_reason=autofail_reason,
     )
 
 
@@ -307,7 +313,7 @@ async def notes_from_score(
     lease = await reserve_ai_request(current_user.id)
     try:
         try:
-            notes_html = await ai_service.draft_notes_from_score(
+            notes_html, autofail_reason = await ai_service.draft_notes_from_score(
                 payload.case_type,
                 payload.raw_scorecard,
                 db,
@@ -331,7 +337,9 @@ async def notes_from_score(
             ) from exc
     finally:
         await lease.release()
-    return NotesFromScoreOut(notes_html=notes_html)
+    return NotesFromScoreOut(
+        notes_html=notes_html, autofail_reason=autofail_reason
+    )
 
 
 @router.post("/notes-from-score/stream")

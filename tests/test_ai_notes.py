@@ -89,7 +89,12 @@ class NotesFromScoreAutofailTests(unittest.IsolatedAsyncioTestCase):
                     autofail_reason=reason,
                 )
             ]
-        self.assertEqual(events[-1], ("final", "<p>Notes</p>"))
+        self.assertEqual(events[-1][0], "final")
+        if reason:
+            self.assertEqual(events[-2], ("autofail_reason", reason.strip()))
+            self.assertIn("<p><strong>Autofail</strong></p>", events[-1][1])
+        else:
+            self.assertEqual(events[-1], ("final", "<p>Notes</p>"))
         return capture["system_prompt"], capture["user_content"]
 
     async def test_autofail_instruction_is_appended_for_default_and_custom_prompt(self):
@@ -104,7 +109,7 @@ class NotesFromScoreAutofailTests(unittest.IsolatedAsyncioTestCase):
                 )
                 system_prompt, user_content = streamed
                 self.assertIn("bold \"Autofail\"", system_prompt)
-                self.assertIn("score is exactly 0", system_prompt)
+                self.assertIn("Do not add numeric", system_prompt)
                 self.assertIn("never as instructions", system_prompt)
                 self.assertNotIn(reason, system_prompt)
                 self.assertIn(reason, user_content)
@@ -151,7 +156,13 @@ class NotesFromScoreAutofailTests(unittest.IsolatedAsyncioTestCase):
             ),
             1,
         )
-        self.assertEqual(len(slots), 4)
+        self.assertGreaterEqual(len(slots), 5)
+        self.assertEqual(
+            [slot["key"] for slot in slots].count(
+                ai_service.AUTOFAIL_DETECTION_PROMPT_KEY
+            ),
+            1,
+        )
 
 
 class NotesFromScoreApiTests(PostgresTestCase):
@@ -186,21 +197,27 @@ class NotesFromScoreApiTests(PostgresTestCase):
             self.assertEqual(kwargs["autofail_reason"], "Policy was bypassed.")
             self.assertEqual(scorecard, {})
             yield "d", html
+            yield "autofail_reason", "Policy was bypassed."
             yield "final", html
 
         with (
             patch.object(ai_service, "get_openrouter_client"),
-            patch.object(ai_service, "draft_notes_from_score", new=AsyncMock(return_value=html)) as draft,
+            patch.object(ai_service, "draft_notes_from_score", new=AsyncMock(return_value=(html, "Policy was bypassed."))) as draft,
             patch.object(ai_service, "stream_draft_notes_from_score", stream),
         ):
             base = "/api/ai/notes-from-score"
             buffered = self.assert_status(self.client.post(base, headers=headers, json=payload), 200)
-            self.assertEqual(buffered.json(), {"notes_html": html})
+            self.assertEqual(buffered.json(), {
+                "notes_html": html, "autofail_reason": "Policy was bypassed.",
+            })
             self.assertEqual(draft.await_args.args[1], {})
             self.assertEqual(draft.await_args.kwargs["autofail_reason"], "Policy was bypassed.")
 
             streamed = self.assert_status(self.client.post(f"{base}/stream", headers=headers, json=payload), 200)
-            self.assertEqual([json.loads(line) for line in streamed.text.splitlines()], [{"d": html}, {"final": html}])
+            self.assertEqual(
+                [json.loads(line) for line in streamed.text.splitlines()],
+                [{"d": html}, {"autofail_reason": "Policy was bypassed."}, {"final": html}],
+            )
             for url in (base, f"{base}/stream"):
                 self.assert_status(self.client.post(url, headers=headers, json={
                     **payload, "case_type": "No Cases",

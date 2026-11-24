@@ -158,6 +158,11 @@ async def _prompts_context(
                 "description": slot["description"],
                 "versions": grouped.get(slot["key"], {}).get("versions", []),
                 "active_id": grouped.get(slot["key"], {}).get("active"),
+                **(
+                    {"default_content": slot["default_content"]}
+                    if "default_content" in slot
+                    else {}
+                ),
             }
             for slot in system_prompt_service.PROMPT_SLOTS
         ],

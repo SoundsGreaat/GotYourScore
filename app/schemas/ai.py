@@ -67,6 +67,7 @@ class ScoreOut(BaseModel):
     total_deduction: int
     base_score: int
     final_score: int
+    autofail_reason: str | None = None
 
 
 class NotesFromScoreIn(RawScorecardValidation, BaseModel):
@@ -121,3 +122,4 @@ class NotesFromScoreOut(BaseModel):
     """
 
     notes_html: str
+    autofail_reason: str | None = None
