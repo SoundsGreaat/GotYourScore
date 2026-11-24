@@ -128,6 +128,9 @@ test("admin user directory keeps the search and focus after editing, deleting an
   await page.getByLabel(/Nickname/).fill(nickname);
   await page.getByRole("button", { name: "Add user", exact: true }).click();
   await expect(add).toBeFocused();
+  const draft = page.getByLabel(/Nickname/);
+  await expect(draft).toBeEmpty();
+  await draft.fill("Unsubmitted account");
   await search.fill(nickname);
   const row = page.locator("#users-list li").filter({ hasText: nickname });
   const summary = row.locator("summary");
@@ -141,11 +144,13 @@ test("admin user directory keeps the search and focus after editing, deleting an
   await expect(row.locator("summary").getByText("QA", { exact: true })).toBeVisible();
   await expect(search).toHaveValue(nickname);
   await expect(summary).toBeFocused();
-  await page.keyboard.press("Enter");
+  await expect(row.getByRole("button", { name: "Save roles" })).toBeVisible();
+  await expect(draft).toHaveValue("Unsubmitted account");
   page.once("dialog", (dialog) => dialog.accept());
   await row.getByRole("button", { name: "Delete user" }).click();
   await expect(page.getByText("No accounts match your search.")).toBeVisible();
   await expect(search).toBeFocused();
+  await expect(draft).toHaveValue("Unsubmitted account");
 
   await page.setViewportSize({ width: 390, height: 720 });
   await page.getByRole("tab", { name: "Deleted Users" }).click();
@@ -197,4 +202,48 @@ test("prompt history is on demand and a stored version can be read in full", asy
   await page.keyboard.press("Enter");
   await expect(scoring.locator("pre").first()).toBeVisible();
   await expect(scoring.locator("pre").first()).toHaveText(content);
+});
+
+test("prompt mutations keep drafts, textarea size and open histories", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/admin#prompts`);
+  const scoring = page.getByRole("region", { name: "AI Scoring" });
+  const other = page.getByRole("region", { name: "Notes from Score" });
+  const field = scoring.getByRole("textbox", { name: "Prompt content" });
+  const otherField = other.getByRole("textbox", { name: "Prompt content" });
+  const history = scoring.locator("details").first();
+  const otherHistory = other.locator("details").first();
+  const save = scoring.getByRole("button", { name: "Save as active version" });
+  const firstContent = `First prompt ${randomUUID()}`;
+  const secondContent = `Second prompt ${randomUUID()}`;
+  await history.locator("> summary").click();
+  await otherHistory.locator("> summary").click();
+  await field.evaluate((el) => { el.style.height = "380px"; });
+  await otherField.fill("Other unfinished prompt");
+  await otherField.evaluate((el) => { el.style.height = "320px"; });
+  await field.fill(firstContent);
+  await save.click();
+  const firstVersion = history.getByRole("listitem").filter({ hasText: firstContent });
+  await expect(firstVersion.getByText("Active", { exact: true })).toBeVisible();
+  await firstVersion.locator("summary").click();
+  await field.fill(secondContent);
+  await save.click();
+  await expect(history.getByRole("listitem").filter({ hasText: secondContent }).getByText("Active", { exact: true })).toBeVisible();
+  await expect(firstVersion.locator("pre")).toBeVisible();
+  await expect(field).toHaveCSS("height", "380px");
+
+  await field.fill("Unsaved changes in the same editor");
+  await firstVersion.getByRole("button", { name: "Activate" }).click();
+  await expect(firstVersion.getByText("Active", { exact: true })).toBeVisible();
+  await expect(field).toHaveValue("Unsaved changes in the same editor");
+  await expect.poll(() => field.evaluate((el) => el.defaultValue)).toBe(firstContent);
+  page.once("dialog", (dialog) => dialog.accept());
+  await firstVersion.getByRole("button", { name: "Delete" }).click();
+  await expect(firstVersion).toHaveCount(0);
+  await expect(history).toHaveAttribute("open", "");
+  await expect(field).toHaveValue("Unsaved changes in the same editor");
+  await expect(field).toHaveCSS("height", "380px");
+  await expect(otherField).toHaveValue("Other unfinished prompt");
+  await expect(otherField).toHaveCSS("height", "320px");
+  await expect(otherHistory).toHaveAttribute("open", "");
 });

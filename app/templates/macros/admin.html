@@ -40,13 +40,16 @@
 {% macro recovery_panel(key, title, description, count, empty) -%}
 <div class="space-y-4">
     {{ page_heading(title, description) }}
-    <section class="gys-admin-surface min-w-0" aria-labelledby="{{ key }}-title">
+    <section id="{{ key }}-recovery" class="gys-admin-surface min-w-0" aria-labelledby="{{ key }}-title"
+             data-admin-state-scope hx-select:inherited="#{{ key }}-recovery"
+             hx-target:inherited="#{{ key }}-recovery" hx-swap:inherited="outerMorph"
+             hx-sync:inherited="#{{ key }}-recovery:queue all">
         <div class="flex items-center gap-2 border-b border-base-300 px-4 py-3">
-            <h3 id="{{ key }}-title" class="text-sm font-semibold">Records available to restore</h3>
+            <h3 id="{{ key }}-title" data-admin-state-focus tabindex="-1" class="text-sm font-semibold">Records available to restore</h3>
             <span class="badge badge-ghost badge-sm">{{ count }}</span>
         </div>
         {% if count %}
-        <div class="gys-admin-table overflow-x-auto" tabindex="0" role="region" aria-label="{{ title }} table">
+        <div id="{{ key }}-table" class="gys-admin-table overflow-x-auto" tabindex="0" role="region" aria-label="{{ title }} table">
             {{ caller() }}
         </div>
         {% else %}
