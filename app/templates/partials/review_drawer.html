@@ -1210,7 +1210,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     function autofailCopyText() {
         var reason = isAutofail() && validAutofailReason(autofailReason.value);
-        return reason ? 'Autofail: ' + reason : '';
+        return reason ? 'Autofail reason: ' + reason : '';
     }
 
     function appendAutofailForCopy(target, text, hasNotes) {

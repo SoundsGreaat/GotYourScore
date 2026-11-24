@@ -490,7 +490,7 @@ test("copy keeps rich notes and appends a plain multiline Autofail reason", asyn
   };
   const clipboardText = () => page.evaluate(async () => (await navigator.clipboard.readText()).replace(/\r\n/g, "\n"));
   await copy("Copy All");
-  await expect.poll(clipboardText).toBe(`Autofail reviewed\n\nAutofail: ${reasonText}`);
+  await expect.poll(clipboardText).toBe(`Autofail reviewed\n\nAutofail reason: ${reasonText}`);
   const rich = await page.evaluate(async () => {
     const items = await navigator.clipboard.read();
     return (await items[0].getType("text/html")).text();
@@ -499,7 +499,7 @@ test("copy keeps rich notes and appends a plain multiline Autofail reason", asyn
   expect(rich).toContain(image);
   expect(rich).toContain("&lt;b&gt;Policy&lt;/b&gt; &amp; process");
   await copy("Copy HTML");
-  const reasonHtml = "<p>Autofail: &lt;b&gt;Policy&lt;/b&gt; &amp; process<br>Second line</p>";
+  const reasonHtml = "<p>Autofail reason: &lt;b&gt;Policy&lt;/b&gt; &amp; process<br>Second line</p>";
   await expect.poll(clipboardText).toContain(`<p><br></p>${reasonHtml}`);
   expect(await clipboardText()).toContain(`<strong>Autofail reviewed</strong><img src="${image}">`);
   expect(await page.evaluate(async () => (await navigator.clipboard.read())[0].types)).toEqual(["text/plain"]);
@@ -510,12 +510,12 @@ test("copy keeps rich notes and appends a plain multiline Autofail reason", asyn
     document.execCommand = () => false;
   });
   await copy("Copy All");
-  await expect.poll(clipboardText).toBe(`Autofail reviewed\n\nAutofail: ${reasonText}`);
+  await expect.poll(clipboardText).toBe(`Autofail reviewed\n\nAutofail reason: ${reasonText}`);
   expect(await page.evaluate(async () => (await navigator.clipboard.read())[0].types)).toEqual(["text/plain"]);
 
   await editor.fill("");
   await copy("Copy All");
-  await expect.poll(clipboardText).toBe(`Autofail: ${reasonText}`);
+  await expect.poll(clipboardText).toBe(`Autofail reason: ${reasonText}`);
   await copy("Copy HTML");
   await expect.poll(clipboardText).toBe(reasonHtml);
   await checkbox.uncheck();

@@ -79,6 +79,7 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("late_response (Late response): deduct 5", prompt)
         self.assertIn('"scorecard"', prompt)
         self.assertIn("autofail_reason", prompt)
+        self.assertIn("Autofail reason: ...", prompt)
         self.assertIn("visible notes explicitly", prompt)
         self.assertNotIn("flat JSON object", prompt)
         self.assertNotIn("_JSON_OUTPUT_CONTRACT", prompt)
@@ -119,6 +120,9 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             ai_service._has_explicit_autofail_marker("<p>Autofail: disclosure.</p>")
+        )
+        self.assertTrue(
+            ai_service._has_explicit_autofail_marker("<p>Autofail reason: disclosure.</p>")
         )
         self.assertTrue(
             ai_service._has_explicit_autofail_marker(

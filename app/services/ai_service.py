@@ -357,6 +357,8 @@ For Notes-to-Score previews this output format overrides any conflicting
 format instructions above. Return only a JSON object, for example
 {"scorecard": {"late_response": 5}, "autofail_reason": null}.
 Use a concise factual string for an explicit Autofail reason, otherwise null.
+Treat an appended "Autofail reason: ..." line as an explicit label when it
+states a concrete reason for this case (including in copied notes).
 All ordinary scoring deductions belong inside "scorecard". Do not return
 an Autofail key or count the Autofail outcome as an additional deduction.
 Configured allowed keys and exact penalty values apply within scorecard.
