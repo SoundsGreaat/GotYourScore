@@ -2,8 +2,10 @@
 
 import base64
 import json
+import unittest
 from uuid import uuid4
 
+from fastapi.testclient import TestClient
 from itsdangerous import TimestampSigner
 from sqlalchemy.engine import make_url
 
@@ -35,3 +37,28 @@ def session_cookie(user_id: int) -> str:
     require_test_database()
     payload = base64.b64encode(json.dumps({SESSION_USER_ID_KEY: user_id}).encode())
     return TimestampSigner(get_settings().SECRET_KEY).sign(payload).decode()
+
+
+class PostgresTestCase(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        require_test_database()
+        # Keep the app and fixture queries on the same event loop as the DB pool.
+        from app.db.database import engine
+        from app.main import app
+
+        cls.client = cls.enterClassContext(TestClient(app, follow_redirects=False))
+        cls.addClassCleanup(cls.client.portal.call, engine.dispose)
+
+    def create_user(self, *roles):
+        return self.client.portal.call(create_user, *roles)
+
+    def session(self, user, *, htmx=False):
+        headers = {"Cookie": f"session={session_cookie(user.id)}"}
+        if htmx:
+            headers["HX-Request"] = "true"
+        return headers
+
+    def assert_status(self, response, status):
+        self.assertEqual(response.status_code, status, response.text[:1000])
+        return response
