@@ -32,7 +32,7 @@
                             <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
                             <td>
                                 <button type="button" class="btn gys-btn-secondary btn-sm" aria-label="Restore {{ row.name }}"
-                                        data-admin-restore hx-post="/admin/users/{{ row.u.id }}/restore">Restore</button>
+                                        hx-post="/admin/users/{{ row.u.id }}/restore">Restore</button>
                             </td>
                         </tr>
                         {% endfor %}
