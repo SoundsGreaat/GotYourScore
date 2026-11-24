@@ -1,6 +1,6 @@
 """AI assistant Pydantic schemas."""
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -34,6 +34,12 @@ class RefactorOut(BaseModel):
     """Response for POST /api/ai/refactor: the improved HTML."""
 
     html: str
+
+
+class TrackerCommentRefactorIn(RefactorIn):
+    """Select the comment prompt; omitted keeps the legacy Bad Feedback route."""
+
+    tracker: Literal["bad-feedback", "refund-check"] = "bad-feedback"
 
 
 class ScoreIn(_HtmlIn):
