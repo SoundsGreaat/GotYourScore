@@ -1,6 +1,6 @@
 {# System prompts partial (swapped into #admin-view).
    Context: slots=[{key, title, description, versions(newest first),
-   active_id(id|None)}], saved_key=str|None.
+   active_id(id|None), default_content}], saved_key=str|None.
    One full-width card per fixed slot: a prefilled editor that saves a
    NEW active version, plus the key's history as compact rows (any
    version can be re-activated or deleted; deleting the active one
@@ -35,7 +35,7 @@
                 <label for="prompt-{{ slot.key }}" class="text-sm font-medium">Prompt content</label>
                 <textarea id="prompt-{{ slot.key }}" name="content" data-admin-keep-draft required spellcheck="false" rows="7"
                           placeholder="Enter a custom prompt"
-                          class="textarea gys-admin-field w-full min-w-0 resize-y font-mono text-sm leading-relaxed">{{ active_v.content if active_v else '' }}</textarea>
+                          class="textarea gys-admin-field w-full min-w-0 resize-y font-mono text-sm leading-relaxed">{{ active_v.content if active_v else slot.default_content }}</textarea>
                 <button type="submit" class="btn btn-primary btn-sm self-start">Save as active version</button>
             </form>
 

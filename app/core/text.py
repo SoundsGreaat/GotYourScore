@@ -26,6 +26,11 @@ def slugify_error_name(display_name: str) -> str:
     return slug or "error"
 
 
+def is_autofail_error(name: str) -> bool:
+    """Recognize the reserved outcome as a label or a generated rule key."""
+    return re.fullmatch(r"(?:autofail|auto_fail)(?:_[0-9]+)?", slugify_error_name(name)) is not None
+
+
 def unique_error_name(base: str, taken: set[str]) -> str:
     """Return ``base``, suffixed ``_2``, ``_3``, ... until unique.
 
