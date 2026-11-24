@@ -88,6 +88,22 @@
                     </div>
                 </fieldset>
 
+                <div class="js-autofail-panel rounded-box border border-base-300 bg-base-100 p-3" hidden>
+                    <label for="review-autofail" class="flex cursor-pointer items-center gap-2 text-sm font-semibold">
+                        <input id="review-autofail" name="autofail" type="checkbox"
+                               class="checkbox checkbox-sm checkbox-primary"
+                               aria-describedby="review-autofail-help" aria-controls="review-autofail-details" />
+                        Autofail
+                    </label>
+                    <p id="review-autofail-help" class="mt-1 text-xs text-base-content/60">Sets the final score to 0 without changing deductions or multiplier exemptions.</p>
+                    <div id="review-autofail-details" class="mt-3" hidden>
+                        <label for="review-autofail-reason" class="mb-1 block text-sm font-semibold">Autofail reason <span aria-hidden="true">(required)</span></label>
+                        <textarea id="review-autofail-reason" name="autofail_reason" rows="3" maxlength="2000"
+                                  class="textarea w-full aria-[invalid=true]:border-error" aria-invalid="false" disabled></textarea>
+                        <p id="review-autofail-error" class="mt-1 text-sm text-error" hidden></p>
+                    </div>
+                </div>
+
                 <fieldset class="fieldset">
                     <span class="label">Scorecard</span>
                     <!-- min-w-0: daisyUI v5 .fieldset is a grid, and without it the
@@ -108,6 +124,7 @@
                     <div class="js-ai-score-result card hidden bg-base-200 shadow-sm">
                         <div class="card-body p-4">
                             <h3 class="card-title text-base">Score preview</h3>
+                            <output class="js-preview-score block text-3xl font-bold text-primary" aria-label="Final score"></output>
                             <div id="ai-score-content"></div>
                         </div>
                     </div>
@@ -237,13 +254,68 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     // Entry mode: 'create' (default, unchanged flow), 'edit' or 'complete'
     // (set programmatically via window.openReviewDrawerForReview).
     var drawerState = {
-        mode: 'create', reviewId: null, initialScorecard: null, isPending: false, initialAssignedQaId: ''
+        mode: 'create', reviewId: null, initialScorecard: null, initialCaseType: null,
+        isPending: false, initialAssignedQaId: ''
     };
     // The period the drawer mounted with (the current one) — the draft
     // is only "pristine" while the picker still holds it.
     var initialPeriod = (document.getElementById('review-period') || {}).value || '';
 
     var showToast = window.gysToast;
+    var caseTypeInput = document.getElementById('case-type');
+    var autofailPanel = document.querySelector('.js-autofail-panel');
+    var autofailCheckbox = document.getElementById('review-autofail');
+    var autofailDetails = document.getElementById('review-autofail-details');
+    var autofailReason = document.getElementById('review-autofail-reason');
+    var autofailError = document.getElementById('review-autofail-error');
+
+    function canAutofail() {
+        return !!caseTypeInput.value && caseTypeInput.value !== 'No Cases';
+    }
+
+    function isAutofail() {
+        return canAutofail() && autofailCheckbox.checked;
+    }
+
+    function clearAutofailError() {
+        autofailReason.setCustomValidity('');
+        autofailReason.setAttribute('aria-invalid', 'false');
+        autofailReason.removeAttribute('aria-describedby');
+        autofailError.hidden = true;
+    }
+
+    function syncAutofailField() {
+        autofailPanel.hidden = !canAutofail();
+        if (autofailPanel.hidden) autofailCheckbox.checked = false;
+        var enabled = isAutofail();
+        autofailDetails.hidden = !enabled;
+        autofailReason.disabled = !enabled;
+        autofailReason.required = enabled;
+        if (!enabled) autofailReason.value = '';
+        clearAutofailError();
+    }
+
+    function restoreAutofail(entry) {
+        autofailCheckbox.checked = entry.autofail === true;
+        autofailReason.value = typeof entry.autofail_reason === 'string' ? entry.autofail_reason : '';
+        syncAutofailField();
+    }
+
+    function validateAutofailReason() {
+        if (!isAutofail()) return true;
+        var trimmed = autofailReason.value.trim();
+        // `required` alone accepts whitespace, and `maxlength` does not
+        // validate values restored programmatically from storage.
+        autofailReason.setCustomValidity(!trimmed ? 'Enter an Autofail reason.'
+            : autofailReason.value.length > autofailReason.maxLength ? 'Use at most 2000 characters for the Autofail reason.' : '');
+        if (autofailReason.checkValidity()) return true;
+        autofailError.textContent = autofailReason.validationMessage;
+        autofailError.hidden = false;
+        autofailReason.setAttribute('aria-invalid', 'true');
+        autofailReason.setAttribute('aria-describedby', autofailError.id);
+        autofailReason.focus();
+        return false;
+    }
 
     // Security-first fallback: if the vendored DOMPurify failed to load,
     // DROP the html entirely rather than persist unsanitized markup.
@@ -263,11 +335,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var extractErrorDetail = window.extractDetail;
 
     // Stored scorecards come in two shapes: nested under "breakdown"
-    // (current rows) or the flat breakdown itself (legacy rows).
+    // (current rows) or the flat breakdown itself (legacy rows, where
+    // "breakdown" may also be the name of an ordinary deduction).
     function storedBreakdown(scorecard) {
         if (!scorecard || typeof scorecard !== 'object') return {};
         var nested = scorecard.breakdown;
-        if (nested && typeof nested === 'object') return nested;
+        if (Number.isInteger(scorecard.base_score) && nested && typeof nested === 'object' && !Array.isArray(nested)) return nested;
         return scorecard;
     }
 
@@ -280,8 +353,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         });
     }
 
-    // Errors toast bottom-center like every other notification — no
-    // inline alert box inside the drawer.
+    // Request errors toast bottom-center like other notifications.
     function showDrawerError(message) {
         showToast(message, 'alert-error');
     }
@@ -315,6 +387,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     && !document.getElementById('case-number').value
                     && document.getElementById('case-type').value === 'Initial Fix'
                     && document.getElementById('review-period').value === initialPeriod
+                    && !isAutofail()
                     && Object.keys(collectDeductions()).length === 0;
                 if (pristine) {
                     window.localStorage.removeItem(draftKey);
@@ -326,6 +399,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                         agent_name: document.querySelector('.js-review-agent-display').textContent,
                         case_number: document.getElementById('case-number').value,
                         case_type: document.getElementById('case-type').value,
+                        autofail: isAutofail(),
+                        autofail_reason: isAutofail() ? autofailReason.value : null,
                         period: document.getElementById('review-period').value,
                         period_label: (document.querySelector('.js-review-period-display') || {}).textContent || '',
                         deductions: pendingDeductions || collectDeductions()
@@ -428,6 +503,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
         if (draft.deductions && typeof draft.deductions === 'object') pendingDeductions = draft.deductions;
     }
+    restoreAutofail(draft || {});
     quill.on('text-change', saveDraft);
 
     var refactorButton = document.getElementById('ai-refactor-action');
@@ -457,6 +533,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     var rulesStatus = rulesPanel.querySelector('[role="status"]');
     var caseNumberPanel = document.querySelector('.js-case-number-panel');
     var previewPanel = document.querySelector('.js-ai-score-result');
+    var previewScore = previewPanel.querySelector('.js-preview-score');
     var previewContent = document.getElementById('ai-score-content');
     var rulesPending = false;
     var rulesFailed = false;
@@ -496,6 +573,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         if (disposed) return;
         var value = document.getElementById('case-type').value;
         if (value === loadedRulesType) return;
+        syncAutofailField();
         var seq = ++rulesSeq;
         ++previewSeq;
         window.clearTimeout(previewTimer);
@@ -519,6 +597,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             renderPreview(null);
             return;
         }
+        if (isAutofail()) showAutofailScore();
         setRulesPending(true);
         rulesController = new AbortController();
         var html;
@@ -678,9 +757,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var caseType = typeof review.case_type === 'string'
             ? review.case_type
             : (review.case_type && review.case_type.value) || 'Initial Fix';
+        drawerState.initialCaseType = caseType;
         document.getElementById('case-type').value = caseType;
         document.querySelector('.js-case-type-display').textContent = caseType;
         if (window.gysSyncDropdown) window.gysSyncDropdown('case-type');
+        restoreAutofail(review);
         var caseTypeButton = document.getElementById('case-type-button');
         if (caseTypeButton) caseTypeButton.disabled = !drawerState.isPending && drawerState.mode === 'complete';
 
@@ -737,9 +818,10 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         var seq = ++previewSeq;
         var deductions = collectDeductions();
         var agentId = document.getElementById('review-agent').value;
-        var caseType = document.getElementById('case-type').value;
-        if (!agentId || caseType === 'No Cases' || !rulesArea.querySelector('[data-error-name]')) {
-            if (seq === previewSeq) renderPreview(null);
+        var caseType = caseTypeInput.value;
+        var autofail = isAutofail();
+        if (!agentId || !canAutofail() || (!autofail && !rulesArea.querySelector('[data-error-name]'))) {
+            renderPreview(null);
             return;
         }
         try {
@@ -750,6 +832,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 body: JSON.stringify({
                     support_agent_id: Number(agentId),
                     case_type: caseType,
+                    autofail: autofail,
                     raw_scorecard: deductions,
                     // Editing/completing an existing review: its own
                     // stored scorecard must not inflate the preview.
@@ -765,6 +848,16 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }
     }
 
+    function updatePreviewScore(score) {
+        var text = String(score);
+        if (previewScore.textContent !== text) previewScore.textContent = text;
+    }
+
+    function showAutofailScore() {
+        if (previewPanel.classList.contains('hidden')) renderPreview(null);
+        else updatePreviewScore(0);
+    }
+
     // Breakdown keys are immutable error_names; resolve the readable
     // display_name from the rules fragment next to each checkbox.
     function displayNameFor(errorName) {
@@ -778,10 +871,12 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     function renderPreview(data) {
         var panel = previewPanel;
         var content = previewContent;
+        var autofail = isAutofail();
         panel.inert = false;
-        if (!data) {
+        if (!autofail && (!data || data.final_score == null)) {
             window.gysResizePanel(panel.parentElement, function () {
                 panel.classList.add('hidden');
+                updatePreviewScore('');
                 content.replaceChildren();
             });
             return;
@@ -789,7 +884,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         // One ROW per repeated error: checkbox (waive the progression) +
         // wrapping display_name + effective multiplier. Exempted rows stay
         // visible with a struck-through x1 so the waive is discoverable.
-        var rows = Object.entries(data.breakdown || {})
+        var rows = Object.entries(data && data.breakdown || {})
             .filter(function (entry) {
                 return Number(entry[1].deducted) > 0
                     && (Number(entry[1].multiplier) > 1
@@ -810,15 +905,35 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                     + '</label>';
             });
         window.gysResizePanel(panel.parentElement, function () {
-            content.innerHTML =
-                '<p class="text-3xl font-bold text-primary">' + escapeHtml(String(data.final_score)) + '</p>' +
-                '<p class="mt-1 text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(data.total_penalty)) + '</p>' +
+            updatePreviewScore(autofail ? 0 : data.final_score);
+            content.innerHTML = data
+                ? '<p class="text-sm text-base-content/70">Total deduction: ' + escapeHtml(String(data.total_penalty)) + '</p>' +
                 (rows.length
                     ? '<div class="mt-2 flex flex-col items-stretch gap-1.5">' + rows.join('') + '</div>'
-                    : '');
+                    : '')
+                : '';
             panel.classList.remove('hidden');
         });
     }
+
+    autofailCheckbox.addEventListener('change', function () {
+        syncAutofailField();
+        if (isAutofail()) {
+            // The override is known locally; the API still fills in the
+            // regular breakdown and multiplier controls.
+            showAutofailScore();
+        } else if (!previewPanel.classList.contains('hidden')) {
+            if (rulesPending || rulesFailed) renderPreview(null);
+            else updatePreviewScore('Calculating…');
+        }
+        window.clearTimeout(previewTimer);
+        recalcScore();
+        saveDraft();
+    }, { signal: controller.signal });
+    autofailReason.addEventListener('input', function () {
+        clearAutofailError();
+        saveDraft();
+    }, { signal: controller.signal });
 
     document.getElementById('ai-score-content').addEventListener('change', function (event) {
         var box = event.target.closest('[data-mult-toggle]');
@@ -1123,21 +1238,27 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     document.getElementById('score-notes-action').addEventListener('click', async function () {
         if (rulesPending || rulesFailed) return;
+        if (!validateAutofailReason()) {
+            hideMenu(true);
+            return;
+        }
         var button = this;
         setLoading(button, 'Drafting…', true);
         try {
             var agentId = document.getElementById('review-agent').value;
+            var payload = {
+                case_type: caseTypeInput.value,
+                raw_scorecard: collectDeductions(),
+                // Same multiplier context as the score preview: the
+                // drafted notes must justify the REAL final score.
+                support_agent_id: agentId ? Number(agentId) : null,
+                exclude_review_id: drawerState.reviewId || null,
+                no_multiplier_keys: Object.keys(multiplierExemptions)
+            };
+            if (isAutofail()) payload.autofail_reason = autofailReason.value.trim();
             await window.gysAiStream.streamInto({
                 url: '/api/ai/notes-from-score/stream',
-                payload: {
-                    case_type: document.getElementById('case-type').value,
-                    raw_scorecard: collectDeductions(),
-                    // Same multiplier context as the score preview: the
-                    // drafted notes must justify the REAL final score.
-                    support_agent_id: agentId ? Number(agentId) : null,
-                    exclude_review_id: drawerState.reviewId || null,
-                    no_multiplier_keys: Object.keys(multiplierExemptions)
-                },
+                payload: payload,
                 quill: quill,
                 sanitize: sanitizeDraftNotes,
                 emptyMessage: 'The AI returned an empty note',
@@ -1156,11 +1277,15 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     async function saveExistingReview(completing) {
         if (rulesPending || rulesFailed || savingReview) return;
+        if (!validateAutofailReason()) return;
+        var autofail = isAutofail();
         var deductions = collectDeductions();
         var payload = {
-            case_type: document.getElementById('case-type').value,
+            case_type: caseTypeInput.value,
             case_number: document.getElementById('case-number').value || null,
-            notes: sanitizeHtml(quill.root.innerHTML)
+            notes: sanitizeHtml(quill.root.innerHTML),
+            autofail: autofail,
+            autofail_reason: autofail ? autofailReason.value.trim() : null
         };
         if (drawerState.isPending) {
             // Only a changed assignee is a reassignment. The original
@@ -1176,9 +1301,13 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             // penalties). Only the payload presence flips it to completed.
             payload.raw_scorecard = deductions;
             payload.no_multiplier_keys = Object.keys(multiplierExemptions);
-        } else if (!drawerState.isPending && (!sameScorecard(deductions, drawerState.initialScorecard) || multiplierExemptionsDirty)) {
-            // Only resend the scorecard when rules or multiplier waives
-            // changed: an unchanged payload keeps the stored breakdown.
+        } else if (!drawerState.isPending && (
+            !sameScorecard(deductions, drawerState.initialScorecard) || multiplierExemptionsDirty
+            || (drawerState.initialCaseType === 'No Cases' && canAutofail())
+        )) {
+            // Changed scoring selections need a rescore. When converting
+            // a No Cases review, send even an empty scorecard: there's no
+            // stored breakdown for the server to keep.
             payload.raw_scorecard = deductions;
             payload.no_multiplier_keys = Object.keys(multiplierExemptions);
         }
@@ -1214,6 +1343,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     async function createReview(saveForLater) {
         var clickedButton = saveForLater ? saveLaterButton : saveButton;
         if (rulesPending || rulesFailed || savingReview || !document.getElementById('review-agent').value) return;
+        if (!validateAutofailReason()) return;
+        var autofail = isAutofail();
         savingReview = true;
         setLoading(clickedButton, 'Saving…', true);
         updateSaveState();
@@ -1224,9 +1355,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     support_agent_id: Number(document.getElementById('review-agent').value),
-                    case_type: document.getElementById('case-type').value,
+                    case_type: caseTypeInput.value,
                     case_number: document.getElementById('case-number').value || null,
                     notes: sanitizeHtml(quill.root.innerHTML),
+                    autofail: autofail,
+                    autofail_reason: autofail ? autofailReason.value.trim() : null,
                     raw_scorecard: collectDeductions(),
                     // Waived multipliers (unchecked preview rows) must
                     // reach the server on CREATE too — otherwise the
