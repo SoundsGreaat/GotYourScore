@@ -4,8 +4,8 @@
   and professional tone while preserving markup and images.
 - POST /api/ai/refactor/stream: NDJSON streaming variant of /refactor
   (same pipeline; deltas as they are generated).
-- POST /api/ai/refactor-comment: same pipeline for per-agent Bad
-  Feedback comments (own ``bf_comment_refactor`` system-prompt slot).
+- POST /api/ai/refactor-comment: same pipeline for per-agent tracker
+  comments. Bad Feedback and Refund Check use distinct prompt slots.
 - POST /api/ai/refactor-comment/stream: NDJSON streaming variant.
 - POST /api/ai/score: preview AI scoring of QA notes against the case
   type's configured scorecard rules — returns the raw deductions and
@@ -55,6 +55,7 @@ from app.schemas.ai import (
     RefactorOut,
     ScoreIn,
     ScoreOut,
+    TrackerCommentRefactorIn,
 )
 from app.services import ai_service
 
@@ -167,16 +168,14 @@ async def refactor_notes_stream(
 
 
 @router.post("/refactor-comment", response_model=RefactorOut)
-async def refactor_bf_comment(
-    payload: RefactorIn,
+async def refactor_tracker_comment(
+    payload: TrackerCommentRefactorIn,
     db: DbSession,
     current_user: AiUser,
 ) -> RefactorOut:
-    """Rewrite a per-agent Bad Feedback comment (HTML), unpersisted.
+    """Rewrite a per-agent tracker comment (HTML), unpersisted.
 
-    The system prompt is the newest ACTIVE ``bf_comment_refactor``
-    SystemPrompt row (hardcoded fallback when none exists); the slot is
-    editable in the admin panel like the other AI prompts.
+    Bad Feedback and Refund Check resolve separate versioned prompts.
 
     - 503 when ``OPENROUTER_API_KEY`` is not configured.
     - 502 when the AI call fails or returns an empty response.
@@ -184,7 +183,7 @@ async def refactor_bf_comment(
     lease = await reserve_ai_request(current_user.id)
     try:
         try:
-            html = await ai_service.refactor_bf_comment(payload.html, db)
+            html = await ai_service.refactor_tracker_comment(payload.html, db, tracker=payload.tracker)
         except ValueError as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -204,12 +203,12 @@ async def refactor_bf_comment(
 
 
 @router.post("/refactor-comment/stream")
-async def refactor_bf_comment_stream(
-    payload: RefactorIn,
+async def refactor_tracker_comment_stream(
+    payload: TrackerCommentRefactorIn,
     db: DbSession,
     current_user: AiUser,
 ) -> StreamingResponse:
-    """Stream a Bad Feedback comment rewrite as NDJSON (see contract).
+    """Stream a tracker comment rewrite as NDJSON (see contract).
 
     Same prompt resolution and post-processing as POST
     /refactor-comment.
@@ -222,7 +221,9 @@ async def refactor_bf_comment_stream(
             detail=_NO_API_KEY_DETAIL,
         ) from exc
     lease = await reserve_ai_request(current_user.id)
-    return _ndjson_response(ai_service.stream_refactor_bf_comment(payload.html, db), lease)
+    return _ndjson_response(
+        ai_service.stream_refactor_tracker_comment(payload.html, db, tracker=payload.tracker), lease
+    )
 
 
 @router.post("/score", response_model=ScoreOut)

@@ -137,7 +137,7 @@ async def admin_page(request: Request, auth: AdminPageUser) -> Response:
 
 
 async def _prompts_context(
-    db: AsyncSession, *, saved: bool = False
+    db: AsyncSession, *, saved_key: str | None = None
 ) -> dict[str, object]:
     """Context for the prompts partial (shared by GET and POST flows).
 
@@ -166,7 +166,7 @@ async def _prompts_context(
             }
             for slot in system_prompt_service.PROMPT_SLOTS
         ],
-        "saved": saved,
+        "saved_key": saved_key,
     }
 
 
@@ -222,7 +222,7 @@ async def create_prompt(
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_prompts.html",
-        context=await _prompts_context(db, saved=True),
+        context=await _prompts_context(db, saved_key=key),
     )
 
 

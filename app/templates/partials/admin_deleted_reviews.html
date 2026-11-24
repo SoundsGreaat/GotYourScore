@@ -23,7 +23,7 @@
                     </thead>
                     <tbody>
                         {% for row in rows %}
-                        <tr>
+                        <tr id="deleted-review-{{ row.id }}">
                             <td class="whitespace-nowrap">{{ row.deleted_at.strftime('%b %d, %Y %H:%M') }}</td>
                             <td class="whitespace-nowrap">{{ row.created_at.strftime('%b %d, %Y') }}</td>
                             <th scope="row" class="font-medium">{{ row.agent_name }}</th>
@@ -34,8 +34,7 @@
                             <td>
                                 <button type="button" class="btn gys-btn-secondary btn-sm"
                                         aria-label="Restore review for {{ row.agent_name }}{% if row.case_number %}, case {{ row.case_number }}{% endif %}"
-                                        hx-post="/admin/reviews/{{ row.id }}/restore"
-                                        hx-target="#admin-view" hx-swap="innerHTML">Restore</button>
+                                        hx-post="/admin/reviews/{{ row.id }}/restore">Restore</button>
                             </td>
                         </tr>
                         {% endfor %}

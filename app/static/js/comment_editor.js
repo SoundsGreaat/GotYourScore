@@ -2,17 +2,18 @@
    the review drawer's notes editor — same glow-shell chrome, same
    toolbar (plus a link button), and the same RIGHT-CLICK context menu
    for the actions (AI Refactor / Copy All / Copy HTML). Shared by the
-   Bad Feedback record editor and reusable for future record kinds
-   (Refund Check). Vendor Quill + DOMPurify load in base.html.
+   Bad Feedback and Refund Check record editors. Vendor Quill + DOMPurify
+   load in base.html.
 
    window.gysCommentEditor({
      mount:       element receiving the editor shell,
      html:        initial sanitized-on-insert HTML (may be ''),
      placeholder: Quill placeholder text,
-      refactorUrl: POST endpoint for the Refactor menu item — its NDJSON
+     refactorUrl: POST endpoint for the Refactor menu item — its NDJSON
                    streaming twin ("<refactorUrl>/stream") drives a
                    token-by-token reveal into the editor; omit to hide
-                   the menu item,
+                    the menu item,
+     tracker:     tracker key used to select the prompt on the server,
      emptyMessage:  toast text for actions on an empty comment,
      toast:       notifier (defaults to window.gysToast),
      onChange:    called on every text change.
@@ -229,7 +230,7 @@
                     // the original comment and throws on any failure.
                     await window.gysAiStream.streamInto({
                         url: options.refactorUrl + '/stream',
-                        payload: { html: quill.root.innerHTML },
+                        payload: { html: quill.root.innerHTML, tracker: options.tracker },
                         quill: quill,
                         sanitize: sanitizeHtml,
                         preserveImages: true,

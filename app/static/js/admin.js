@@ -72,13 +72,66 @@
         });
     }
 
-    panel.addEventListener('scorecard-activity', function (event) {
-        var states = event.detail.states;
+    function recordScorecardActivity(states) {
         var revision = ++activityRevision;
         Object.keys(states).forEach(function (id) {
             activityStates.set(id, {active: states[id], revision: revision});
         });
         syncScorecardActivity(states);
+    }
+
+    panel.addEventListener('scorecard-activity', function (event) {
+        recordScorecardActivity(event.detail.states);
+    });
+
+    var scorecardCreates = new WeakMap();
+    panel.addEventListener('htmx:before:swap', function (event) {
+        var ctx = event.detail.ctx;
+        var source = ctx.sourceElement;
+        if (!source.matches('[data-template-create]')) return;
+        var task = event.detail.tasks.find(function (entry) {
+            return entry.type === 'main' && entry.target?.id === 'template-list' && entry.swapSpec.style === 'outerMorph';
+        });
+        var created = task?.fragment.querySelector('[data-template-open][aria-current="true"]');
+        if (!created) return;
+
+        var editor = panel.querySelector('#scorecard-editor');
+        // Do not override an open editor or a template the user is already opening.
+        var openCreated = editor.querySelector('[data-scorecard-editor-empty]') && !editor.classList.contains('htmx-request');
+        var selected = openCreated ? created : task.target.querySelector('[data-template-open][aria-current="true"]');
+        var selection = selected?.closest('[data-template-card]').dataset.templateId;
+        var states = {};
+        task.fragment.querySelectorAll('[data-template-card]').forEach(function (card) {
+            var id = card.dataset.templateId;
+            var button = card.querySelector('[data-template-open]');
+            card.classList.toggle('card-selected', id === selection);
+            if (id === selection) button.setAttribute('aria-current', 'true');
+            else button.removeAttribute('aria-current');
+            states[id] = card.querySelector('[data-template-toggle]').hasAttribute('checked');
+        });
+        scorecardCreates.set(ctx, {
+            states: states,
+            openCard: openCreated ? created.closest('[data-template-card]').id : null,
+        });
+    });
+
+    panel.addEventListener('htmx:after:swap', function (event) {
+        var ctx = event.detail.ctx;
+        var state = scorecardCreates.get(ctx);
+        if (!state) return;
+        scorecardCreates.delete(ctx);
+        recordScorecardActivity(state.states);
+
+        var source = ctx.sourceElement;
+        var submitted = ctx.request.body;
+        if (source.elements.name.value === submitted.get('name')
+            && source.elements.case_type.value === submitted.get('case_type')) {
+            source.reset();
+            var initial = source.querySelector('#new-case-picker [data-opt-value]');
+            window.setDropdownValue('new-case', '#new-case-display', initial.dataset.optValue, initial.dataset.optLabel);
+        }
+        if (state.openCard) document.getElementById(state.openCard)?.querySelector('[data-template-open]').click();
+        window.gysToast('Template created.', 'alert-success');
     });
 
     panel.addEventListener('htmx:finally:request', function (event) {
@@ -392,9 +445,7 @@
         if (!task) return;
 
         // Keep disclosures and untouched forms as they are, including unsaved inputs and pickers.
-        scope.querySelectorAll('details[open]').forEach(function (details) {
-            task.fragment.getElementById(details.id)?.setAttribute('open', '');
-        });
+        keepDisclosures(scope, task.fragment);
         var resetCreate = action === 'create' && fieldRequestScopes.get(ctx)?.submitted === fieldFormValues(source);
         var untouched = [...scope.querySelectorAll('form[data-case-field-action="update"], form[data-case-field-action="create"]')]
             .filter(function (form) { return form !== source || (action === 'create' && !resetCreate); });
@@ -439,8 +490,128 @@
         if (scope.dataset.caseFieldSaved) window.gysToast(scope.dataset.caseFieldSaved, 'alert-success');
     });
 
-    // A successful account mutation replaces the directory. Retain the
-    // filter and restore keyboard focus only if it was in the old panel.
+    function keepDisclosures(scope, fragment) {
+        scope.querySelectorAll('details[id]').forEach(function (details) {
+            fragment.getElementById(details.id)?.toggleAttribute('open', details.open);
+        });
+    }
+
+    // A morph keeps stable nodes, but the incoming fragment still needs
+    // their local disclosure/resize state and any unsaved form values.
+    var adminDraftRequests = new WeakMap();
+    var adminStateSwaps = new WeakMap();
+    function formValues(form) {
+        return new URLSearchParams(new FormData(form)).toString();
+    }
+    panel.addEventListener('htmx:before:request', function (event) {
+        var ctx = event.detail.ctx;
+        var form = ctx.sourceElement;
+        if (!form?.matches('form') || !form.closest('[data-admin-state-scope]')) return;
+        var submitted = ctx.request.body;
+        adminDraftRequests.set(ctx, {
+            form: new URLSearchParams(submitted).toString(),
+            fields: new Map(Array.from(form.querySelectorAll('[data-admin-keep-draft][id]'), function (field) {
+                return [field.id, submitted.get(field.name)];
+            })),
+        });
+    });
+    panel.addEventListener('htmx:before:swap', function (event) {
+        var ctx = event.detail.ctx;
+        var source = ctx.sourceElement;
+        var scope = source?.closest('[data-admin-state-scope]');
+        if (!scope) return;
+        var task = event.detail.tasks.find(function (entry) {
+            return entry.type === 'main' && entry.target === scope && entry.swapSpec.style === 'outerMorph';
+        });
+        if (!task) return;
+        var request = adminDraftRequests.get(ctx);
+        keepDisclosures(scope, task.fragment);
+
+        var draftFields = [];
+        scope.querySelectorAll('textarea[id], input[data-admin-keep-draft][id]').forEach(function (field) {
+            var next = task.fragment.getElementById(field.id);
+            if (!next) return;
+            // A manual browser resize writes an inline size on the field.
+            if (field.matches('textarea')) {
+                next.style.height = field.style.height;
+                if (field.style.width) next.style.width = field.style.width;
+                if (!next.style.length) next.removeAttribute('style');
+            }
+            var baseline = request?.fields.get(field.id) ?? field.defaultValue;
+            var value = field.hasAttribute('data-admin-keep-draft') &&
+                !source.hasAttribute('data-admin-discard-draft') && field.value !== baseline
+                ? field.value : next.defaultValue;
+            draftFields.push([field.id, value]);
+        });
+
+        var formDrafts = [];
+        scope.querySelectorAll('form[data-admin-keep-form][id]').forEach(function (form) {
+            var next = task.fragment.getElementById(form.id);
+            if (!next) return;
+            var submitted = form === source && request ? new URLSearchParams(request.form) : null;
+            var values = Array.from(form.elements).flatMap(function (field) {
+                if (!(field instanceof HTMLInputElement) || !field.name || field.disabled) return [];
+                if (field.type === 'checkbox') {
+                    var baseline = submitted ? submitted.getAll(field.name).includes(field.value) : field.defaultChecked;
+                    return field.checked === baseline ? [] : [{name: field.name, value: field.value, checked: field.checked}];
+                }
+                var original = submitted ? submitted.get(field.name) : field.defaultValue;
+                return field.value === original ? [] : [{name: field.name, value: field.value}];
+            });
+            // Apply only unsaved local edits on top of fresh server defaults.
+            // Keeping a whole stale role form could re-grant a revoked role.
+            formDrafts.push({id: form.id, values: values});
+        });
+        var nextFocus = source.closest('details')?.querySelector('summary')
+            || scope.querySelector('[data-admin-state-focus]');
+        var resetForm = source.hasAttribute('data-admin-discard-draft') ? source.closest('form') : null;
+        adminStateSwaps.set(ctx, {
+            scope: scope, formDrafts: formDrafts, draftFields: draftFields, active: document.activeElement,
+            nextFocus: nextFocus, resetForm: resetForm,
+        });
+    });
+    panel.addEventListener('htmx:after:swap', function (event) {
+        var ctx = event.detail.ctx;
+        var state = adminStateSwaps.get(ctx);
+        if (!state) return;
+        adminStateSwaps.delete(ctx);
+        if (!state.scope.isConnected) return;
+        if (state.resetForm?.isConnected) state.resetForm.reset();
+        state.formDrafts.forEach(function (draft) {
+            var form = document.getElementById(draft.id);
+            if (!form) return;
+            form.reset();
+            draft.values.forEach(function (entry) {
+                var field = Array.from(form.elements).find(function (input) {
+                    return !input.disabled && input.name === entry.name &&
+                        (entry.checked === undefined || input.value === entry.value);
+                });
+                if (field && entry.checked !== undefined) field.checked = entry.checked;
+                else if (field) field.value = entry.value;
+            });
+        });
+        state.draftFields.forEach(function (entry) {
+            var field = document.getElementById(entry[0]);
+            if (!field) return;
+            if (field.matches('[data-admin-draft-picker]')) {
+                var picker = document.getElementById(field.id + '-picker');
+                var option = picker?.querySelector('[data-opt-value="' + CSS.escape(entry[1]) + '"]');
+                if (option) window.setDropdownValue(field.id, '#' + field.id + '-display', entry[1], option.dataset.optLabel);
+            } else if (field.value !== entry[1]) {
+                field.value = entry[1];
+            }
+        });
+        if (!state.active?.isConnected && state.nextFocus?.isConnected) {
+            state.nextFocus.focus({preventScroll: true});
+        }
+        var saved = state.scope.dataset.adminStateSaved;
+        if (saved) {
+            delete state.scope.dataset.adminStateSaved;
+            window.gysToast(saved, 'alert-success');
+        }
+    });
+
+    // Retain the directory filter and restore keyboard focus after edits.
     var userSwaps = new WeakMap();
     var editorSwaps = new WeakMap();
     document.addEventListener('htmx:before:swap', function (event) {
@@ -456,7 +627,8 @@
         if (source.matches('[data-template-open]') && swaps(document.getElementById('scorecard-editor'))) {
             editorSwaps.set(detail.ctx, source);
         }
-        if (!source.closest('#users-root') || !swaps(panel)) return;
+        var users = source.closest('#users-root');
+        if (!users || !swaps(users)) return;
         var input = document.getElementById('users-search');
         var details = document.activeElement.closest('details');
         userSwaps.set(detail.ctx, {

@@ -186,6 +186,7 @@
             html: (agent && agent.qa_comment) || '',
             placeholder: 'QA comment for this agent',
             refactorUrl: '/api/ai/refactor-comment',
+            tracker: tracker,
             emptyMessage: 'Comment is empty.'
         });
         return host;
