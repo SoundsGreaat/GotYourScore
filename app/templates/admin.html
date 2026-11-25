@@ -28,6 +28,9 @@
                 ('deleted-bad-feedback', 'Deleted Bad Feedback'),
                 ('deleted-refund-check', 'Deleted Refund Checks')
             ] %}
+                {% if key == 'deleted-users' %}
+                    <hr class="gys-admin-tabs-divider" aria-hidden="true">
+                {% endif %}
             <button type="button" role="tab" id="admin-tab-{{ key }}" data-tab="{{ key }}"
                     {% if loop.first %}class="active" aria-selected="true"{% else %}aria-selected="false" tabindex="-1"{% endif %}
                     hx-get="/admin/partials/{{ key }}" hx-target="#admin-view" hx-swap="innerHTML">{{ label }}</button>
