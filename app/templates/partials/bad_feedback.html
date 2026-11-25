@@ -143,9 +143,10 @@
             <p class="mb-4 text-sm text-base-content/70">
                 Upload an .xlsx file, confirm which column holds what, and the rows
                 become pending records. Uncheck rows you do not want to import.
-                Unknown agent names are created automatically.
+                Agent columns are optional: rows can be imported without agents.
+                Unknown agent names are created automatically when supplied.
             </p>
-            <p class="js-bf-import-error text-sm text-error" role="alert"></p>
+            <p id="bf-import-error" class="js-bf-import-error text-sm text-error" role="alert"></p>
 
             <!-- Step 1: upload -->
             <div class="js-bf-step-upload">
@@ -161,18 +162,13 @@
 
             <!-- Step 2: mapping -->
             <div class="js-bf-step-map hidden">
-                <div class="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {% for key, label in field_labels.items() %}
-                     <div class="flex min-w-0 flex-col gap-1 text-sm">
-                         <label for="bf-map-{{ key }}-button">{{ label }}</label>
-                        {{ dd.dropdown('bf-map-' ~ key,
-                        items=[{'value': '', 'label': 'Not imported'}],
-                        selected='',
-                        aria_label='Column for ' ~ label,
-                        hidden_attrs='data-bf-map="' ~ key ~ '"') }}
-                     </div>
-                    {% endfor %}
-                </div>
+                <div class="js-bf-mappings mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2"></div>
+                <template class="js-bf-mapping-template">
+                    <div class="flex min-w-0 flex-col gap-1 text-sm">
+                        <label></label>
+                        {{ dd.dropdown('bf-map-template', items=[{'value': '', 'label': 'Not imported'}]) }}
+                    </div>
+                </template>
                 <div class="mb-3 flex items-end gap-2">
                      <div class="flex w-full max-w-56 flex-col gap-1 text-sm">
                          <label for="bf-import-assignee-button">Assign imported records to QA</label>
@@ -250,11 +246,41 @@
             var commitButton = section.querySelector('.js-bf-commit');
             var backButton = section.querySelector('.js-bf-back');
             var importError = importModal.querySelector('.js-bf-import-error');
+            var mappings = importModal.querySelector('.js-bf-mappings');
+            var mappingTemplate = importModal.querySelector('.js-bf-mapping-template');
+            var hasMappingError = false;
 
-            function setImportError(message) {
-                importError.textContent = message || '';
+            function setImportError(message, isMappingError) {
+                hasMappingError = Boolean(isMappingError);
+                if (importError.textContent !== (message || '')) importError.textContent = message || '';
                 importError.classList.toggle('mb-3', Boolean(message));
             }
+
+            function validateRequiredMappings() {
+                var missingLabels = [];
+                var firstMissing = null;
+                mappings.querySelectorAll('[data-bf-map-required]').forEach(function (hidden) {
+                    var button = document.getElementById(hidden.id + '-button');
+                    var description = hidden.id + '-display';
+                    if (!hidden.value) {
+                        if (!firstMissing) firstMissing = button;
+                        missingLabels.push(inspectData.field_labels[hidden.dataset.bfMap]);
+                        button.setAttribute('aria-invalid', 'true');
+                        description += ' ' + importError.id;
+                    } else {
+                        button.removeAttribute('aria-invalid');
+                    }
+                    button.setAttribute('aria-describedby', description);
+                });
+                setImportError(firstMissing ? 'Choose spreadsheet columns for: ' + missingLabels.join(', ') + '.' : '',
+                    Boolean(firstMissing));
+                return firstMissing;
+            }
+
+            mappings.addEventListener('change', function (event) {
+                // Don't overwrite a server error or validate before the first attempt.
+                if (hasMappingError && event.target.matches('[data-bf-map-required]')) validateRequiredMappings();
+            });
 
             function setCommitPending(pending) {
                 committing = pending;
@@ -328,49 +354,66 @@
                     });
             });
 
-            function buildMapping(data) {
-                // One dropdown per canonical field; options = sheet headers.
-                // Preselect the suggested header when there is one.
-                Object.keys({{ field_labels | tojson }}).forEach(function (key) {
+            function buildMappingFields(data) {
+                mappings.replaceChildren();
+                var requiredFields = new Set(data.required_fields);
+                Object.entries(data.field_labels).forEach(function (entry) {
+                    var key = entry[0];
                     var ddId = 'bf-map-' + key;
-                    var holder = document.getElementById(ddId);
-                    if (!holder) return;
-                    var menu = document.getElementById(ddId + '-menu');
-                    if (!menu) return;
-                    menu.replaceChildren();
-                    var options = [{v: '', l: 'Not imported'}].concat(
-                        data.headers.map(function (h) { return {v: h, l: h}; })
-                    );
-                    var suggested = data.suggestions[key] || '';
-                    // Apply the detected value through the same shared
-                    // setter as a user click. That keeps the visible text,
-                    // hidden value, and active menu option in sync.
-                    var dispRef = '#' + ddId + '-display';
-                    var selectedButton = null;
-                    var notImportedButton = null;
-                    options.forEach(function (opt) {
-                        var li = document.createElement('li');
-                        li.setAttribute('role', 'none');
-                        var btn = document.createElement('button');
-                        btn.type = 'button';
-                        btn.setAttribute('role', 'menuitemradio');
-                        btn.setAttribute('aria-checked', 'false');
-                        btn.tabIndex = -1;
-                        btn.setAttribute('data-opt-value', opt.v);
-                        btn.setAttribute('data-opt-label', opt.l);
-                        btn.textContent = opt.l;
-                        btn.addEventListener('click', function () {
-                            window.setDropdownValue(ddId, dispRef, btn);
-                        });
-                        if (!opt.v) notImportedButton = btn;
-                        if (opt.v === suggested) selectedButton = btn;
-                        li.appendChild(btn);
+                    var required = requiredFields.has(key);
+                    var row = mappingTemplate.content.firstElementChild.cloneNode(true);
+                    var label = row.querySelector('label');
+                    var button = row.querySelector('button');
+                    var picker = row.querySelector('.gys-picker');
+                    var menu = picker.querySelector('ul');
+                    var hidden = row.querySelector('input[type="hidden"]');
+                    var displayId = ddId + '-display';
+                    var anchor = '--' + ddId + '-anchor';
+
+                    button.id = ddId + '-button';
+                    button.firstElementChild.id = displayId;
+                    label.htmlFor = button.id;
+                    label.textContent = entry[1] + (required ? ' (required)' : '');
+                    button.setAttribute('aria-label', 'Column for ' + label.textContent);
+                    button.setAttribute('aria-describedby', displayId);
+                    picker.id = ddId + '-picker';
+                    picker.setAttribute('aria-labelledby', button.id);
+                    button.setAttribute('popovertarget', picker.id);
+                    button.setAttribute('aria-controls', picker.id);
+                    button.style.anchorName = anchor;
+                    picker.style.positionAnchor = anchor;
+                    menu.id = ddId + '-menu';
+                    hidden.id = ddId;
+                    hidden.dataset.bfMap = key;
+                    hidden.toggleAttribute('data-bf-map-required', required);
+
+                    // Reuse the macro's option markup, but put workbook headers in
+                    // text/data attributes only and bind the cloned options here.
+                    var emptyOption = menu.firstElementChild;
+                    var selectedButton = emptyOption.firstElementChild;
+                    selectedButton.removeAttribute('onclick');
+                    var suggested = data.suggestions[key];
+                    data.headers.forEach(function (header) {
+                        var li = emptyOption.cloneNode(true);
+                        var btn = li.firstElementChild;
+                        btn.dataset.optValue = header;
+                        btn.dataset.optLabel = header;
+                        btn.textContent = header;
+                        if (header === suggested) selectedButton = btn;
                         menu.appendChild(li);
                     });
-                    window.setDropdownValue(
-                        ddId, dispRef, selectedButton || notImportedButton
-                    );
+                    menu.querySelectorAll('button').forEach(function (btn) {
+                        btn.addEventListener('click', function () {
+                            window.setDropdownValue(ddId, displayId, btn);
+                        });
+                    });
+                    mappings.appendChild(row);
+                    window.setDropdownValue(ddId, displayId, selectedButton);
                 });
+            }
+
+            function buildMapping(data) {
+                buildMappingFields(data);
                 var previewBody = importModal.querySelector('.js-bf-preview');
                 previewBody.replaceChildren();
                 var previewHead = importModal.querySelector('.js-bf-preview-head');
@@ -435,9 +478,14 @@
 
             commitButton.addEventListener('click', function () {
                 if (committing || !file || !inspectData || !importModal.open) return;
+                var firstMissing = validateRequiredMappings();
+                if (firstMissing) {
+                    firstMissing.focus();
+                    return;
+                }
                 var mapping = {};
-                section.querySelectorAll('[data-bf-map]').forEach(function (hidden) {
-                    mapping[hidden.getAttribute('data-bf-map')] = hidden.value || null;
+                mappings.querySelectorAll('[data-bf-map]').forEach(function (hidden) {
+                    mapping[hidden.dataset.bfMap] = hidden.value || null;
                 });
                 var assignee = document.getElementById('bf-import-assignee');
                 var form = new FormData();
@@ -451,7 +499,6 @@
                 if (assignee && assignee.value) {
                     form.append('assigned_qa_id', assignee.value);
                 }
-                setImportError();
                 setCommitPending(true);
                 fetch('/api/' + tracker + '/import', {method: 'POST', credentials: 'same-origin', body: form})
                     .then(function (response) {

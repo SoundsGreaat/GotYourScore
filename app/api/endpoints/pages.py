@@ -50,7 +50,6 @@ from app.models import (
     UserRole,
 )
 from app.services import (
-    bad_feedback_import,
     quota_service,
     reporting_period,
     scorecard_service,
@@ -710,7 +709,6 @@ async def _render_case_tracker(
             "month_options": await _tracker_month_options(db, record_model),
             "qa_options": qa_options,
             "agent_options": agent_options,
-            "field_labels": bad_feedback_import.import_field_labels(context["tracker_fields"]),
             "fault_values": [
                 {"value": f.value, "label": f.value} for f in FaultEnum
             ],

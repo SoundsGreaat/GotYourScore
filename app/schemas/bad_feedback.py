@@ -172,6 +172,9 @@ class ImportInspectResponse(BaseModel):
     headers: list[str]
     # Canonical field key -> suggested header text (or absent).
     suggestions: dict[str, str]
+    # Active case fields and the two agent mappings, in mapping screen order.
+    field_labels: dict[str, str]
+    required_fields: list[str]
     preview: list[ImportPreviewRow]
     total_rows: int
 

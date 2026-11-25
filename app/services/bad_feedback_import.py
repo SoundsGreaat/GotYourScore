@@ -144,7 +144,7 @@ _MAX_ROWS = 1000
 _MAX_CELL = 2000
 
 # Row-level skip reasons.
-REASON_NO_AGENTS = "no agents in the row"
+REASON_NO_MAPPED_VALUES = "no usable mapped values"
 REASON_BAD_DATE = "unparsable date (fix it in the sheet or clear the cell)"
 REASON_FIELD_TOO_LONG = "value exceeds the field's maximum length"
 
@@ -375,6 +375,10 @@ def import_field_labels(fields: Sequence[TrackerField]) -> dict[str, str]:
     return labels
 
 
+def _required_field_labels(fields: Sequence[TrackerField]) -> dict[str, str]:
+    return {field.key: field.label for field in fields if field.required_for_import}
+
+
 def _suggest_mapping_for_labels(
     headers: list[str], field_labels: dict[str, str]
 ) -> dict[str, str]:
@@ -463,22 +467,21 @@ def inspect_workbook(
                         values=[_display(v) or "" for v in values[: len(headers)]],
                     )
                 )
-        if fields is None:
-            suggestions = suggest_mapping(headers)
-        else:
-            suggestions = _suggest_mapping_for_labels(
-                headers, import_field_labels(fields)
-            )
-            if include_legacy_date_alias and "fb_date" in suggestions:
-                # The old Bad Feedback import client called this field
-                # ``date``. Keep its suggestion while exposing fb_date for
-                # the configurable-field UI.
-                suggestions["date"] = suggestions["fb_date"]
+        field_labels = (
+            FIELD_LABELS if fields is None else import_field_labels(fields)
+        )
+        suggestions = _suggest_mapping_for_labels(headers, field_labels)
+        if include_legacy_date_alias and "fb_date" in suggestions:
+            # Keep the old Bad Feedback suggestion without adding a second
+            # Date picker to the configurable-field UI.
+            suggestions["date"] = suggestions["fb_date"]
         return ImportInspectResponse(
             sheet_names=list(workbook.sheetnames),
             active_sheet=sheet.title,
             headers=headers,
             suggestions=suggestions,
+            field_labels=field_labels,
+            required_fields=list(_required_field_labels(fields or ())),
             preview=data_rows,
             total_rows=total,
         )
@@ -525,6 +528,7 @@ async def commit_import(
         field_specs = [
             (field.key, field.key, field.field_type) for field in fields
         ]
+    required_fields = _required_field_labels(fields or ())
 
     workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
     try:
@@ -557,6 +561,15 @@ async def commit_import(
             mapping_key: _header_index(headers, mapping.get(mapping_key))
             for mapping_key, _, _ in field_specs
         }
+        missing_mappings = [
+            label for key, label in required_fields.items() if columns[key] is None
+        ]
+        if missing_mappings:
+            raise ValueError(
+                "Map a workbook column for each required field: "
+                + ", ".join(missing_mappings)
+                + "."
+            )
         columns["support_agents"] = _header_index(
             headers, mapping.get("support_agents")
         )
@@ -591,15 +604,28 @@ async def commit_import(
                     value = value[:_MAX_CELL]
                 return value
 
+            missing_values = [
+                label for key, label in required_fields.items()
+                if _display(cell(key)) is None
+            ]
+            if missing_values:
+                skipped.append(
+                    (row_number, "Missing required values: " + ", ".join(missing_values))
+                )
+                continue
+
             case_values: dict[str, str | None] = {}
             invalid_date = False
             too_long_field: str | None = None
             too_long_limit: int | None = None
             for mapping_key, field_key, field_type in field_specs:
+                if columns[mapping_key] is None:
+                    continue
                 raw_value = cell(mapping_key)
+                value = _display(raw_value)
                 if field_type == "date":
                     parsed_date = parse_feedback_date(raw_value, today)
-                    if raw_value not in (None, "") and parsed_date is None:
+                    if value is not None and parsed_date is None:
                         invalid_date = True
                         break
                     case_values[field_key] = (
@@ -607,7 +633,6 @@ async def commit_import(
                     )
                     continue
 
-                value = _display(raw_value)
                 value_limit = field_value_limit(field_key)
                 if value is not None and len(value) > value_limit:
                     too_long_field = field_key
@@ -642,14 +667,15 @@ async def commit_import(
                     )
                     if user is not None:
                         agent_rows.append((user, kind))
-            if not agent_rows:
-                skipped.append((row_number, REASON_NO_AGENTS))
+            if not agent_rows and not any(case_values.values()):
+                skipped.append((row_number, REASON_NO_MAPPED_VALUES))
                 continue
 
             feedback = record_model(
                 status=ReviewStatusEnum.PENDING,
                 assigned_qa_id=assigned_qa_id,
                 created_by=created_by,
+                agents=[],  # Keep the collection readable after commit even when empty.
             )
             # Uses replacement semantics for JSONB and leaves compatibility
             # columns authoritative for the five seeded keys.
