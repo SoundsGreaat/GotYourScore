@@ -11,6 +11,7 @@ __pycache__
 scripts/*.csv
 Dockerfile
 docker-compose.yml
+docker-compose.override.yml
 README.md
 .github
 graphify-out
