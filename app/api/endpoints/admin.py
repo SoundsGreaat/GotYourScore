@@ -829,6 +829,7 @@ async def create_case_field(
                 else None
             ),
             show_in_my_reviews=form.get("show_in_my_reviews") == "true",
+            required_for_import=form.get("required_for_import") == "true",
         )
         await db.commit()
     except ValueError as exc:
@@ -869,6 +870,7 @@ async def update_case_field(
                 else None
             ),
             show_in_my_reviews=form.get("show_in_my_reviews") == "true",
+            required_for_import=form.get("required_for_import") == "true",
         )
         await db.commit()
     except ValueError as exc:

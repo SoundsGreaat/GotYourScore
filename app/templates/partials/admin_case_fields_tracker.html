@@ -33,6 +33,12 @@
                {% if field and field.show_in_my_reviews %}checked{% endif %}>
         <span>Show in My Reviews</span>
     </label>
+    <label class="gys-admin-check flex min-h-8 items-center gap-2 text-sm" for="{{ prefix }}-import">
+        <input id="{{ prefix }}-import" class="checkbox checkbox-sm checkbox-primary"
+               name="required_for_import" type="checkbox" value="true"
+               {% if field and field.required_for_import %}checked{% endif %}>
+        <span>Required for import</span>
+    </label>
 {% endmacro %}
 
 <section id="{{ scope }}" data-case-field-tracker

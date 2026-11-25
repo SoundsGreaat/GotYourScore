@@ -8,12 +8,19 @@ async function openImport(page) {
   return page.getByRole("dialog").filter({ has: page.getByRole("heading", { name: "Import Bad Feedback" }) });
 }
 
-function inspection(headers = ["Customer"]) {
+function inspection(headers = ["Customer"], config = {}) {
   return {
     headers,
     suggestions: {},
     total_rows: 1,
     preview: [{ row_number: 2, values: ["Example"] }],
+    field_labels: {
+      customer_info: "Customer info",
+      support_agents: "RA Support agents assigned",
+      sales_agents: "Sales agents assigned",
+    },
+    required_fields: [],
+    ...config,
   };
 }
 
@@ -107,6 +114,60 @@ test("successful report remains visible until dismissed, then changed event swap
   expect((await refresh).status()).toBe(200);
   await expect(page.locator("#bad-feedback-view")).toBeVisible();
   await expect(page.getByRole("button", { name: "Import from Excel" })).toBeVisible();
+});
+
+test("required import mappings block submission until corrected", async ({ page }) => {
+  await signIn(page);
+  await page.route("**/api/bad-feedback/import/inspect", (route) => route.fulfill({
+    json: inspection(["Customer", "Reference"], {
+      field_labels: {
+        customer_info: "Customer details",
+        custom_reference: "Case reference",
+        support_agents: "RA Support agents assigned",
+        sales_agents: "Sales agents assigned",
+      },
+      required_fields: ["customer_info", "custom_reference"],
+    }),
+  }));
+  let commits = 0;
+  await page.route("**/api/bad-feedback/import", (route) => {
+    commits++;
+    return route.fulfill({ json: { created_count: 1, skipped_count: 0, created_users: [], skipped: [] } });
+  });
+
+  const dialog = await openImport(page);
+  await dialog.locator(".js-bf-file").setInputFiles({
+    name: "required.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from("fixture"),
+  });
+  await dialog.getByRole("button", { name: "Analyze" }).click();
+  const customer = dialog.getByRole("button", { name: "Column for Customer details (required)", exact: true });
+  const reference = dialog.getByRole("button", { name: "Column for Case reference (required)", exact: true });
+  const importButton = dialog.getByRole("button", { name: "Import", exact: true });
+  const error = dialog.getByRole("alert");
+  await expect(dialog.locator('label[for="bf-map-customer_info-button"]')).toHaveText("Customer details (required)");
+  await expect(customer).not.toHaveAttribute("aria-invalid", "true");
+  await importButton.press("Enter");
+  await expect(error).toHaveText("Choose spreadsheet columns for: Customer details, Case reference.");
+  await expect(customer).toBeFocused();
+  await expect(customer).toHaveAttribute("aria-invalid", "true");
+  await expect(reference).toHaveAttribute("aria-invalid", "true");
+  expect(commits).toBe(0);
+
+  await page.keyboard.press("ArrowDown");
+  await expect(dialog.getByRole("menuitemradio", { name: "Not imported" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(dialog.locator("#bf-map-customer_info")).toHaveValue("Customer");
+  await expect(customer).not.toHaveAttribute("aria-invalid", "true");
+  await expect(error).toHaveText("Choose spreadsheet columns for: Case reference.");
+
+  await reference.click();
+  await dialog.getByRole("menuitemradio", { name: "Reference", exact: true }).click();
+  await expect(reference).not.toHaveAttribute("aria-invalid", "true");
+  await expect(error).toBeEmpty();
+  await importButton.press("Enter");
+  await expect(dialog.locator(".js-bf-step-report")).toContainText("1 record(s) imported.");
+  expect(commits).toBe(1);
 });
 
 test("Bad Feedback editor cards share the new picker behavior", async ({ page }) => {

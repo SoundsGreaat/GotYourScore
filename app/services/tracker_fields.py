@@ -144,6 +144,7 @@ async def create_field(
     field_type: str,
     position: int | None = None,
     show_in_my_reviews: bool = False,
+    required_for_import: bool = False,
 ) -> TrackerField:
     """Create a field with a generated stable key; caller commits."""
     tracker = _tracker_name(tracker)
@@ -161,6 +162,7 @@ async def create_field(
         label=label,
         field_type=field_type,
         show_in_my_reviews=show_in_my_reviews,
+        required_for_import=required_for_import,
     )
     _reorder_fields(fields, field, len(fields) if position is None else position)
     db.add(field)
@@ -216,6 +218,7 @@ async def update_field(
     field_type: str,
     position: int | None = None,
     show_in_my_reviews: bool | None = None,
+    required_for_import: bool | None = None,
 ) -> TrackerField:
     """Update a field's label, type and order; caller commits.
 
@@ -244,6 +247,8 @@ async def update_field(
     field.field_type = new_type
     if show_in_my_reviews is not None:
         field.show_in_my_reviews = show_in_my_reviews
+    if required_for_import is not None:
+        field.required_for_import = required_for_import
     if new_position is not None:
         fields = await list_fields(db, tracker)
         fields.remove(field)
