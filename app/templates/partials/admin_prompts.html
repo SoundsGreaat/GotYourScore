@@ -46,7 +46,7 @@
                     <span class="ms-auto">{{ admin.chevron() }}</span>
                 </summary>
                 {% if slot.versions %}
-            <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300">
+            <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300 overflow-hidden">
                 {% for v in slot.versions %}
                 <li id="prompt-version-{{ v.id }}" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 {{ 'bg-success/5' if slot.active_id == v.id }}">
                     <span class="whitespace-nowrap text-xs tabular-nums text-base-content/60">{{ v.created_at.strftime('%b %d, %Y %H:%M') }}</span>
