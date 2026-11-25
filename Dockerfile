@@ -22,7 +22,7 @@ WORKDIR /app
 
 # The pinned Debian base predates the zlib security update (CVE-2026-85091).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends --only-upgrade zlib1g \
+    && apt-get install -y --no-install-recommends --only-upgrade zlib1g libzstd1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Lockfile-first layer: dependency install only reruns when uv.lock changes.
