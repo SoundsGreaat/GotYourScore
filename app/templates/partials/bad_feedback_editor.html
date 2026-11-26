@@ -227,10 +227,13 @@
         var fieldValues = values.field_values || {};
         trackerFields.forEach(function (field, index) {
             var id = tracker + '-field-' + index;
+            var numeric = field.field_type === 'integer' || field.field_type === 'decimal';
+            var fieldContainer = document.createElement('div');
+            fieldContainer.className = 'min-w-0';
             var label = document.createElement('label');
             label.className = 'flex flex-col gap-1 text-sm';
             if (field.field_type === 'textarea' || field.key === 'customer_info' || field.key === 'related_case') {
-                label.classList.add('sm:col-span-2');
+                fieldContainer.classList.add('sm:col-span-2');
             }
             label.htmlFor = id;
             label.textContent = field.label;
@@ -241,14 +244,40 @@
             control.dataset.fieldKey = field.key;
             control.className = (field.field_type === 'textarea' ? 'textarea' : 'input') + ' input-sm w-full';
             if (field.field_type !== 'textarea') control.type = field.field_type === 'date' ? 'date' : 'text';
-            if (field.field_type !== 'date') {
+            if (field.field_type !== 'date' && !numeric) {
                 control.maxLength = field.max_length;
             }
             var value = fieldValues[field.key];
             control.value = value == null ? '' : String(value);
             control.dataset.initialValue = control.value;
             label.appendChild(control);
-            grid.appendChild(label);
+            fieldContainer.appendChild(label);
+            if (numeric) {
+                // Keep the full keyboard for signs, the ASCII dot, and exponents.
+                // A number input can also sanitize invalid text to an empty string.
+                control.autocomplete = 'off';
+                control.autocapitalize = 'none';
+                control.setAttribute('autocorrect', 'off');
+                control.spellcheck = false;
+                control.dataset.numeric = '';
+                var hint = document.createElement('p');
+                hint.id = id + '-hint';
+                hint.className = 'mt-1 text-xs text-base-content/75';
+                hint.textContent = field.field_type === 'integer'
+                    ? 'Whole number (e.g. -2).'
+                    : 'Use a dot for decimals (e.g. -1.25).';
+                var error = document.createElement('p');
+                error.id = id + '-error';
+                error.className = 'text-sm text-error';
+                error.setAttribute('aria-live', 'polite');
+                control.setAttribute('aria-describedby', hint.id + ' ' + error.id);
+                control.addEventListener('input', function () {
+                    control.removeAttribute('aria-invalid');
+                    error.textContent = '';
+                });
+                fieldContainer.append(hint, error);
+            }
+            grid.appendChild(fieldContainer);
         });
         body.appendChild(grid);
         var agentHeading = document.createElement('p');
@@ -327,14 +356,32 @@
     function readForm() {
         var fieldValues = {};
         section.querySelectorAll('[data-field-key]').forEach(function (control) {
-            if (control.value !== control.dataset.initialValue) {
-                fieldValues[control.dataset.fieldKey] = control.value || null;
+            var value = control.value;
+            if (value !== control.dataset.initialValue) {
+                fieldValues[control.dataset.fieldKey] = (control.hasAttribute('data-numeric') ? value.trim() : value)
+                    ? value : null;
             }
         });
         return {field_values: fieldValues};
     }
 
-    async function submitMutation(url, options, message, fallback) {
+    function showNumericError(detail, submittedFields) {
+        var message = gysTrackerNumericErrorMessage(detail?.code);
+        if (!message || typeof detail.field_key !== 'string' || !Object.hasOwn(submittedFields, detail.field_key)) return false;
+        var index = trackerFields.findIndex(function (field) {
+            return field.key === detail.field_key && 'invalid_' + field.field_type === detail.code;
+        });
+        if (index === -1) return false;
+        var id = tracker + '-field-' + index;
+        var control = document.getElementById(id);
+        if (!control || control.value !== submittedFields[detail.field_key]) return false;
+        control.setAttribute('aria-invalid', 'true');
+        document.getElementById(id + '-error').textContent = message;
+        control.focus();
+        return true;
+    }
+
+    async function submitMutation(url, options, message, fallback, submittedFields) {
         if (submitting || disposed) return;
         submitting = true;
         var buttons = section.querySelectorAll('.js-bf-save, .js-bf-save-later, .js-bf-complete');
@@ -345,6 +392,11 @@
                 throw new GysRequestError(409, 'This record is already completed. Reopen it to see the latest state.');
             }
             if (response.status === 400 || response.status === 422) {
+                if (response.status === 400 && submittedFields) {
+                    var result = await response.json().catch(function () { return null; });
+                    if (disposed || !root.isConnected) return;
+                    if (showNumericError(result?.detail, submittedFields)) return;
+                }
                 throw new GysRequestError(response.status, 'Check the case fields and selected agents, then try again.');
             }
             if (!response.ok) throw new GysRequestError(response.status);
@@ -369,7 +421,7 @@
             method: 'PATCH', credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        }, 'Saved.', 'Unable to save.');
+        }, 'Saved.', 'Unable to save.', payload.field_values);
     }
 
     function createFeedback(complete) {
@@ -380,7 +432,7 @@
             method: 'POST', credentials: 'same-origin',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(payload)
-        }, complete ? 'Saved.' : 'Saved for later.', 'Unable to save.');
+        }, complete ? 'Saved.' : 'Saved for later.', 'Unable to save.', payload.field_values);
     }
 
     function completeEdit(id) {

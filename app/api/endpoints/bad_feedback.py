@@ -7,6 +7,7 @@ bound to its own ORM tables and stable tracker-field configuration.
 import json
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
 from fastapi import (
@@ -15,6 +16,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Request,
     UploadFile,
     status,
 )
@@ -53,6 +55,7 @@ from app.schemas.bad_feedback import (
 from app.services import bad_feedback_import as bfi
 from app.services.tracker_fields import (
     DATE_FIELD_KEYS,
+    InvalidNumericFieldValue,
     apply_field_values,
     canonical_field_keys,
     list_fields,
@@ -213,16 +216,38 @@ async def _validate_assigned_qa(
 
 
 async def _apply_dynamic_values(
-    record, values: dict[str, str | None], tracker: str, db: AsyncSession
+    record, values: dict[str, object], tracker: str, db: AsyncSession
 ) -> None:
     try:
         validated = await validate_field_values(db, tracker, values)
+    except InvalidNumericFieldValue as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": exc.code, "field_key": exc.field_key},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
     apply_field_values(record, validated)
+
+
+async def _exact_field_values(payload, request: Request) -> dict[str, object]:
+    values = payload.field_values
+    if not any(isinstance(value, float) for value in values.values()):
+        return values
+
+    # Use the original JSON tokens for fractional numbers: the normal
+    # request parser has already rounded them to binary floats.
+    try:
+        exact = json.loads(await request.body(), parse_float=Decimal)["field_values"]
+    except InvalidOperation as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field values must be finite numbers within the supported range.",
+        ) from exc
+    return {key: exact[key] if isinstance(value, float) else value for key, value in values.items()}
 
 
 def _tracker_router(
@@ -279,7 +304,7 @@ def _tracker_router(
         name=f"list_{tracker}_records",
     )
 
-    async def create_record(payload, auth, db):
+    async def create_record(payload, request, auth, db):
         resolved = await _validate_agents_payload(payload.agents, db)
         await _validate_assigned_qa(payload.assigned_qa_id, db)
         legacy_values = payload.model_dump(
@@ -287,7 +312,7 @@ def _tracker_router(
             mode="json",
             exclude_unset=True,
         )
-        incoming_values = {**legacy_values, **payload.field_values}
+        incoming_values = {**legacy_values, **await _exact_field_values(payload, request)}
         record = record_model(
             status=(
                 ReviewStatusEnum.COMPLETED
@@ -320,6 +345,7 @@ def _tracker_router(
 
     create_record.__annotations__ = {
         "payload": create_schema,
+        "request": Request,
         "auth": FeedbackUser,
         "db": DbSession,
         "return": read_schema,
@@ -353,24 +379,21 @@ def _tracker_router(
         name=f"get_{tracker}_record",
     )
 
-    async def update_record(feedback_id, payload, auth, db):
+    async def update_record(feedback_id, payload, request, auth, db):
         record = await _get_record_or_404(
             feedback_id, db, record_model, display_name, for_write=True
         )
-        data = payload.model_dump(exclude_unset=True)
         legacy_values = payload.model_dump(
             include=flat_keys,
             mode="json",
             exclude_unset=True,
         )
 
-        if "assigned_qa_id" in data:
-            await _validate_assigned_qa(data["assigned_qa_id"], db)
-            record.assigned_qa_id = data["assigned_qa_id"]
+        if "assigned_qa_id" in payload.model_fields_set:
+            await _validate_assigned_qa(payload.assigned_qa_id, db)
+            record.assigned_qa_id = payload.assigned_qa_id
 
-        incoming_values = dict(legacy_values)
-        if "field_values" in data:
-            incoming_values.update(data["field_values"])
+        incoming_values = {**legacy_values, **await _exact_field_values(payload, request)}
         # Both legacy and dynamic inputs must target active configured fields
         # and obey their current types; field_values wins for duplicate keys.
         if incoming_values:
@@ -390,6 +413,7 @@ def _tracker_router(
     update_record.__annotations__ = {
         "feedback_id": int,
         "payload": update_schema,
+        "request": Request,
         "auth": FeedbackUser,
         "db": DbSession,
         "return": read_schema,

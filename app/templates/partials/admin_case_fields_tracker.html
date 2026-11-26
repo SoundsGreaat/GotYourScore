@@ -3,14 +3,16 @@
 {% import "macros/icons.html" as icons %}
 {% set scope = 'case-fields-' ~ tracker %}
 {% set url = '/admin/case-fields/' ~ tracker %}
-{% set types = [
-    {'value': 'text', 'label': 'Text'},
-    {'value': 'textarea', 'label': 'Long text'},
-    {'value': 'date', 'label': 'Date'}
-] %}
-{% set type_labels = {'text': 'Text', 'textarea': 'Long text', 'date': 'Date'} %}
+{% set type_labels = {'text': 'Text', 'textarea': 'Long text', 'date': 'Date', 'integer': 'Integer', 'decimal': 'Decimal'} %}
 
 {% macro field_inputs(prefix, field=none) %}
+    {% set type_options = [] %}
+    {% set allowed_types = ['date'] if field and field.key == tracker_fields.date_key
+        else ['text', 'textarea', 'date'] if field and not field.key.startswith('custom_')
+        else type_labels.keys() %}
+    {% for value in allowed_types %}
+        {% set _ = type_options.append({'value': value, 'label': type_labels[value]}) %}
+    {% endfor %}
     <div class="grid gap-3 sm:grid-cols-2">
         <div class="grid min-w-0 gap-1">
             <label for="{{ prefix }}-label" class="text-sm font-medium">Label</label>
@@ -21,7 +23,7 @@
         <div class="grid min-w-0 gap-1">
             <label for="{{ prefix }}-type-button" class="text-sm font-medium">Type</label>
             {{ dd.dropdown(prefix ~ '-type',
-                items=types[-1:] if field and field.key == tracker_fields.date_key else types,
+                items=type_options,
                 selected=field.field_type if field else 'text',
                 btn_cls='select gys-admin-field flex w-full items-center',
                 aria_label='Type', hidden_attrs='name="field_type"') }}
@@ -137,6 +139,7 @@
                     <div class="min-w-0">
                         <span class="block wrap-anywhere text-sm font-semibold">{{ field.label }}</span>
                         <code class="block wrap-anywhere text-xs text-base-content/75">{{ field.key }}</code>
+                        <span class="badge badge-ghost badge-sm">{{ type_labels[field.field_type] }}</span>
                     </div>
                     <form method="post" action="{{ url }}/{{ field.id }}/restore" hx-post="{{ url }}/{{ field.id }}/restore"
                           hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="restore">

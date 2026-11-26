@@ -26,7 +26,9 @@
                             <th scope="row" class="font-medium">{{ row.agent_names|join(', ') if row.agent_names else '—' }}</th>
                             <td>{{ row.reviewer_name }}</td>
                             {% for field in tracker_fields %}
-                            <td class="max-w-64 truncate" title="{{ values.get(field.key) or '' }}">{{ values.get(field.key) or '—' }}</td>
+                            {% set field_value = values.get(field.key) %}
+                            {% set unset = field_value is none or field_value == '' %}
+                            <td class="max-w-64 truncate" title="{{ '' if unset else field_value }}">{{ '—' if unset else field_value }}</td>
                             {% endfor %}
                             <td>{{ record.status.value }}</td>
                             <td>
