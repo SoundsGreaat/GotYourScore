@@ -22,7 +22,8 @@ test("admin tabs scroll on mobile and select only after a successful swap", asyn
     json: { detail: "Temporarily unavailable." },
   }), { times: 1 });
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("alert").filter({ hasText: "Temporarily unavailable." })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /^Server error$/ })).toBeVisible();
+  await expect(page.getByText("Temporarily unavailable.", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("tabpanel", { name: "Prompts" })).toBeVisible();
   await expect(page).toHaveURL(`${base}/admin`);
   await page.keyboard.press("Space");

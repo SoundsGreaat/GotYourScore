@@ -31,7 +31,7 @@ test("AI settings only updates the saved or reset card and keeps its disclosure 
   const failed = nextResponse(page, "/admin/ai/provider", "POST");
   await saveRouting.press("Enter");
   expect((await failed).status()).toBe(400);
-  await expect(page.getByRole("alert").filter({ hasText: "Invalid request." })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /^Request error$/ })).toBeVisible();
   await expect(routing).toHaveValue("{");
   await expect(saveRouting).toBeFocused();
 

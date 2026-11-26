@@ -26,7 +26,7 @@
                     <div id="agent-palette" class="flex min-h-10 flex-wrap content-start items-start gap-1.5 rounded-box border border-dashed border-base-300 bg-base-200/40 p-2">
                         {% for agent in unassigned_agents %}
                         <span class="badge badge-outline badge-sm cursor-grab select-none py-3 touch-none"
-                              data-agent-id="{{ agent.id }}"
+                              data-agent-id="{{ agent.id }}" data-agent-name="{{ agent.name }}"
                               title="Drag onto a QA row">{{ agent.name }}</span>
                         {% endfor %}
                     </div>
@@ -71,6 +71,7 @@
                                     {% for assignment in qa_assignments %}
                                     <span class="badge badge-soft badge-sm cursor-grab gap-1 py-3 select-none touch-none"
                                           data-assignment-id="{{ assignment.id }}" data-agent-id="{{ assignment.agent_id }}"
+                                          data-agent-name="{{ assignment.name }}"
                                           title="Drag onto another QA row to reassign">
                                         <span>{{ assignment.name }}</span>
                                         <button type="button"
@@ -127,13 +128,12 @@
     (function () {
         var scope = document.getElementById('quotas-scope');
         if (!scope) return;
-        var extractDetail = window.extractDetail;
         // DnD errors surface as body-level toasts: the section fully
         // re-renders after every settled drop, so an inline alert
         // would be wiped before anyone can read it.
-        var showError = function (message) {
-            (window.gysToast || window.alert).call(window, message);
-        };
+        function showError(action, agentName, error) {
+            window.gysToast(action + (agentName || 'this agent') + '. ' + window.gysRequestErrorMessage(error));
+        }
         function refresh() {
             document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
         }
@@ -144,11 +144,14 @@
                 credentials: 'same-origin',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ qa_id: Number(qaId), support_agent_id: Number(agentId) })
-            }).then(async function (response) {
-                if (!response.ok) {
-                    var payload = await response.json().catch(function () { return null; });
-                    throw new Error(extractDetail(payload, response.status));
+            }).then(function (response) {
+                if (response.status === 409) {
+                    throw new GysRequestError(409, 'This agent already has a QA. Move the existing assignment to reassign them.');
                 }
+                if (response.status === 400) {
+                    throw new GysRequestError(400, 'Check that the agent and QA are still available.');
+                }
+                if (!response.ok) throw new GysRequestError(response.status);
             });
         }
         function deleteAssignment(assignmentId) {
@@ -157,7 +160,7 @@
                 credentials: 'same-origin'
             }).then(function (response) {
                 if (!response.ok && response.status !== 404) {
-                    throw new Error('Request failed (' + response.status + ').');
+                    throw new GysRequestError(response.status);
                 }
             });
         }
@@ -169,7 +172,7 @@
                 await deleteAssignment(button.getAttribute('data-assignment-remove'));
                 refresh();
             } catch (error) {
-                showError(error.message || 'Unable to remove the assignment.');
+                showError('Unable to remove the assignment for ', button.closest('[data-agent-name]')?.dataset.agentName, error);
             }
         });
 
@@ -199,18 +202,18 @@
                     var item = evt.item;
                     var fromQa = evt.from.getAttribute('data-qa-id');
                     var toQa = evt.to.getAttribute('data-qa-id');
-                    var agentName = item.textContent.trim();
+                    var agentName = item.dataset.agentName;
                     var oldAssignmentId = item.getAttribute('data-assignment-id');
                     var agentId = item.getAttribute('data-agent-id');
                     var prepare = Promise.resolve();
                     if (fromQa && oldAssignmentId) {
-                        prepare = deleteAssignment(oldAssignmentId).catch(function () {});
+                        prepare = deleteAssignment(oldAssignmentId);
                     }
                     prepare
                         .then(function () { return postAssignment(toQa, agentId); })
                         .then(refresh)
                         .catch(function (error) {
-                            showError(error.message || ('Unable to assign ' + agentName + '.'));
+                            showError('Unable to assign ', agentName, error);
                             refresh();
                         });
                 }

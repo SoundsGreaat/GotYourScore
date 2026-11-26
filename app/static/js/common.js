@@ -72,31 +72,62 @@ window.gysToast = function (message, kind) {
     window.gysFloatNote(message, kind);
 };
 
-/* Human-readable message from an API error payload. */
-window.extractDetail = function (payload, statusCode) {
-    if (payload && payload.detail) {
-        if (typeof payload.detail === 'string') return payload.detail;
-        if (payload.detail.message) return payload.detail.message;
+function requestErrorText(status) {
+    return status >= 500 ? 'Server error' : 'Request error';
+}
+
+// Only construct these with client-owned copy, never response or exception text.
+class GysRequestError extends Error {
+    constructor(status, message) {
+        super(message || requestErrorText(status));
     }
-    return 'Request failed (' + statusCode + ').';
+}
+window.gysRequestErrorMessage = function (error, fallback) {
+    return error instanceof GysRequestError ? error.message : (fallback || 'Request error');
+};
+window.gysAiResponseError = function (response) {
+    if (response.status !== 429) return new GysRequestError(response.status);
+    var retryAfter = Number(response.headers.get('Retry-After'));
+    return new GysRequestError(429, Number.isSafeInteger(retryAfter) && retryAfter > 0
+        ? 'AI request limit reached. Try again in ' + retryAfter + ' seconds.'
+        : 'AI request limit reached. Please try again shortly.');
 };
 
-/* Message from a failed HTMX request: server bodies may be JSON detail
- * objects OR legacy HTML fragments — strip tags as a fallback so the
- * user always sees the actual reason, not silence. */
+// Compatibility with the existing admin 400 contract, limited to these
+// endpoints and exact known validation messages. Never return arbitrary detail.
+const gysCaseFieldErrors = new Set([
+    'Field label cannot be blank.',
+    'Field label must be at most 200 characters.',
+    'Field type must be one of: date, text, textarea.',
+    'Field position must be a whole number.',
+    'Field position must be an integer from 0 to 100000.',
+    'Tracker field was not found.',
+    'The tracker has reached its active field limit.',
+    'The built-in Date field must remain a date.',
+    'Restore the archived field before changing it.',
+    'This field cannot be changed to a date because it has non-text values.',
+    'This field cannot be changed to a date while it contains values that are not valid YYYY-MM-DD dates. Clear or correct those values first.',
+    'The field list is out of date. Refresh the tracker fields and try again.',
+]);
+const gysScorecardErrors = new Set([
+    'Autofail is a separate review outcome, not a scorecard error.',
+    'The Autofail rule key is reserved; remove the old rule.',
+]);
+
 function htmxErrorMessage(ctx) {
-    var body = ctx.text;
-    if (body) {
+    var status = ctx.response?.status;
+    if (status === 400 && ctx.text) {
         try {
-            var parsed = JSON.parse(body);
-            var detail = parsed && parsed.detail;
-            if (typeof detail === 'string') return detail;
-            if (detail && detail.message) return detail.message;
-        } catch (e) { /* not JSON */ }
-        var text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-        if (text) return text;
+            var url = new URL(ctx.request.action, document.baseURI);
+            var detail = JSON.parse(ctx.text)?.detail;
+            if (url.origin === window.location.origin && (
+                (/^\/admin\/case-fields\/(?:bad-feedback|refund-check)\//.test(url.pathname)
+                    && gysCaseFieldErrors.has(detail))
+                || (/^\/admin\/scorecards\/\d+\/save$/.test(url.pathname) && gysScorecardErrors.has(detail))
+            )) return detail;
+        } catch { /* use the safe fallback */ }
     }
-    return 'Request failed (' + ctx.response.status + ').';
+    return requestErrorText(status);
 }
 
 /* Error responses do not swap (see the HTMX config in base.html).

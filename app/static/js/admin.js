@@ -365,9 +365,9 @@
                 announceMove(item, direction);
                 window.gysToast('Field order saved.', 'alert-success');
             }
-        } catch (error) {
+        } catch {
             rollback();
-            if (list.isConnected) window.gysToast(error.message || 'Could not save the field order.');
+            if (list.isConnected) window.gysToast('Could not save the field order.');
         } finally {
             list.removeEventListener('htmx:finally:request', readStatus);
             ordering.delete(list);

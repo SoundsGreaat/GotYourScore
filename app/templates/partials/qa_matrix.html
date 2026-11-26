@@ -418,7 +418,6 @@
         window.__qaMatrixDelegateModalOpen = false;
 
         var showToast = window.gysToast;
-        var extractDetail = window.extractDetail;
         var openReviewDrawer = window.openReviewDrawer;
 
         section.addEventListener('click', function (event) {
@@ -565,21 +564,29 @@
         // The batch outcome surfaces as a bottom-center floating note
         // (gysFloatNote) instead of an inline block: the modal stays
         // clean, and the report is visible even over the dialog glass.
+        var batchSkipCopy = new Map([
+            ['duplicate in list', 'Duplicate in this batch'],
+            ['unknown or inactive agent', 'Agent is unavailable'],
+            ["case_type 'No Cases' is not allowed", 'Choose a different case type'],
+            ['assignee is not a QA', 'Choose a QA assignee'],
+            ['already pending', 'A review is already pending'],
+        ]);
         function renderBatchResult(data) {
-            var created = data.created_count || 0;
-            var skipped = data.skipped || [];
+            var created = Number.isSafeInteger(data.created_count) && data.created_count >= 0 ? data.created_count : 0;
+            var skipped = Array.isArray(data.skipped) ? data.skipped : [];
             var html = '<strong>Delegated ' + created + ' case'
                 + (created === 1 ? '' : 's') + '</strong>';
             if (skipped.length) {
                 html += '<div class="mt-1 text-xs opacity-80">' + skipped.length
-                    + ' skipped (duplicate agent + case number)</div>';
+                    + ' skipped</div>';
             }
             window.gysFloatNote(html, created ? 'alert-success' : 'alert-error', 6000, true);
             if (skipped.length) {
                 var detail = '<strong>Skipped rows:</strong><ul>'
                     + skipped.map(function (row) {
-                        return '<li>' + escapeHtml(row.case_number || '(no case number)')
-                            + ' \u2014 ' + escapeHtml(row.reason) + '</li>';
+                        var label = Number.isSafeInteger(row?.row_number) && row.row_number > 0
+                            ? 'Row ' + row.row_number : 'A row';
+                        return '<li>' + label + ' \u2014 ' + (batchSkipCopy.get(row?.reason) || 'Could not delegate') + '</li>';
                     }).join('')
                     + '</ul>';
                 window.gysFloatNote(detail, 'alert-error', 9000, true);
@@ -764,10 +771,7 @@
                             })
                         })
                     });
-                    if (!response.ok) {
-                        var errorPayload = await response.json().catch(function () { return null; });
-                        throw new Error(extractDetail(errorPayload, response.status));
-                    }
+                    if (!response.ok) throw new GysRequestError(response.status);
                     var data = await response.json();
                     renderBatchResult(data);
                     resetBatchRows();
@@ -776,7 +780,7 @@
                     window.__qaMatrixNotifyOnClose = true;
                     document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
                 } catch (error) {
-                    showToast(error.message || 'Unable to delegate the cases.', 'alert-error');
+                    showToast('Unable to delegate the cases. ' + window.gysRequestErrorMessage(error), 'alert-error');
                 } finally {
                     updateBatchSummary();
                 }
