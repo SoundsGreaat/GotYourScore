@@ -1,26 +1,16 @@
-{# System prompts partial (swapped into #admin-view).
-   Context: slots=[{key, title, description, versions(newest first),
-   active_id(id|None), default_content}], saved_key=str|None.
-   One full-width card per fixed slot: a prefilled editor that saves a
-   NEW active version, plus the key's history as compact rows (any
-   version can be re-activated or deleted; deleting the active one
-   falls back to the built-in default prompt). History rows truncate
-   their preview instead of widening the card, so no horizontal
-   scrollbar ever appears. #}
 {% import "macros/admin.html" as admin %}
-<div id="admin-prompts-root" class="space-y-4">
 
-    {{ admin.page_heading("System prompts", "Edit the instructions used by the AI. Saving creates a new active version.") }}
-    {% for slot in slots %}
+{% macro prompt_card(slot, saved_key) %}
     {% set active_v = slot.versions | selectattr('id', 'equalto', slot.active_id) | list | first %}
-    <section id="prompt-card-{{ slot.key }}" class="card gys-admin-surface" aria-labelledby="prompt-{{ slot.key }}-title"
+    <section id="prompt-card-{{ slot.key }}" class="card gys-admin-surface min-w-0 only:col-span-full"
+             aria-labelledby="prompt-{{ slot.key }}-title"
              data-admin-state-scope hx-select:inherited="#prompt-card-{{ slot.key }}"
              hx-target:inherited="#prompt-card-{{ slot.key }}" hx-swap:inherited="outerMorph"
              hx-sync:inherited="#prompt-card-{{ slot.key }}:queue all"
              {% if saved_key == slot.key %}data-admin-state-saved="Saved as the active version."{% endif %}>
         <div class="card-body min-w-0 gap-3 p-4 sm:p-5">
             <div class="flex flex-wrap items-center justify-between gap-2">
-                <h3 id="prompt-{{ slot.key }}-title" class="text-base font-semibold">{{ slot.title }}</h3>
+                <h4 id="prompt-{{ slot.key }}-title" class="text-base font-semibold">{{ slot.title }}</h4>
                 {% if active_v %}
                 <span class="badge badge-success badge-soft badge-sm">Custom prompt active</span>
                 {% else %}
@@ -79,6 +69,22 @@
                 <p class="mt-2 px-3 pb-2 text-sm text-base-content/75">No stored versions yet — the built-in default prompt is used.</p>
                 {% endif %}
             </details>
+        </div>
+    </section>
+{% endmacro %}
+
+<div id="admin-prompts-root" class="space-y-8">
+    {{ admin.page_heading("System prompts", "Edit the instructions used by the AI. Saving creates a new active version.") }}
+    {% for category in categories %}
+    <section aria-labelledby="prompt-category-{{ category.key }}-title" class="space-y-4">
+        <header class="border-b border-base-300 pb-3">
+            <h3 id="prompt-category-{{ category.key }}-title" class="text-lg font-semibold">{{ category.title }}</h3>
+            <p class="mt-1 text-sm text-base-content/75">{{ category.description }}</p>
+        </header>
+        <div class="grid items-start gap-4 xl:grid-cols-2">
+            {% for slot in category.slots %}
+            {{ prompt_card(slot, saved_key) }}
+            {% endfor %}
         </div>
     </section>
     {% endfor %}

@@ -8,6 +8,19 @@ test("admin tabs scroll on mobile and select only after a successful swap", asyn
   await page.goto(`${base}/admin`);
   await expect(page.locator("#admin-prompts-root")).toBeVisible();
   const prompts = page.getByRole("tab", { name: "Prompts" });
+  const promptPanel = page.getByRole("tabpanel", { name: "Prompts" });
+  await expect(promptPanel.getByRole("heading", { level: 3 })).toHaveText([
+    "Score reviews", "Other reviews", "Bug reports",
+  ]);
+  await expect(promptPanel.getByRole("region", { name: "Score reviews" }).getByRole("heading", { level: 4 })).toHaveText([
+    "AI Scoring", "Autofail Detection", "Notes from Score", "Notes Refactoring",
+  ]);
+  await expect(promptPanel.getByRole("region", { name: "Other reviews" }).getByRole("heading", { level: 4 })).toHaveText([
+    "Bad Feedback Comment Refactoring", "Refund Check Comment Refactoring",
+  ]);
+  await expect(promptPanel.getByRole("region", { name: "Bug reports" }).getByRole("heading", { level: 4 })).toHaveText([
+    "Bug Report Privacy",
+  ]);
   const recovery = page.getByRole("tab", { name: "Deleted Refund Checks" });
   await prompts.focus();
   await page.keyboard.press("End");
@@ -210,7 +223,7 @@ test("prompt mutations keep drafts, textarea size and open histories", async ({ 
   await signIn(page);
   await page.goto(`${base}/admin#prompts`);
   const scoring = page.getByRole("region", { name: "AI Scoring" });
-  const other = page.getByRole("region", { name: "Notes from Score" });
+  const other = page.getByRole("region", { name: "Refund Check Comment Refactoring" });
   const field = scoring.getByRole("textbox", { name: "Prompt content" });
   const otherField = other.getByRole("textbox", { name: "Prompt content" });
   const history = scoring.locator("details").first();

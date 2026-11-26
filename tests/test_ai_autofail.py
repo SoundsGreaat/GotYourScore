@@ -193,15 +193,14 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
             new=AsyncMock(return_value=[]),
         ):
             context = await admin._prompts_context(AsyncMock())
-        autofail_slot = next(
-            slot for slot in context["slots"] if slot["key"] == "autofail_detection"
-        )
+        slots = [slot for category in context["categories"] for slot in category["slots"]]
+        autofail_slot = next(slot for slot in slots if slot["key"] == "autofail_detection")
         self.assertEqual(
             autofail_slot["default_content"],
             system_prompt_service.AUTOFAIL_DETECTION_SYSTEM_PROMPT,
         )
         self.assertEqual(
-            {slot["key"]: slot["default_content"] for slot in context["slots"] if "default_content" in slot},
+            {slot["key"]: slot["default_content"] for slot in slots if "default_content" in slot},
             {
                 slot["key"]: slot["default_content"]
                 for slot in system_prompt_service.PROMPT_SLOTS

@@ -155,8 +155,7 @@ async def _prompts_context(
 ) -> dict[str, object]:
     """Context for the prompts partial (shared by GET and POST flows).
 
-    Fixed slots (``system_prompt_service.PROMPT_SLOTS``) enriched with
-    each key's version history: ``versions`` newest first and
+    Display categories with each slot's version history: ``versions`` newest first and
     ``active_id`` = the active version's id (None when the key has no
     active row — resolvers then fall back to the hardcoded constants).
     """
@@ -165,20 +164,19 @@ async def _prompts_context(
         for group in await system_prompt_service.grouped_versions(db)
     }
     return {
-        "slots": [
+        "categories": [
             {
-                "key": slot["key"],
-                "title": slot["title"],
-                "description": slot["description"],
-                "versions": grouped.get(slot["key"], {}).get("versions", []),
-                "active_id": grouped.get(slot["key"], {}).get("active"),
-                **(
-                    {"default_content": slot["default_content"]}
-                    if "default_content" in slot
-                    else {}
-                ),
+                **category,
+                "slots": [
+                    {
+                        **slot,
+                        "versions": grouped.get(slot["key"], {}).get("versions", []),
+                        "active_id": grouped.get(slot["key"], {}).get("active"),
+                    }
+                    for slot in category["slots"]
+                ],
             }
-            for slot in system_prompt_service.PROMPT_SLOTS
+            for category in system_prompt_service.PROMPT_CATEGORIES
         ],
         "saved_key": saved_key,
     }

@@ -53,80 +53,99 @@ customer or case notes, and internal procedures, even without personal
 identifiers.
 """
 
-# The fixed prompt slots the app actually resolves (single source of
-# truth for the admin panel — the form only offers these keys). Each
-# slot is one SystemPrompt key with its display metadata; the resolver
-# for each key lives in ``app.services.ai_service``.
-PROMPT_SLOTS = [
+# Fixed prompt keys and their display order in the admin panel.
+PROMPT_CATEGORIES = [
     {
-        "key": "ai_scoring",
-        "title": "AI Scoring",
-        "description": (
-            "System prompt used when AI detects scorecard violations in "
-            "the review notes. The active scorecard rules and the JSON "
-            "output contract are appended automatically — write only the "
-            "role and scoring instructions."
-        ),
+        "key": "score-reviews",
+        "title": "Score reviews",
+        "description": "Score cases, detect Autofails, and draft or refine review notes.",
+        "slots": [
+            {
+                "key": "ai_scoring",
+                "title": "AI Scoring",
+                "description": (
+                    "System prompt used when AI detects scorecard violations in "
+                    "the review notes. The active scorecard rules and the JSON "
+                    "output contract are appended automatically — write only the "
+                    "role and scoring instructions."
+                ),
+            },
+            {
+                "key": "autofail_detection",
+                "title": "Autofail Detection",
+                "description": (
+                    "Independently versioned instructions for detecting an explicit "
+                    "Autofail reason in Notes-to-Score previews; format is handled "
+                    "by the application."
+                ),
+                "default_content": AUTOFAIL_DETECTION_SYSTEM_PROMPT,
+            },
+            {
+                "key": "notes_from_score",
+                "title": "Notes from Score",
+                "description": (
+                    "System prompt used when drafting review notes from the ticked "
+                    "scorecard deductions. The deducted rules (display names, "
+                    "categories, points) are supplied automatically — write the "
+                    "reviewer voice, structure and tone, and demand a sanitized "
+                    "HTML fragment from those deductions only."
+                ),
+            },
+            {
+                "key": "notes_refactor",
+                "title": "Notes Refactoring",
+                "description": (
+                    "System prompt used when rewriting QA notes for clarity. "
+                    "Receives the raw HTML notes and must return improved HTML."
+                ),
+            },
+        ],
     },
     {
-        "key": "autofail_detection",
-        "title": "Autofail Detection",
-        "description": (
-            "Independently versioned instructions for detecting an explicit "
-            "Autofail reason in Notes-to-Score previews; format is handled "
-            "by the application."
-        ),
-        "default_content": AUTOFAIL_DETECTION_SYSTEM_PROMPT,
+        "key": "other-reviews",
+        "title": "Other reviews",
+        "description": "Refine per-agent comments in Bad Feedback and Refund Check.",
+        "slots": [
+            {
+                "key": "bf_comment_refactor",
+                "title": "Bad Feedback Comment Refactoring",
+                "description": (
+                    "System prompt used when rewriting the per-agent Bad "
+                    "Feedback comment for clarity and constructive tone. "
+                    "Receives the raw HTML comment and must return improved "
+                    "HTML with the verdict meaning unchanged."
+                ),
+            },
+            {
+                "key": "refund_check_comment_refactor",
+                "title": "Refund Check Comment Refactoring",
+                "description": (
+                    "System prompt for rewriting per-agent Refund Check comments. "
+                    "The built-in text is the same as Bad Feedback, but each "
+                    "tracker has its own prompt versions."
+                ),
+            },
+        ],
     },
     {
-        "key": "bug_report_privacy",
-        "title": "Bug Report Privacy",
-        "description": (
-            "Supplemental instructions for identifying literal personal-data "
-            "or secret spans in public bug reports. Mandatory application "
-            "privacy and output rules cannot be overridden."
-        ),
-        "default_content": BUG_REPORT_PRIVACY_SYSTEM_PROMPT,
-    },
-    {
-        "key": "notes_refactor",
-        "title": "Notes Refactoring",
-        "description": (
-            "System prompt used when rewriting QA notes for clarity. "
-            "Receives the raw HTML notes and must return improved HTML."
-        ),
-    },
-    {
-        "key": "bf_comment_refactor",
-        "title": "Bad Feedback Comment Refactoring",
-        "description": (
-            "System prompt used when rewriting the per-agent Bad "
-            "Feedback comment for clarity and constructive tone. "
-            "Receives the raw HTML comment and must return improved "
-            "HTML with the verdict meaning unchanged."
-        ),
-    },
-    {
-        "key": "refund_check_comment_refactor",
-        "title": "Refund Check Comment Refactoring",
-        "description": (
-            "System prompt for rewriting per-agent Refund Check comments. "
-            "The built-in text is the same as Bad Feedback, but each "
-            "tracker has its own prompt versions."
-        ),
-    },
-    {
-        "key": "notes_from_score",
-        "title": "Notes from Score",
-        "description": (
-            "System prompt used when drafting review notes from the ticked "
-            "scorecard deductions. The deducted rules (display names, "
-            "categories, points) are supplied automatically — write the "
-            "reviewer voice, structure and tone, and demand a sanitized "
-            "HTML fragment from those deductions only."
-        ),
+        "key": "bug-reports",
+        "title": "Bug reports",
+        "description": "Protect sensitive information before reports are published.",
+        "slots": [
+            {
+                "key": "bug_report_privacy",
+                "title": "Bug Report Privacy",
+                "description": (
+                    "Supplemental instructions for identifying literal personal-data "
+                    "or secret spans in public bug reports. Mandatory application "
+                    "privacy and output rules cannot be overridden."
+                ),
+                "default_content": BUG_REPORT_PRIVACY_SYSTEM_PROMPT,
+            },
+        ],
     },
 ]
+PROMPT_SLOTS = [slot for category in PROMPT_CATEGORIES for slot in category["slots"]]
 
 
 async def deactivate_other_active(
