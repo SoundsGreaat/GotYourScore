@@ -362,7 +362,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             : '';
     }
 
-    var extractErrorDetail = window.extractDetail;
+    var pendingConflict = 'This agent already has a pending review for that case number.';
 
     // Stored scorecards come in two shapes: nested under "breakdown"
     // (current rows) or the flat breakdown itself (legacy rows, where
@@ -1067,8 +1067,8 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         }).finally(function () { window.clearTimeout(timer); });
     }
     function aiErrorMessage(error) {
-        if (error.name === 'AbortError') return 'AI request timed out.';
-        return error && error.message ? error.message : 'AI request failed.';
+        if (error?.name === 'AbortError') return 'AI request timed out.';
+        return window.gysRequestErrorMessage(error);
     }
 
     function reviewContext() {
@@ -1125,7 +1125,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             hideMenu(true);
             showToast('Notes refactored.', 'alert-success');
         } catch (error) {
-            showToast(error.message || 'AI request failed.');
+            showToast(aiErrorMessage(error));
         } finally {
             setLoading(refactorButton, 'Refactoring…', false);
         }
@@ -1146,18 +1146,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 html: window.gysAiStream.omitImages(submittedNotes),
                 case_type: document.getElementById('case-type').value
             });
-            if (!response.ok) {
-                var errorPayload = await response.json().catch(function () { return null; });
-                if (response.status === 429) {
-                    var retryAfter = Number(response.headers.get('Retry-After'));
-                    throw new Error(
-                        retryAfter > 0
-                            ? 'AI request limit reached. Try again in ' + retryAfter + ' seconds.'
-                            : 'AI request limit reached. Please try again shortly.'
-                    );
-                }
-                throw new Error(extractErrorDetail(errorPayload, response.status));
-            }
+            if (!response.ok) throw window.gysAiResponseError(response);
             var result = await response.json();
             if (disposed || !drawerToggle.checked || autofailAtRequest.rules !== rulesSeq) return;
             if (quill.root.innerHTML !== submittedNotes) {
@@ -1457,7 +1446,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         } catch (error) {
             if (!disposed && drawerToggle.checked) {
                 if (!isCurrent()) showToast('The review changed while notes were drafting. Try again.');
-                else if (!request.signal.aborted) showToast(error.message || 'AI note drafting failed');
+                else if (!request.signal.aborted) showToast(aiErrorMessage(error));
             }
         } finally {
             var cancelled = request.signal.aborted;
@@ -1527,14 +1516,14 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 body: JSON.stringify(payload)
             });
             if (!response.ok) {
-                var errorPayload = await response.json().catch(function () { return null; });
-                throw new Error(extractErrorDetail(errorPayload, response.status));
+                throw new GysRequestError(response.status,
+                    response.status === 409 && drawerState.isPending ? pendingConflict : null);
             }
             document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
             showToast(completing ? 'Delegated case completed.' : 'Review updated.', 'alert-success');
             document.getElementById('review-drawer-toggle').checked = false;
         } catch (error) {
-            showDrawerError(error.message || 'Unable to save the review.');
+            showDrawerError(window.gysRequestErrorMessage(error, 'Unable to save the review.'));
         } finally {
             savingReview = false;
             setLoading(saveButton, completing ? 'Completing…' : 'Saving…', false);
@@ -1580,11 +1569,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 })
             });
             if (!response.ok) {
-                // Surface the server's detail (e.g. the backfill
-                // period's 409 quota message, or a colliding open
-                // handoff for drafts) instead of a generic note.
-                var errorPayload = await response.json().catch(function () { return null; });
-                throw new Error(extractErrorDetail(errorPayload, response.status));
+                var conflict = saveForLater ? pendingConflict
+                    : 'This agent has reached their review quota for the selected period.';
+                throw new GysRequestError(response.status, response.status === 409 ? conflict : null);
             }
             clearDraft();
             document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
@@ -1593,7 +1580,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 : 'Review saved.', 'alert-success');
             document.getElementById('review-drawer-toggle').checked = false;
         } catch (error) {
-            showToast(error.message || 'Unable to save review.');
+            showToast(window.gysRequestErrorMessage(error, 'Unable to save the review.'));
         } finally {
             savingReview = false;
             setLoading(clickedButton, '', false);

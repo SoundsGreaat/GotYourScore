@@ -5,6 +5,7 @@ bound to its own ORM tables and stable tracker-field configuration.
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -21,6 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import RoleChecker
+from app.core.observability import log_event
 from app.db.database import get_db
 from app.models import (
     AgentKindEnum,
@@ -58,6 +60,8 @@ from app.services.tracker_fields import (
     validate_field_values,
 )
 
+logger = logging.getLogger(__name__)
+
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 # QA-and-above manage records; front-line roles read nothing here.
@@ -68,6 +72,7 @@ FeedbackUser = Annotated[
 
 _MAX_FILE_BYTES = 5 * 1024 * 1024
 _MAX_LIST_LIMIT = 500
+_WORKBOOK_INPUT_ERRORS = (bfi.WorkbookParseError, *bfi.WORKBOOK_PARSE_ERRORS)
 
 
 async def _get_record_or_404(
@@ -307,6 +312,10 @@ def _tracker_router(
             await _apply_agents(record, resolved, db, agent_model)
         db.add(record)
         await db.commit()
+        log_event(
+            logger, "tracker.record.created", "success",
+            user_id=auth.id, entity_id=record.id, operation=tracker,
+        )
         return _read_record(record, read_schema, agent_read_schema, date_key)
 
     create_record.__annotations__ = {
@@ -372,6 +381,10 @@ def _tracker_router(
             await _apply_agents(record, resolved, db, agent_model)
 
         await db.commit()
+        log_event(
+            logger, "tracker.record.updated", "success",
+            user_id=auth.id, entity_id=record.id, operation=tracker,
+        )
         return _read_record(record, read_schema, agent_read_schema, date_key)
 
     update_record.__annotations__ = {
@@ -402,6 +415,10 @@ def _tracker_router(
         record.qa_id = auth.id
         record.completed_at = datetime.now(timezone.utc)
         await db.commit()
+        log_event(
+            logger, "tracker.record.completed", "success",
+            user_id=auth.id, entity_id=record.id, operation=tracker,
+        )
         return _read_record(record, read_schema, agent_read_schema, date_key)
 
     complete_record.__annotations__ = {
@@ -424,6 +441,10 @@ def _tracker_router(
         )
         record.deleted_at = func.now()
         await db.commit()
+        log_event(
+            logger, "tracker.record.deleted", "success",
+            user_id=auth.id, entity_id=record.id, operation=tracker,
+        )
 
     delete_record.__annotations__ = {
         "feedback_id": int,
@@ -452,12 +473,12 @@ def _tracker_router(
                 fields,
                 include_legacy_date_alias=tracker == "bad-feedback",
             )
-        except ValueError as exc:
+        except bfi.ImportValidationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
-        except Exception as exc:
+        except _WORKBOOK_INPUT_ERRORS as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not read the file as an .xlsx workbook.",
@@ -511,7 +532,7 @@ def _tracker_router(
         try:
             await lock_field_configuration(db, tracker, shared=True)
             fields = await list_fields(db, tracker)
-            return await bfi.commit_import(
+            result = await bfi.commit_import(
                 db=db,
                 content=content,
                 mapping=mapping_dict,
@@ -522,12 +543,33 @@ def _tracker_router(
                 fields=fields,
                 include_legacy_date_alias=tracker == "bad-feedback",
             )
-        except ValueError as exc:
+            log_event(
+                logger,
+                (
+                    "tracker.import.committed"
+                    if result.created_count
+                    else "tracker.import.completed"
+                ),
+                "success" if result.created_count else "no_op",
+                user_id=auth.id,
+                operation=tracker,
+                count=result.created_count,
+                skipped_count=result.skipped_count,
+                reason_code=(
+                    "partial_success"
+                    if result.skipped_count and result.created_count
+                    else "rows_skipped"
+                    if result.skipped_count
+                    else "all_rows_imported"
+                ),
+            )
+            return result
+        except bfi.ImportValidationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
-        except Exception as exc:
+        except _WORKBOOK_INPUT_ERRORS as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not read the file as an .xlsx workbook.",

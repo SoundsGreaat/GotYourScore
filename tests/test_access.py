@@ -13,6 +13,34 @@ from tests.fixtures import PostgresTestCase
 
 
 class AccessTests(PostgresTestCase):
+    def test_assignment_conflict_detail_does_not_expose_user_names(self):
+        supervisor = self.session(self.create_user(RoleEnum.SUPERVISOR))
+        agent = self.create_user(RoleEnum.SUPPORT)
+        first_qa = self.create_user(RoleEnum.QA)
+        second_qa = self.create_user(RoleEnum.QA)
+        created = self.assert_status(
+            self.client.post(
+                "/api/assignments",
+                headers=supervisor,
+                json={"qa_id": first_qa.id, "support_agent_id": agent.id},
+            ),
+            201,
+        ).json()
+
+        conflict = self.assert_status(
+            self.client.post(
+                "/api/assignments",
+                headers=supervisor,
+                json={"qa_id": second_qa.id, "support_agent_id": agent.id},
+            ),
+            409,
+        ).json()
+        self.assertEqual(conflict["detail"]["assignment_id"], created["id"])
+        self.assertEqual(
+            conflict["detail"]["message"], "This support agent is already assigned."
+        )
+        self.assertNotIn(agent.nickname, conflict["detail"]["message"])
+
     def test_anonymous_requests_use_transport_specific_login_responses(self):
         page = self.assert_status(self.client.get("/"), 303)
         self.assertEqual(page.headers["location"], "/login")
@@ -81,3 +109,18 @@ class AccessTests(PostgresTestCase):
         self.assert_status(
             self.client.post("/api/ai/refactor", headers=qa, json={"html": "<p>CI</p>"}), 503
         )
+
+    def test_validation_error_does_not_echo_submitted_values(self):
+        qa = self.session(self.create_user(RoleEnum.QA))
+        secret_value = "private-case-payload-987"
+        response = self.assert_status(
+            self.client.post(
+                "/api/ai/refactor",
+                headers=qa,
+                json={"html": [secret_value]},
+            ),
+            422,
+        )
+        self.assertNotIn(secret_value, response.text)
+        self.assertNotIn('"input"', response.text)
+        self.assertEqual(response.json()["detail"][0]["msg"], "Invalid request.")

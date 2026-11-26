@@ -9,6 +9,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.observability import log_event
 from app.core.security import SESSION_USER_ID_KEY, get_current_user, get_oauth
 from app.db.database import AsyncSession, get_db
 from app.models import RoleEnum, User
@@ -97,7 +98,14 @@ async def auth_callback(
     try:
         token = await oauth.google.authorize_access_token(request)
     except OAuthError as exc:
-        logger.warning("OAuth token exchange failed: %s", exc)
+        log_event(
+            logger,
+            "auth.oauth.callback",
+            "failure",
+            level=logging.WARNING,
+            error_type=type(exc).__name__,
+            reason_code="oauth_token_exchange_failed",
+        )
         request.session.clear()
         return RedirectResponse(
             url="/login?error=oauth_failed",
@@ -131,7 +139,13 @@ async def auth_callback(
     try:
         user = await resolve_google_user(email, userinfo.get("name"), db)
     except AccountDisabledError:
-        logger.warning("Blocked login attempt for disabled account: %s", email)
+        log_event(
+            logger,
+            "auth.login",
+            "denied",
+            level=logging.WARNING,
+            reason_code="account_disabled",
+        )
         return RedirectResponse(
             url=LOGIN_BLOCKED_REDIRECT,
             status_code=status.HTTP_303_SEE_OTHER,
@@ -142,6 +156,7 @@ async def auth_callback(
     await db.commit()
     request.session.clear()
     request.session[SESSION_USER_ID_KEY] = user.id
+    log_event(logger, "auth.login", "success", user_id=user.id)
 
     return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
 

@@ -176,7 +176,7 @@
 
             function requireCurrent() {
                 if (opts.canApply && !opts.canApply()) {
-                    throw new Error('The review changed while notes were drafting. Try again.');
+                    throw new GysRequestError(409, 'The review changed while notes were drafting. Try again.');
                 }
             }
 
@@ -205,19 +205,7 @@
                     body: JSON.stringify(requestPayload),
                     signal: ctrl.signal
                 });
-                if (!response.ok) {
-                    var detail = null;
-                    try { detail = (await response.json()).detail; } catch (e) { /* non-JSON body */ }
-                    if (response.status === 429) {
-                        var retryAfter = Number(response.headers.get('Retry-After'));
-                        throw new Error(
-                            retryAfter > 0
-                                ? 'AI request limit reached. Try again in ' + retryAfter + ' seconds.'
-                                : 'AI request limit reached. Please try again shortly.'
-                        );
-                    }
-                    throw new Error(detail || 'AI request failed.');
-                }
+                if (!response.ok) throw window.gysAiResponseError(response);
 
                 var pump = (async function () {
                     var reader = response.body.getReader();
@@ -234,7 +222,7 @@
                             if (!line) continue;
                             var evt;
                             try { evt = JSON.parse(line); } catch (e) { continue; }
-                            if (evt.error) { streamError = new Error(evt.error); return; }
+                            if (evt?.error) { streamError = new GysRequestError(500); return; }
                             if (typeof evt.d === 'string') accumulated += evt.d;
                             if (typeof evt.final === 'string') finalHtml = evt.final;
                         }
@@ -244,7 +232,7 @@
                     // treat it as an error so the render loop can stop
                     // and the caller gets its original content back.
                     if (finalHtml === null && !streamError) {
-                        streamError = new Error('AI request failed.');
+                        streamError = new GysRequestError(500);
                     }
                 })();
 
@@ -269,13 +257,13 @@
                 await Promise.all([pump, render]);
                 if (streamError) throw streamError;
                 ctrl.signal.throwIfAborted();
-                if (finalHtml === null) throw new Error('AI request failed.');
+                if (finalHtml === null) throw new GysRequestError(500);
                 var finalWithImages = imageSnapshot
                     ? restoreImages(finalHtml, imageSnapshot.images)
                     : finalHtml;
                 var finalClean = sanitize(finalWithImages);
                 if (!finalClean.trim()) {
-                    throw new Error(opts.emptyMessage || 'The AI returned an empty note.');
+                    throw new GysRequestError(502, opts.emptyMessage || 'The AI returned an empty note.');
                 }
                 requireCurrent();
                 // Commit only the sanitized, post-processed terminal fragment.
@@ -287,9 +275,9 @@
                 streamError = error; // Stop any queued frame on transport failure.
                 restoreOriginal();
                 if (error && error.name === 'AbortError') {
-                    throw new Error('AI request timed out.');
+                    throw new GysRequestError(504, 'AI request timed out.');
                 }
-                throw error && error.message ? error : new Error('AI request failed.');
+                throw error;
             } finally {
                 window.clearTimeout(timer);
                 if (opts.signal) opts.signal.removeEventListener('abort', onExternalAbort);

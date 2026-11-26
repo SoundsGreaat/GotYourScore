@@ -26,8 +26,11 @@ from difflib import SequenceMatcher
 from datetime import date, datetime
 from io import BytesIO
 from typing import Any, Sequence
+from xml.etree.ElementTree import ParseError
+from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.exceptions import InvalidFileException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,6 +52,31 @@ from app.schemas.bad_feedback import (
 )
 from app.services import user_service
 from app.services.tracker_fields import apply_field_values, field_value_limit
+
+
+class ImportValidationError(ValueError):
+    """Expected client-correctable workbook or mapping validation failure."""
+
+
+class WorkbookParseError(Exception):
+    """Known invalid/corrupt workbook structure, distinct from application errors."""
+
+
+WORKBOOK_PARSE_ERRORS = (
+    BadZipFile,
+    InvalidFileException,
+    ParseError,
+    EOFError,
+)
+_WORKBOOK_OPEN_ERRORS = (*WORKBOOK_PARSE_ERRORS, KeyError, OSError, ValueError)
+
+
+def _load_workbook(content: bytes):
+    try:
+        return load_workbook(BytesIO(content), data_only=True, read_only=True)
+    except _WORKBOOK_OPEN_ERRORS as exc:
+        raise WorkbookParseError from exc
+
 
 # Canonical importable fields. ``support_agents``/``sales_agents`` are
 # the two agent-list columns; everything else is a scalar field.
@@ -439,14 +467,16 @@ def inspect_workbook(
     include_legacy_date_alias: bool = False,
 ) -> ImportInspectResponse:
     """Parse the uploaded workbook in memory (nothing persisted)."""
-    workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
+    workbook = _load_workbook(content)
     try:
+        if not workbook.sheetnames:
+            raise ImportValidationError("The workbook contains no sheets.")
         sheet = workbook[workbook.sheetnames[0]]
         rows = sheet.iter_rows(values_only=True)
         try:
             header_row = next(rows)
         except StopIteration:
-            raise ValueError("The first sheet is empty.")
+            raise ImportValidationError("The first sheet is empty.")
         headers = [
             _display(value) or f"Column {idx + 1}"
             for idx, value in enumerate(header_row)
@@ -508,7 +538,7 @@ async def commit_import(
     Bad Feedback callers, ``date`` is accepted as an alias for ``fb_date``.
     """
     if tracker not in {"bad-feedback", "refund-check"}:
-        raise ValueError(f"Unsupported tracker {tracker!r}.")
+        raise RuntimeError("Unsupported tracker configuration.")
     record_model = BadFeedback if tracker == "bad-feedback" else RefundCheck
     agent_model = BadFeedbackAgent if tracker == "bad-feedback" else RefundCheckAgent
 
@@ -530,14 +560,16 @@ async def commit_import(
         ]
     required_fields = _required_field_labels(fields or ())
 
-    workbook = load_workbook(BytesIO(content), data_only=True, read_only=True)
+    workbook = _load_workbook(content)
     try:
+        if not workbook.sheetnames:
+            raise ImportValidationError("The workbook contains no sheets.")
         sheet = workbook[workbook.sheetnames[0]]
         rows = sheet.iter_rows(values_only=True)
         try:
             header_row = next(rows)
         except StopIteration:
-            raise ValueError("The first sheet is empty.")
+            raise ImportValidationError("The first sheet is empty.")
         headers = [
             _display(value) or f"Column {idx + 1}"
             for idx, value in enumerate(header_row)
@@ -552,11 +584,11 @@ async def commit_import(
             valid_keys.add("date")
         unknown_keys = set(mapping) - valid_keys
         if unknown_keys:
-            raise ValueError(
-                f"Unknown import mapping field {sorted(unknown_keys)[0]!r}."
-            )
+            raise ImportValidationError("Import mapping contains an unknown field.")
         if any(value is not None and not isinstance(value, str) for value in mapping.values()):
-            raise ValueError("Import mapping values must be header text or null.")
+            raise ImportValidationError(
+                "Import mapping values must be header text or null."
+            )
         columns = {
             mapping_key: _header_index(headers, mapping.get(mapping_key))
             for mapping_key, _, _ in field_specs
@@ -565,7 +597,7 @@ async def commit_import(
             label for key, label in required_fields.items() if columns[key] is None
         ]
         if missing_mappings:
-            raise ValueError(
+            raise ImportValidationError(
                 "Map a workbook column for each required field: "
                 + ", ".join(missing_mappings)
                 + "."

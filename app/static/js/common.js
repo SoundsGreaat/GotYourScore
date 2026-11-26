@@ -7,6 +7,14 @@
 /* Resize from the current rendered height or a height captured immediately
  * before a DOM swap. Return to natural sizing when the motion ends, and
  * return the animation to callers that need to finalize a collapse. */
+function gysMotionOptions(element) {
+    var css = getComputedStyle(element);
+    var speed = css.getPropertyValue('--gys-speed').trim();
+    return {
+        duration: parseFloat(speed) * (speed.endsWith('ms') ? 1 : 1000),
+        easing: css.getPropertyValue('--gys-ease').trim(),
+    };
+}
 var gysResizeAnimations = new WeakMap();
 window.gysResizePanel = function (panel, update, fromHeight) {
     var previous = gysResizeAnimations.get(panel);
@@ -18,15 +26,10 @@ window.gysResizePanel = function (panel, update, fromHeight) {
 
     var end = panel.getBoundingClientRect().height;
     if (Math.abs(start - end) < 1) return;
-    var css = getComputedStyle(panel);
-    var speed = css.getPropertyValue('--gys-speed').trim();
     var animation = panel.animate([
         {height: start + 'px', overflow: 'clip'},
         {height: end + 'px', overflow: 'clip'},
-    ], {
-        duration: parseFloat(speed) * (speed.endsWith('ms') ? 1 : 1000),
-        easing: css.getPropertyValue('--gys-ease').trim(),
-    });
+    ], gysMotionOptions(panel));
     gysResizeAnimations.set(panel, animation);
     animation.finished.then(function () {
         if (gysResizeAnimations.get(panel) === animation) gysResizeAnimations.delete(panel);
@@ -59,10 +62,30 @@ window.gysFloatNote = function (content, kind, timeout, trustedHtml) {
     } else {
         note.textContent = content;
     }
-    stack.appendChild(note);
+    var row = document.createElement('div');
+    row.className = 'gys-float-row';
+    row.appendChild(note);
+    stack.appendChild(row);
     window.setTimeout(function () {
+        function finish() {
+            row.remove();
+            if (!stack.firstElementChild) stack.remove();
+        }
+        if (!row.isConnected || !row.animate || !row.getClientRects().length
+            || !matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+            finish();
+            return;
+        }
+        // Let the departing row give up its space gradually. Live sibling
+        // rows follow the flex layout even when several notes expire together.
+        var height = row.getBoundingClientRect().height + 'px';
+        var spacing = getComputedStyle(row).marginBlockStart;
         note.classList.add('gys-leaving');
-        window.setTimeout(function () { note.remove(); }, 250);
+        var collapse = row.animate([
+            {height: height, marginBlockStart: spacing, overflow: 'clip'},
+            {height: '0px', marginBlockStart: '0px', overflow: 'clip'},
+        ], {...gysMotionOptions(row), fill: 'forwards'});
+        collapse.finished.then(finish, finish);
     }, timeout || 3500);
 };
 
@@ -72,37 +95,72 @@ window.gysToast = function (message, kind) {
     window.gysFloatNote(message, kind);
 };
 
-/* Human-readable message from an API error payload. */
-window.extractDetail = function (payload, statusCode) {
-    if (payload && payload.detail) {
-        if (typeof payload.detail === 'string') return payload.detail;
-        if (payload.detail.message) return payload.detail.message;
-    }
-    return 'Request failed (' + statusCode + ').';
-};
-
-/* Message from a failed HTMX request: server bodies may be JSON detail
- * objects OR legacy HTML fragments — strip tags as a fallback so the
- * user always sees the actual reason, not silence. */
-function htmxErrorMessage(ctx) {
-    var body = ctx.text;
-    if (body) {
-        try {
-            var parsed = JSON.parse(body);
-            var detail = parsed && parsed.detail;
-            if (typeof detail === 'string') return detail;
-            if (detail && detail.message) return detail.message;
-        } catch (e) { /* not JSON */ }
-        var text = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-        if (text) return text;
-    }
-    return 'Request failed (' + ctx.response.status + ').';
+function requestErrorText(status) {
+    return status >= 500 ? 'Server error' : 'Request error';
 }
 
-/* Error responses do not swap (see the HTMX config in base.html).
- * Show their messages as text; standalone fetch flows handle their own errors. */
-document.addEventListener('htmx:response:error', function (evt) {
-    window.gysToast(htmxErrorMessage(evt.detail.ctx), 'alert-error');
+// Only construct these with client-owned copy, never response or exception text.
+class GysRequestError extends Error {
+    constructor(status, message) {
+        super(message || requestErrorText(status));
+    }
+}
+window.gysRequestErrorMessage = function (error, fallback) {
+    return error instanceof GysRequestError ? error.message : (fallback || 'Request error');
+};
+window.gysAiResponseError = function (response) {
+    if (response.status !== 429) return new GysRequestError(response.status);
+    var retryAfter = Number(response.headers.get('Retry-After'));
+    return new GysRequestError(429, Number.isSafeInteger(retryAfter) && retryAfter > 0
+        ? 'AI request limit reached. Try again in ' + retryAfter + ' seconds.'
+        : 'AI request limit reached. Please try again shortly.');
+};
+
+// Compatibility with the existing admin 400 contract, limited to these
+// endpoints and exact known validation messages. Never return arbitrary detail.
+const gysCaseFieldErrors = new Set([
+    'Field label cannot be blank.',
+    'Field label must be at most 200 characters.',
+    'Field type must be one of: date, text, textarea.',
+    'Field position must be a whole number.',
+    'Field position must be an integer from 0 to 100000.',
+    'Tracker field was not found.',
+    'The tracker has reached its active field limit.',
+    'The built-in Date field must remain a date.',
+    'Restore the archived field before changing it.',
+    'This field cannot be changed to a date because it has non-text values.',
+    'This field cannot be changed to a date while it contains values that are not valid YYYY-MM-DD dates. Clear or correct those values first.',
+    'The field list is out of date. Refresh the tracker fields and try again.',
+]);
+const gysScorecardErrors = new Set([
+    'Autofail is a separate review outcome, not a scorecard error.',
+    'The Autofail rule key is reserved; remove the old rule.',
+]);
+
+function htmxErrorMessage(ctx) {
+    var status = ctx.response?.status;
+    if (status === 400 && ctx.text) {
+        try {
+            var url = new URL(ctx.request.action, document.baseURI);
+            var detail = JSON.parse(ctx.text)?.detail;
+            if (url.origin === window.location.origin && (
+                (/^\/admin\/case-fields\/(?:bad-feedback|refund-check)\//.test(url.pathname)
+                    && gysCaseFieldErrors.has(detail))
+                || (/^\/admin\/scorecards\/\d+\/save$/.test(url.pathname) && gysScorecardErrors.has(detail))
+            )) return detail;
+        } catch { /* use the safe fallback */ }
+    }
+    return requestErrorText(status);
+}
+
+/* Stop failed responses before HTMX processes out-of-band content. Its
+ * noSwap config suppresses only the main swap, not OOB or response headers. */
+document.addEventListener('htmx:after:request', function (evt) {
+    var ctx = evt.detail.ctx;
+    if (!(ctx.response?.status >= 400)) return;
+    evt.preventDefault();
+    if (ctx.hx) delete ctx.hx.trigger; // HTMX otherwise dispatches this in finally.
+    window.gysToast(htmxErrorMessage(ctx), 'alert-error');
 });
 document.addEventListener('htmx:error', function (evt) {
     var ctx = evt.detail.ctx;

@@ -234,6 +234,7 @@ class PendingBulkSkippedRow(BaseModel):
 
     case_number: str | None = None
     reason: str
+    row_number: int | None = None
 
 
 class PendingBulkResponse(BaseModel):

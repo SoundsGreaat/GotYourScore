@@ -48,7 +48,7 @@ After [setting up `.env`](#environment-setup), run these commands from the repos
 docker compose up -d --wait db
 uv sync --locked --python 3.12
 uv run --locked alembic upgrade head
-uv run --locked uvicorn app.main:app --reload
+uv run --locked uvicorn app.main:app --no-access-log --reload
 ```
 
 The app serves on http://127.0.0.1:8000 (liveness probe: `GET /ping`).
@@ -80,6 +80,31 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 | `MONTHLY_QUOTA`         | no       | `6`                                | Reviews per support agent per reporting period                     |
 
 > Override `ALLOWED_DOMAIN` in your local `.env`, otherwise login is rejected unless your Google account is on `example.com`.
+
+## Application logs
+
+The application writes JSON Lines to the console and to `APP_LOG_FILE`
+(`logs/app.jsonl` by default; set it empty for console output only on the
+host). `APP_LOG_LEVEL` accepts `DEBUG`, `INFO` (default), `WARNING`, `ERROR`,
+and `CRITICAL`. The file rotates at 5 MiB and keeps three backups. Use one
+writer per file.
+
+Events include a UTC timestamp, severity, a stable operation name, an outcome,
+and the request ID returned in `X-Request-ID` and forwarded to OAuth and
+OpenRouter. When useful they include
+internal IDs, counts, timing, or a stable failure reason. Successful writes
+are logged after commit. Unexpected errors include stack locations, not
+exception messages or payloads. Routine reads and health checks are not
+logged. Uvicorn access logging is disabled in the documented commands
+because raw query strings can include OAuth codes.
+
+Compose writes the file inside the separate `gotyourscore_logs` volume,
+which survives rebuilding or replacing the app container:
+
+```sh
+docker compose logs -f app
+docker compose exec app tail -n 100 /var/log/gotyourscore/app.jsonl
+```
 
 ## Domain model notes
 

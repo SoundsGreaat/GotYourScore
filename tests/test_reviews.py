@@ -349,7 +349,16 @@ class ReviewTests(PostgresTestCase):
         bulk = self.assert_status(self.client.post(f"{pending_path}/bulk", headers=admin, json={
             "rows": [payload, {**payload, "case_number": "CI-other"}],
         }), 200).json()
-        self.assertEqual(bulk["skipped"], [{"case_number": "CI-open", "reason": "already pending"}])
+        self.assertEqual(
+            bulk["skipped"],
+            [
+                {
+                    "case_number": "CI-open",
+                    "reason": "already pending",
+                    "row_number": 1,
+                }
+            ],
+        )
         other_path = f"/api/reviews/{bulk['created'][0]['id']}"
         original_path = f"/api/reviews/{pending['id']}"
         self.assert_status(self.client.patch(original_path, headers=qa, json={"notes": "Still open"}), 200)

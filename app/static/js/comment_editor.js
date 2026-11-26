@@ -242,7 +242,7 @@
                 } catch (error) {
                     // Failure keeps the menu open (item label restored)
                     // so the action can be retried — mirrors the drawer.
-                    toast(error.message || 'AI request failed.');
+                    toast(window.gysRequestErrorMessage(error));
                 } finally {
                     setLoading(refactorBtn, 'Refactoring…', false);
                 }

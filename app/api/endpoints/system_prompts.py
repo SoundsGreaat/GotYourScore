@@ -11,6 +11,7 @@ RBAC matrix: every route requires the Admin role; Supervisor, QA and
 Support-only users receive 403 from the RoleChecker.
 """
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,6 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import RoleChecker
+from app.core.observability import log_event
 from app.db.database import get_db
 from app.models import RoleEnum, SystemPrompt, User
 from app.schemas.system_prompt import (
@@ -28,6 +30,7 @@ from app.schemas.system_prompt import (
 from app.services import system_prompt_service
 
 router = APIRouter(prefix="/system-prompts", tags=["system-prompts"])
+logger = logging.getLogger(__name__)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -54,6 +57,10 @@ async def create_system_prompt(
     db.add(prompt)
     await db.commit()
     await db.refresh(prompt)
+    log_event(
+        logger, "admin.system_prompt.mutated", "success",
+        user_id=_current_user.id, entity_id=prompt.id, operation="create",
+    )
     return SystemPromptRead.model_validate(prompt)
 
 
@@ -121,6 +128,10 @@ async def update_system_prompt(
 
     await db.commit()
     await db.refresh(prompt)
+    log_event(
+        logger, "admin.system_prompt.mutated", "success",
+        user_id=_current_user.id, entity_id=prompt.id, operation="update",
+    )
     return SystemPromptRead.model_validate(prompt)
 
 
@@ -139,3 +150,7 @@ async def delete_system_prompt(
         )
     await db.delete(prompt)
     await db.commit()
+    log_event(
+        logger, "admin.system_prompt.mutated", "success",
+        user_id=_current_user.id, entity_id=prompt_id, operation="delete",
+    )
