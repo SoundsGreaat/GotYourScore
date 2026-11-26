@@ -30,6 +30,9 @@ services:
       APP_LOG_FILE: /var/log/gotyourscore/app.jsonl
     env_file:
       - ${APP_ENV_FILE:-.env}
+      # Optional GitHub App settings and private key for website bug reports.
+      - path: ${APP_BUG_REPORT_ENV_FILE:-.env.bug-reports}
+        required: false
     ports:
       - "8000:8000"
     volumes:

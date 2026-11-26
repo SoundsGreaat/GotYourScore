@@ -29,6 +29,17 @@
                     <span class="hidden text-sm sm:inline-flex">{{ current_user.name or current_user.nickname }}</span>
                     <span class="gys-role-badge hidden sm:inline-flex">{{ current_user.roles | map(attribute='value') | join(' · ') }}</span>
 
+                    {% if current_user and bug_reporting_enabled %}
+                    <button id="report-bug-button" type="button" hidden
+                            aria-haspopup="dialog" aria-controls="bug-report-dialog" title="Report a bug"
+                            class="gys-bug-trigger btn btn-ghost btn-sm text-neutral-content hover:bg-white/10">
+                        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 10v10M9 6V4m6 2V4M4 10h3m10 0h3M3 14h4m10 0h4M5 20l3-2m8 0 3 2M7 12a5 5 0 0 1 10 0v3a5 5 0 0 1-10 0v-3Z" />
+                        </svg>
+                        <span class="sr-only sm:not-sr-only">Report a bug</span>
+                    </button>
+                    {% endif %}
+
                     <!-- text-neutral-content keeps the thumb visible on the navbar;
                          text-neutral keeps the icons visible on the light thumb. -->
                     <label class="toggle text-neutral-content" title="Toggle dark mode">
@@ -204,6 +215,11 @@
         </aside>
     </div>
 </div>
+
+{% if current_user and bug_reporting_enabled %}
+{% include "partials/bug_report.html" %}
+<script defer src="/static/js/bug_report.js?v={{ asset_v }}"></script>
+{% endif %}
 
 {% if is_reviewer %}
 <script>

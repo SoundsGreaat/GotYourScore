@@ -121,6 +121,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     needs: [dependency-audit, integration]
+    env:
+      APP_ENV_FILE: tests/browser.env
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -146,7 +148,7 @@ jobs:
           test -n "$CI_SESSION_COOKIE"
           echo "::add-mask::$CI_SESSION_COOKIE"
           export CI_SESSION_COOKIE
-          npm test --prefix tests/browser
+          BUG_REPORT_BROWSER_ENABLED=1 npm test --prefix tests/browser
       - name: Restart against the migrated volume
         run: |
           docker compose restart app
