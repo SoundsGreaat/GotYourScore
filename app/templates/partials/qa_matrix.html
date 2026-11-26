@@ -259,10 +259,11 @@
     </div>
 
     {% if can_delegate %}
-    <dialog id="delegate-case-modal" class="modal">
-        <div class="modal-box w-11/12 max-w-3xl">
-            {{ modals.close_button() }}
-            <h3 class="text-lg font-bold">Delegate case</h3>
+    <dialog id="delegate-case-modal" class="gys-modal gys-modal--wide" closedby="closerequest" aria-labelledby="delegate-case-title">
+            <header class="gys-modal-header">
+                <h1 id="delegate-case-title" class="text-lg font-bold">Delegate case</h1>
+                {{ modals.close_button('Close delegation') }}
+            </header>
             <p class="mt-1 text-xs text-base-content/60">Hand real cases to QAs – they stay pending (quota-neutral) until scored.</p>
 
             <div id="delegate-batch-pane" class="mt-3 space-y-3">
@@ -367,8 +368,6 @@
                 <div id="delegate-batch-summary" class="gys-accent-panel hidden px-3 py-2 text-sm"></div>
                 <button type="button" id="delegate-batch-submit" class="btn btn-primary btn-block btn-sm" disabled>Delegate 0 cases</button>
             </div>
-        </div>
-        {{ modals.backdrop() }}
     </dialog>
     {% endif %}
 
@@ -420,7 +419,7 @@
         var showToast = window.gysToast;
         var openReviewDrawer = window.openReviewDrawer;
 
-        section.addEventListener('click', function (event) {
+        section.addEventListener('click', async function (event) {
             var completeButton = event.target.closest ? event.target.closest('[data-review-complete]') : null;
             if (completeButton && section.contains(completeButton)) {
                 openReviewDrawer(completeButton.getAttribute('data-review-complete'), 'complete');
@@ -435,34 +434,44 @@
                     editButton.getAttribute('data-review-mode') || 'edit');
                 return;
             }
-                var deleteButton = event.target.closest('[data-review-delete]');
-                if (deleteButton && section.contains(deleteButton)) {
-                    var deleteId = deleteButton.getAttribute('data-review-delete');
-                    if (!window.confirm('Delete this review?')) return;
-                    fetch('/api/reviews/' + deleteId, { method: 'DELETE', credentials: 'same-origin' })
-                        .then(function (response) {
-                            if (!response.ok) throw new Error('Delete failed');
-                            document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
-                            showToast('Review deleted.', 'alert-success');
-                        })
-                        .catch(function () { showToast('Unable to delete review.'); });
-                }
-            });
+            var deleteButton = event.target.closest('[data-review-delete]');
+            if (deleteButton && section.contains(deleteButton)) {
+                var deleteId = deleteButton.getAttribute('data-review-delete');
+                if (deleteButton.getAttribute('aria-disabled') === 'true'
+                    || !await window.gysModal.confirm({ message: 'Delete this review?' })
+                    || !deleteButton.isConnected) return;
+                deleteButton.setAttribute('aria-disabled', 'true');
+                fetch('/api/reviews/' + deleteId, { method: 'DELETE', credentials: 'same-origin' })
+                    .then(function (response) {
+                        if (!response.ok) throw new Error('Delete failed');
+                        document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
+                        showToast('Review deleted.', 'alert-success');
+                    })
+                    .catch(function () { showToast('Unable to delete review.'); })
+                    .finally(function () { deleteButton.removeAttribute('aria-disabled'); });
+            }
+        });
 
         var delegateModal = document.getElementById('delegate-case-modal');
         var delegateOpen = section.querySelector('[data-delegate-open]');
+        var batchSubmitting = false;
 
         if (delegateModal && delegateOpen) {
             delegateOpen.addEventListener('click', function () {
+                if (delegateModal.open) return;
                 resetBatchPane();
                 // While the modal is open the section skips reviews-changed
                 // refreshes (see hx-trigger guard) so an in-progress batch
                 // is never wiped mid-edit; mutations performed here are
                 // replayed for this section when the dialog closes.
-                window.__qaMatrixDelegateModalOpen = true;
-                delegateModal.showModal();
+                window.gysModal.open(delegateModal, function () {
+                    window.__qaMatrixDelegateModalOpen = true;
+                });
             });
 
+            delegateModal.addEventListener('cancel', function (event) {
+                if (batchSubmitting) event.preventDefault();
+            });
             delegateModal.addEventListener('close', function () {
                 window.__qaMatrixDelegateModalOpen = false;
                 if (window.__qaMatrixNotifyOnClose) {
@@ -540,8 +549,9 @@
                 return !batchRowReady(row) && batchRowTouched(row);
             }).length;
 
-            batchSubmit.disabled = ready === 0;
-            batchSubmit.textContent = 'Delegate ' + ready + ' case' + (ready === 1 ? '' : 's');
+            batchSubmit.disabled = batchSubmitting || ready === 0;
+            batchSubmit.textContent = batchSubmitting ? 'Delegating…'
+                : 'Delegate ' + ready + ' case' + (ready === 1 ? '' : 's');
 
             if (!ready && !incomplete) {
                 batchSummary.classList.add('hidden');
@@ -749,12 +759,15 @@
 
         if (batchSubmit) {
             batchSubmit.addEventListener('click', async function () {
-                if (!batchRows) return;
+                if (!batchRows || batchSubmitting) return;
                 var readyRows = Array.prototype.filter.call(
                     batchRows.querySelectorAll('.delegate-batch-row'), batchRowReady
                 );
                 if (!readyRows.length) return;
-                batchSubmit.disabled = true;
+                batchSubmitting = true;
+                var closeButton = delegateModal.querySelector('[data-gys-modal-close]');
+                closeButton.disabled = true;
+                updateBatchSummary();
                 try {
                     var response = await fetch('/api/reviews/pending/bulk', {
                         method: 'POST',
@@ -782,6 +795,8 @@
                 } catch (error) {
                     showToast('Unable to delegate the cases. ' + window.gysRequestErrorMessage(error), 'alert-error');
                 } finally {
+                    batchSubmitting = false;
+                    closeButton.disabled = false;
                     updateBatchSummary();
                 }
             });

@@ -87,6 +87,7 @@ test("successful report remains visible until dismissed, then changed event swap
   await dialog.getByRole("button", { name: "Import", exact: true }).click();
   try {
     await expect(dialog.getByRole("button", { name: "Importing…" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Close import" })).toBeDisabled();
     await page.keyboard.press("Escape");
     await expect(dialog).toBeVisible();
     const refreshCanceled = await page.evaluate(() => {
@@ -136,7 +137,11 @@ test("required import mappings block submission until corrected", async ({ page 
   });
 
   const dialog = await openImport(page);
-  await dialog.locator(".js-bf-file").setInputFiles({
+  const file = dialog.locator(".js-bf-file");
+  await file.focus();
+  await expect(file).toHaveCSS("outline-style", "none");
+  await expect(file).toHaveCSS("box-shadow", /0px 0px 0px 3px/);
+  await file.setInputFiles({
     name: "required.xlsx", mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", buffer: Buffer.from("fixture"),
   });
   await dialog.getByRole("button", { name: "Analyze" }).click();
@@ -211,7 +216,7 @@ test("tracker notes open the specific agent card and respect each view's edit mo
   const badge = (agent) => page.locator(`[data-case-notes="refund-check-${id}-${agent.id}"]`);
   const notes = page.locator(".js-notes-modal");
   const edit = notes.getByRole("button", { name: "Edit record" });
-  const close = notes.getByRole("button", { name: "Close", exact: true });
+  const close = notes.getByRole("button", { name: "Close notes", exact: true });
   try {
     await page.goto(`${base}/#qa-tracker/refund-check`);
     await expect(badge(support)).toHaveClass(/badge-warning/);

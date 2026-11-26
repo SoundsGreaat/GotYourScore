@@ -1,0 +1,118 @@
+/* The native dialog is the surface, not a fullscreen wrapper. */
+.gys-modal {
+    position: fixed;
+    inset: 0;
+    margin: auto;
+    inline-size: min(var(--gys-modal-width, 42rem), calc(100% - 1.5rem));
+    max-inline-size: none;
+    max-block-size: calc(100vh - 1.5rem);
+    max-block-size: calc(100dvh - 1.5rem);
+    overflow: auto;
+    scroll-padding-block: 0.75rem;
+    overscroll-behavior: contain;
+    padding: clamp(0.875rem, 4vw, 1.5rem);
+    border: 1px solid var(--color-base-300);
+    border-radius: var(--radius-box);
+    background: var(--color-base-100);
+    color: var(--color-base-content);
+    box-shadow: 0 20px 50px rgb(0 0 0 / 25%);
+}
+
+.gys-modal::backdrop {
+    background-color: rgb(0 0 0 / 55%);
+    overflow: hidden;
+    overscroll-behavior: contain;
+}
+
+.gys-modal--side {
+    inset-inline: auto 0;
+    margin: 0;
+    inline-size: min(var(--gys-modal-width, 28rem), 100%);
+    block-size: 100%;
+    max-block-size: none;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+    --gys-modal-shift: 0.75rem 0;
+}
+
+.gys-modal--side:dir(rtl) {
+    --gys-modal-shift: -0.75rem 0;
+}
+
+.gys-modal--side[open] {
+    display: flex;
+    flex-direction: column;
+}
+
+.gys-modal--wide {
+    --gys-modal-width: 48rem;
+}
+
+.gys-modal--confirm {
+    --gys-modal-width: 28rem;
+}
+
+.gys-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.gys-modal-close {
+    flex: none;
+}
+
+.gys-modal-close:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-primary) 58%, var(--color-base-content));
+    outline-offset: 2px;
+    box-shadow: none;
+}
+
+@media (forced-colors: active) {
+    .gys-modal-close:focus-visible {
+        outline-color: Highlight;
+    }
+}
+
+@media (pointer: coarse) {
+    .gys-modal-close {
+        min-block-size: 3rem;
+        min-inline-size: 3rem;
+    }
+}
+
+/* Keep the dialog in the top layer (and the page inert) during exit.
+   Entry uses @starting-style where supported; older browsers open normally. */
+@media (prefers-reduced-motion: no-preference) {
+    .gys-modal[open] {
+        transition: opacity var(--gys-speed) var(--gys-ease),
+            translate var(--gys-speed) var(--gys-ease);
+    }
+
+    .gys-modal[open]::backdrop {
+        transition: background-color var(--gys-speed) var(--gys-ease);
+    }
+
+    .gys-modal[open][data-closing] {
+        opacity: 0;
+        translate: var(--gys-modal-shift, 0 0.5rem);
+    }
+
+    .gys-modal[open][data-closing]::backdrop {
+        background-color: transparent;
+    }
+
+    @starting-style {
+        .gys-modal[open]:where(:not([data-closing])) {
+            opacity: 0;
+            translate: var(--gys-modal-shift, 0 0.5rem);
+        }
+
+        .gys-modal[open]:where(:not([data-closing]))::backdrop {
+            background-color: transparent;
+        }
+    }
+}

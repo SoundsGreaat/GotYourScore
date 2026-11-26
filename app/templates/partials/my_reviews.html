@@ -206,7 +206,7 @@
             var showToast = window.gysToast;
             var openReviewDrawer = window.openReviewDrawer;
 
-            section.addEventListener('click', function (event) {
+            section.addEventListener('click', async function (event) {
                 var completeButton = event.target.closest ? event.target.closest('[data-review-complete]') : null;
                 if (completeButton && section.contains(completeButton)) {
                     openReviewDrawer(completeButton.getAttribute('data-review-complete'), 'complete');
@@ -224,7 +224,10 @@
                 var deleteButton = event.target.closest('[data-review-delete]');
                 if (deleteButton && section.contains(deleteButton)) {
                     var deleteId = deleteButton.getAttribute('data-review-delete');
-                    if (!window.confirm('Delete this review?')) return;
+                    if (deleteButton.getAttribute('aria-disabled') === 'true'
+                        || !await window.gysModal.confirm({ message: 'Delete this review?' })
+                        || !deleteButton.isConnected) return;
+                    deleteButton.setAttribute('aria-disabled', 'true');
                     fetch('/api/reviews/' + deleteId, {method: 'DELETE', credentials: 'same-origin'})
                         .then(function (response) {
                             if (!response.ok) throw new Error('Delete failed');
@@ -233,7 +236,8 @@
                         })
                         .catch(function () {
                             showToast('Unable to delete review.');
-                        });
+                        })
+                        .finally(function () { deleteButton.removeAttribute('aria-disabled'); });
                 }
             });
         })();

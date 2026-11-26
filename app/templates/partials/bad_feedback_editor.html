@@ -22,14 +22,14 @@
 {% endfor %}
 <div class="js-bf-editor-root" data-bf-open="{{ bf_id or '' }}" data-tracker="{{ tracker }}">
     <template class="js-bf-dropdown-template">{{ dd.dropdown('bf-card-picker') }}</template>
-    <dialog class="modal js-bf-edit-modal" aria-labelledby="tracker-editor-title">
-        <div class="modal-box max-w-2xl">
+    <dialog class="gys-modal js-bf-edit-modal" closedby="closerequest" aria-labelledby="tracker-editor-title">
+        <header class="gys-modal-header mb-4">
+            <h1 id="tracker-editor-title" class="js-bf-edit-title text-lg font-bold">{{ 'Edit' if bf_id else 'New' }} {{ tracker_label }}</h1>
             {{ modals.close_button('Close editor') }}
-            <h3 id="tracker-editor-title" class="js-bf-edit-title mb-4 text-lg font-bold">{{ 'Edit' if bf_id else 'New' }} {{ tracker_label }}</h3>
-            <form class="js-bf-edit-body" method="post" action="/api/{{ tracker }}"
-                  aria-labelledby="tracker-editor-title"><!-- filled by JS --></form>
-        </div>
-        {{ modals.backdrop() }}
+        </header>
+        <form class="js-bf-edit-body" method="post" action="/api/{{ tracker }}" aria-labelledby="tracker-editor-title">
+            {% if bf_id %}<p role="status" class="js-bf-load-status text-sm">Loading record…</p>{% endif %}
+        </form>
     </dialog>
 </div>
 
@@ -237,6 +237,7 @@
             var control = document.createElement(field.field_type === 'textarea' ? 'textarea' : 'input');
             control.id = id;
             control.name = 'field_values[' + field.key + ']';
+            if (index === 0) control.autofocus = true;
             control.dataset.fieldKey = field.key;
             control.className = (field.field_type === 'textarea' ? 'textarea' : 'input') + ' input-sm w-full';
             if (field.field_type !== 'textarea') control.type = field.field_type === 'date' ? 'date' : 'text';
@@ -279,10 +280,10 @@
 
     function renderFooter(body, leftHtml, rightHtml) {
         var footer = document.createElement('div');
-        footer.className = 'mt-4 flex items-center justify-between';
+        footer.className = 'mt-4 flex flex-wrap items-center justify-between gap-2';
         footer.innerHTML =
             '<div>' + leftHtml + '</div>' +
-            '<div class="flex gap-2">' + rightHtml + '</div>';
+            '<div class="ml-auto flex flex-wrap justify-end gap-2">' + rightHtml + '</div>';
         body.appendChild(footer);
         return footer;
     }
@@ -294,9 +295,8 @@
             fb.status === 'pending'
                 ? '<button type="button" class="btn btn-success btn-sm js-bf-complete">Mark completed</button>'
                 : '<span class="badge badge-soft badge-success badge-sm">Completed</span>',
-            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel" data-gys-modal-close>Cancel</button>' +
             '<button type="submit" class="btn btn-primary btn-sm js-bf-save">Save</button>');
-        footer.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
         body.addEventListener('submit', function (event) {
             event.preventDefault();
             saveEdit(fb.id);
@@ -312,10 +312,9 @@
         section.querySelector('.js-bf-edit-title').textContent = 'New ' + trackerLabel;
         var body = buildBody({ agents: [] });
         var footer = renderFooter(body, '',
-            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel">Cancel</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm js-bf-cancel" data-gys-modal-close>Cancel</button>' +
             '<button type="button" class="btn btn-outline btn-sm js-bf-save-later">Save For Later</button>' +
             '<button type="submit" class="btn btn-primary btn-sm js-bf-save">Save</button>');
-        footer.querySelector('.js-bf-cancel').addEventListener('click', function () { editModal.close(); });
         footer.querySelector('.js-bf-save-later').addEventListener('click', function () {
             if (body.reportValidity()) createFeedback(false);
         });
@@ -350,8 +349,8 @@
             }
             if (!response.ok) throw new GysRequestError(response.status);
             if (root.isConnected && !disposed) {
+                await window.gysModal.close(editModal);
                 showToast(message, 'alert-success');
-                editModal.close();
             }
             document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
         } catch (error) {
@@ -397,21 +396,23 @@
                 return response.json();
             })
             .then(function (fb) {
-                if (disposed || !root.isConnected) return;
+                if (disposed || !root.isConnected || editModal.hasAttribute('data-closing')) return;
                 renderEdit(fb);
-                if (!editModal.open) editModal.showModal();
+                window.gysModal.open(editModal);
             })
-            .catch(function () { if (root.isConnected) showToast('Unable to load the record.'); });
+            .catch(function () {
+                var status = root.querySelector('.js-bf-load-status');
+                if (!status || disposed || !root.isConnected) return;
+                status.textContent = 'Unable to load the record. Close the editor and try again.';
+                status.classList.add('text-error');
+            });
     }
 
     // Closing (any means) unmounts the whole partial — clean slate for
     // the next open, no stale listeners or dropdown ids. Every agent
     // card's comment editor is destroyed FIRST (document-level
     // listeners + context-menu nodes outlive the DOM otherwise). The
-    // unmount WAITS for the close transition (transitionend + timeout
-    // fallback): removing the root on the `close` event itself would
-    // yank the dialog out of the DOM mid-fade and kill the animation.
-    // Reduced-motion users skip the wait (the fade is what's reduced).
+    // shared controller waits for the exit before firing `close`.
     function destroyEditors() {
         root.querySelectorAll('.js-bf-agent').forEach(function (card) {
             if (card._bfComment) card._bfComment.destroy();
@@ -421,19 +422,7 @@
         disposed = true;
         window._trackerEditorDispose = null;
         destroyEditors();
-        var reduced = window.matchMedia
-            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-        if (reduced) { root.remove(); return; }
-        var done = function (event) {
-            // Only the dialog's own fade ends the wait — micro
-            // transitions on inner buttons (border-color on the clicked
-            // Cancel) BUBBLE transitionend up and would unmount instantly.
-            if (event && event.target !== editModal) return;
-            editModal.removeEventListener('transitionend', done);
-            root.remove();
-        };
-        editModal.addEventListener('transitionend', done);
-        window.setTimeout(done, 350);
+        root.remove();
     }
     editModal.addEventListener('close', onClose);
 
@@ -441,8 +430,7 @@
         disposed = true;
         editModal.removeEventListener('close', onClose);
         destroyEditors();
-        if (editModal.open) editModal.close();
-        root.remove();
+        window.gysModal.close(editModal).then(function () { root.remove(); });
     };
 
     // Entry: the ?id= the server baked into data-bf-open — empty means

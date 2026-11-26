@@ -11,7 +11,7 @@ test("the production server renders login and serves the generated assets", asyn
   await expect(page.getByRole("link", { name: /Login with Google/ })).toHaveAttribute(
     "href", "/auth/login"
   );
-  await expect(page.locator("h1")).toHaveCSS("font-weight", "800");
+  await expect(page.getByRole("heading", { name: "GotYourScore", level: 1 })).toHaveCSS("font-weight", "800");
   expect(await page.evaluate(() => window.htmx?.version)).toBe(htmxVersion);
   expect(failures).toEqual([]);
 });
@@ -57,17 +57,17 @@ test("sidebar and category swaps preserve the hash and open the matching editors
   await expect(page).toHaveURL(/#my-reviews\/qa-score@\d{4}-\d{2}$/);
   const newReview = page.getByRole("button", { name: "New Review", exact: true });
   await newReview.click();
-  await expect(page.locator("#review-drawer-toggle")).toBeChecked();
+  await expect(page.locator(".js-review-drawer")).toBeVisible();
   await expect(page.locator("#drawer-container .ql-editor")).toBeVisible();
   await page.locator("#case-type-button").click();
   await page.locator("#case-type-menu").getByText("Service Request", { exact: true }).click();
   await expect.poll(() => page.evaluate(() => JSON.parse(
     localStorage.getItem("gotyourscore:review-draft:new")
   )?.case_type)).toBe("Service Request");
-  await page.locator("#drawer-container").getByText("Close", { exact: true }).click();
-  await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+  await page.locator("#drawer-container").getByRole("button", { name: "Close review" }).click();
+  await expect(page.locator(".js-review-drawer")).toBeHidden();
   await newReview.click();
-  await expect(page.locator("#review-drawer-toggle")).toBeChecked();
+  await expect(page.locator(".js-review-drawer")).toBeVisible();
   await expect(page.locator("#case-type-button")).toHaveText("Service Request");
   await expect(page.locator("#case-type")).toHaveValue("Service Request");
   await expect(page.locator("#case-type-button")).toHaveAccessibleDescription("Service Request");

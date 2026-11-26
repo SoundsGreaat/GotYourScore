@@ -147,6 +147,8 @@ Author styles in `app/static/css/src/`. `input.css` imports the theme and compon
 
 Reuse existing components before building new ones. The [dropdown macro](app/templates/macros/dropdowns.html) shares keyboard and search behavior across views. Case Fields and Scorecards share [drag handles and keyboard move buttons](app/templates/macros/admin.html) and [SortableJS setup](app/static/js/admin.js), while each screen controls when changes save. See [AGENTS.md](AGENTS.md#frontend) for implementation conventions.
 
+Use native `<dialog class="gys-modal" closedby="closerequest">` for modal workflows. Reuse `close_button()` from [`macros/modals.html`](app/templates/macros/modals.html) and [`gysModal`](app/static/js/modals.js) for opening, closing, and delete confirmations. Outside clicks never dismiss an app dialog; Escape and explicit close controls do. A workflow can veto a close request with `cancel` while it is saving. The Review drawer uses the same modal behavior with side placement; the navigation sidebar remains separate. Text fields use the shared focus halo in [`controls.css`](app/static/css/src/controls.css), with a single outline in forced-colors mode.
+
 The npm commands are the same in Bash and PowerShell.
 
 ```sh
