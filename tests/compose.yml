@@ -13,6 +13,8 @@ services:
   app:
     container_name: !reset null
     restart: "no"
+    env_file: !override
+      - ${APP_ENV_FILE:-tests/ci.env}
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/gotyourscore_ci
     ports: !override

@@ -26,6 +26,7 @@ from app.api.endpoints.bad_feedback import (
     refund_check_router,
     router as bad_feedback_router,
 )
+from app.api.endpoints.bug_reports import router as bug_reports_router
 from app.api.endpoints.pages import router as pages_router
 from app.api.endpoints.reviews import router as reviews_router
 from app.api.endpoints.system_prompts import router as system_prompts_router
@@ -215,6 +216,7 @@ app.include_router(auth_router)
 app.include_router(reviews_router, prefix="/api")
 app.include_router(assignments_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
+app.include_router(bug_reports_router, prefix="/api")
 app.include_router(system_prompts_router, prefix="/api")
 # Bad Feedback: complaint tracking with smart Excel import (QA and up).
 app.include_router(bad_feedback_router, prefix="/api")

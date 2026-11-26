@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str
 
     OPENROUTER_API_KEY: str | None = None
+    BUG_REPORT_GITHUB_REPOSITORY: str | None = Field(
+        default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_.-]{1,100}$"
+    )
+    BUG_REPORT_GITHUB_APP_ID: int | None = Field(default=None, gt=0)
+    BUG_REPORT_GITHUB_INSTALLATION_ID: int | None = Field(default=None, gt=0)
+    BUG_REPORT_GITHUB_PRIVATE_KEY_BASE64: SecretStr | None = None
     GOOGLE_CLIENT_ID: str | None = None
     GOOGLE_CLIENT_SECRET: str | None = None
 
@@ -57,6 +63,10 @@ class Settings(BaseSettings):
 
     @field_validator(
         "OPENROUTER_API_KEY",
+        "BUG_REPORT_GITHUB_REPOSITORY",
+        "BUG_REPORT_GITHUB_APP_ID",
+        "BUG_REPORT_GITHUB_INSTALLATION_ID",
+        "BUG_REPORT_GITHUB_PRIVATE_KEY_BASE64",
         "GOOGLE_CLIENT_ID",
         "GOOGLE_CLIENT_SECRET",
         mode="before",
@@ -67,6 +77,27 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return None
         return value
+
+    @field_validator("BUG_REPORT_GITHUB_REPOSITORY")
+    @classmethod
+    def _validate_repository(cls, value: str | None) -> str | None:
+        if value and value.split("/")[1] in {".", ".."}:
+            raise ValueError("A GitHub repository name is required.")
+        return value
+
+    @property
+    def bug_reporting_enabled(self) -> bool:
+        return bool(
+            self.OPENROUTER_API_KEY
+            and self.BUG_REPORT_GITHUB_REPOSITORY
+            and self.BUG_REPORT_GITHUB_APP_ID
+            and self.BUG_REPORT_GITHUB_INSTALLATION_ID
+            and self.BUG_REPORT_GITHUB_PRIVATE_KEY_BASE64
+            and len(self.SECRET_KEY.strip()) >= 32
+            and self.SECRET_KEY not in {
+                "dev-insecure-secret-key-change-me", "change-me-to-a-long-random-string",
+            }
+        )
 
 
 @lru_cache

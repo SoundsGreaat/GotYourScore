@@ -10,6 +10,7 @@ Internal QA tool for scoring support-agent cases. FastAPI backend with async SQL
 - **Quotas & compliance** — each support agent has a monthly quota (default 6) per reporting period; dashboards track completion and average scores per agent.
 - **AI assistance** — OpenRouter-backed QA-note refactoring, Bad Feedback comment rewriting, preview scoring and auto-scoring of pasted ticket transcripts (503 when no API key is configured), with Admin-managed versioned system prompts.
 - **Admin panel** — HTMX panel for users (incl. soft-deleted), scorecards, system prompts, and configurable case fields for each tracker.
+- **Bug reporting** — signed-in users can review an AI-redacted report and publish it through a dedicated GitHub App.
 
 ## Tech stack
 
@@ -40,7 +41,7 @@ Edit `.env` as described in [Configuration](#configuration).
 
 ## Quickstart (local)
 
-For local development, install Python ≥3.12, [uv](https://docs.astral.sh/uv/), and Docker with Compose v2. Node.js ≥20 is required only for rebuilding frontend assets.
+For local development, install Python ≥3.12, [uv](https://docs.astral.sh/uv/), and Docker with Compose v2.24.0 or newer. Node.js ≥20 is required only for rebuilding frontend assets.
 
 After [setting up `.env`](#environment-setup), run these commands from the repository root in Bash or PowerShell.
 
@@ -55,7 +56,7 @@ The app serves on http://127.0.0.1:8000 (liveness probe: `GET /ping`).
 
 ## Quickstart (Docker)
 
-With Docker Compose v2 installed and [`.env` set up](#environment-setup), run this command from the repository root in Bash or PowerShell to start both PostgreSQL and the app.
+With Docker Compose v2.24.0 or newer installed and [`.env` set up](#environment-setup), run this command from the repository root in Bash or PowerShell to start both PostgreSQL and the app.
 
 ```sh
 docker compose up -d --build
@@ -75,11 +76,33 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 | `GOOGLE_CLIENT_SECRET`  | no       | `None`                             | Google OAuth client secret                                         |
 | `ALLOWED_DOMAIN`        | no       | `example.com`                      | Only e-mails on this domain may log in; first login auto-registers the user with the Support role |
 | `OPENROUTER_API_KEY`    | no       | `None`                             | Unset → AI endpoints return 503                                    |
+| `BUG_REPORT_GITHUB_REPOSITORY` | no | `None` | Destination repository as `owner/name` |
+| `BUG_REPORT_GITHUB_APP_ID` | no | `None` | Dedicated GitHub App's numeric App ID |
+| `BUG_REPORT_GITHUB_INSTALLATION_ID` | no | `None` | GitHub App installation's numeric ID |
+| `BUG_REPORT_GITHUB_PRIVATE_KEY_BASE64` | no | `None` | Base64 of the App private PEM key, on one line |
 | `SESSION_COOKIE_SECURE` | no       | `false`                            | Set `true` behind HTTPS                                            |
 | `SESSION_MAX_AGE`       | no       | `None` (browser session)           | Cookie lifetime in seconds                                         |
 | `MONTHLY_QUOTA`         | no       | `6`                                | Reviews per support agent per reporting period                     |
 
 > Override `ALLOWED_DOMAIN` in your local `.env`, otherwise login is rejected unless your Google account is on `example.com`.
+
+### Website bug reports
+
+1. [Register a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app) such as `GotYourScore Reports`. Disable webhooks and grant **Repository permissions → Issues → Read and write**. Install it only on the repository that should receive the reports, with Issues enabled. Reports are authored by `<app-slug>[bot]`, not by the reporter or your personal account.
+2. Find the numeric **App ID** in the App settings and the numeric **installation ID** in the installation settings URL (`…/installations/<id>`). Generate and download an App private key. To encode its PEM as a single line, run locally:
+
+   ```sh
+   uv run --locked python -c "import base64,pathlib,sys; print(base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode())" path/to/private-key.pem
+   ```
+
+   Base64 is not encryption. Keep both the PEM and the output out of version control and pastes. No personal access token is needed.
+
+3. Set the four `BUG_REPORT_GITHUB_*` variables above. For host development, use `.env`. Docker Compose loads the main env file and, if present, `.env.bug-reports`; `APP_BUG_REPORT_ENV_FILE` can point to a different private env file. Recreate the app container after configuration changes.
+4. Set `OPENROUTER_API_KEY` and a strong random `SECRET_KEY` (at least 32 characters; not the example value). Use HTTPS and `SESSION_COOKIE_SECURE=true` in production. The button is hidden until these settings and all four GitHub values are supplied.
+
+The model selected in **Admin → AI** must support JSON output through an OpenRouter provider with zero data retention. The report check enforces these provider settings independently of the normal AI routing preferences. The optional **Admin → System Prompts → Bug Report Privacy** instructions can refine what gets redacted. The app formats only the user's supplied facts, and no report is published if the privacy check fails. Since redaction can miss sensitive information, do not submit real customer data, credentials, or internal case details; check the exact preview before publishing to GitHub.
+
+Previews expire after 10 minutes and are kept only in the default single app worker, not in the database. If GitHub cannot confirm the result, check the repository before trying again. The [GitHub Issues REST API](https://docs.github.com/en/rest/issues/issues#create-an-issue) has no supported issue-attachment upload endpoint, so the form does not collect or publish screenshots.
 
 ## Application logs
 
@@ -173,6 +196,8 @@ docker compose down --volumes
 
 The test overlay binds to random loopback ports and uses the `gotyourscore_ci` database. Use `down --volumes` only with the test project and overlay active. On Windows, the `COMPOSE_FILE` separator is `;` and environment variables are set with `$env:...`.
 
+To include the bug-report browser tests locally, start the isolated browser stack with `APP_ENV_FILE=tests/browser.env` and run Chromium with `BUG_REPORT_BROWSER_ENABLED=1`. The tests intercept both report endpoints; the fixture credentials are not real. Keep `tests/ci.env` for server integration tests.
+
 ## Scripts
 
 - `scripts/import_scorecard_csv.py` — import a scorecard from CSV. Writes to whatever `DATABASE_URL` points at; pass `--dry-run` to preview.
@@ -202,6 +227,7 @@ scripts/            # CSV import, asset vendoring
 - `/api/bad-feedback/*` and `/api/refund-check/*` — independent case CRUD, completion, and Excel import (`/import/inspect`, `/import`); configurable values use the `field_values` object keyed by stable field keys
 - `/api/assignments/*` — Supervisor/Admin QA staffing
 - `/api/ai/*` — refactor QA notes / Bad Feedback comments, score notes into a scorecard, draft notes from ticked deductions (OpenRouter)
+- `/api/bug-reports/preview` and `/api/bug-reports` — authenticated same-origin JSON `POST`s with `X-Bug-Report: 1`. Preview returns `{title, body, token}`; publishing accepts only `{token}` and returns `{number, url}`. Expected errors return a `code` and, for `invalid_report` or `needs_details`, may include `fields`. Other codes are `reporting_disabled`, `invalid_request`, `rate_limited`, `preview_unavailable`, `privacy_unavailable`, `expired_preview`, `github_unavailable`, and `publication_uncertain`.
 - `/api/system-prompts/*` — Admin-only LLM prompt management
 - `/partials/*`, `/admin/*` — RBAC-guarded HTML fragments consumed by HTMX
 - `/ping` — liveness probe
