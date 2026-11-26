@@ -8,8 +8,8 @@ Internal QA tool for scoring support-agent cases. FastAPI backend with async SQL
 - **Delegation** — Supervisors/Admins create pending reviews and route them to a specific QA or to a shared queue every QA sees.
 - **Bad Feedback & Refund Check** — independent, unscored case trackers with Support/Sales agent cards, a pending → complete lifecycle, monthly views, and Excel import (inspect → confirm mapping → commit).
 - **Quotas & compliance** — each support agent has a monthly quota (default 6) per reporting period; dashboards track completion and average scores per agent.
-- **AI assistance** — OpenRouter-backed QA-note refactoring, Bad Feedback comment rewriting, preview scoring and auto-scoring of pasted ticket transcripts (503 when no API key is configured), with Admin-managed versioned system prompts.
-- **Admin panel** — HTMX panel for users (incl. soft-deleted), scorecards, system prompts, and configurable case fields for each tracker.
+- **AI assistance** — OpenRouter-backed score previews from review notes, auto-scoring for pasted ticket transcripts, drafting notes from scorecard deductions, and rewriting QA notes or comments in either tracker. AI endpoints return 503 if no API key is configured.
+- **Admin panel** — manage users, scorecards, AI settings and each tracker's case fields, and restore deleted records. **Prompts** groups versioned instructions under **Score reviews**, **Other reviews**, and **Bug reports**. Saving creates a new active version; older versions can be reactivated from the history.
 - **Bug reporting** — signed-in users can review an AI-redacted report and publish it through a dedicated GitHub App.
 
 ## Tech stack
@@ -64,6 +64,14 @@ docker compose up -d --build
 
 The app container waits for the DB healthcheck, applies migrations (`alembic upgrade head`) and starts uvicorn on port 8000.
 
+For development in Docker, add the local source mount and Python reload:
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
+
+The development overlay serves `app/` from your checkout. After changing frontend styles or utility classes, rebuild the local CSS bundle as described in [Frontend assets](#frontend-assets).
+
 ## Configuration
 
 All settings live in `.env` (template: `.env.example`). Keys are **case-sensitive**; empty values coerce to `None` for optional keys. The app crashes without `DATABASE_URL`.
@@ -81,8 +89,11 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 | `BUG_REPORT_GITHUB_INSTALLATION_ID` | no | `None` | GitHub App installation's numeric ID |
 | `BUG_REPORT_GITHUB_PRIVATE_KEY_BASE64` | no | `None` | Base64 of the App private PEM key, on one line |
 | `SESSION_COOKIE_SECURE` | no       | `false`                            | Set `true` behind HTTPS                                            |
-| `SESSION_MAX_AGE`       | no       | `None` (browser session)           | Cookie lifetime in seconds                                         |
+| `SESSION_MAX_AGE`       | no       | `43200` (12 hours)                 | Cookie lifetime in seconds                                         |
 | `MONTHLY_QUOTA`         | no       | `6`                                | Reviews per support agent per reporting period                     |
+| `AI_RATE_LIMIT_REQUESTS` | no      | `20`                               | Requests per authenticated user per rate-limit window                |
+| `AI_RATE_LIMIT_WINDOW_SECONDS` | no | `300`                             | Per-user AI rate-limit window in seconds                            |
+| `AI_MAX_CONCURRENT_REQUESTS_PER_USER` | no | `2`                        | Simultaneous AI requests per authenticated user                     |
 
 > Override `ALLOWED_DOMAIN` in your local `.env`, otherwise login is rejected unless your Google account is on `example.com`.
 
@@ -100,7 +111,7 @@ All settings live in `.env` (template: `.env.example`). Keys are **case-sensitiv
 3. Set the four `BUG_REPORT_GITHUB_*` variables above. For host development, use `.env`. Docker Compose loads the main env file and, if present, `.env.bug-reports`; `APP_BUG_REPORT_ENV_FILE` can point to a different private env file. Recreate the app container after configuration changes.
 4. Set `OPENROUTER_API_KEY` and a strong random `SECRET_KEY` (at least 32 characters; not the example value). Use HTTPS and `SESSION_COOKIE_SECURE=true` in production. The button is hidden until these settings and all four GitHub values are supplied.
 
-The model selected in **Admin → AI** must support JSON output through an OpenRouter provider with zero data retention. The report check enforces these provider settings independently of the normal AI routing preferences. The optional **Admin → System Prompts → Bug Report Privacy** instructions can refine what gets redacted. The app formats only the user's supplied facts, and no report is published if the privacy check fails. Since redaction can miss sensitive information, do not submit real customer data, credentials, or internal case details; check the exact preview before publishing to GitHub.
+The model selected in **Admin → AI settings** must support JSON output through an OpenRouter provider with zero data retention. The report check enforces these provider settings independently of the normal AI routing preferences. The optional **Admin → Prompts → Bug reports → Bug Report Privacy** instructions can refine what gets redacted. The app formats only the user's supplied facts, and no report is published if the privacy check fails. Since redaction can miss sensitive information, do not submit real customer data, credentials, or internal case details; check the exact preview before publishing to GitHub.
 
 Previews expire after 10 minutes and are kept only in the default single app worker, not in the database. If GitHub cannot confirm the result, check the repository before trying again. The [GitHub Issues REST API](https://docs.github.com/en/rest/issues/issues#create-an-issue) has no supported issue-attachment upload endpoint, so the form does not collect or publish screenshots.
 
@@ -136,8 +147,9 @@ docker compose exec app tail -n 100 /var/log/gotyourscore/app.jsonl
 - **Reporting periods**: the 26th of one month through the 25th of the next (UTC), named after its *closing* month (`app/services/reporting_period.py`). Review creation returns **409 once the quota is reached**; "No Cases" reviews have null score/scorecard but still count toward the quota.
 - **Pending reviews** are quota-neutral; completion = PATCH with `raw_scorecard` (deliberately skips the quota gate). The last editor of a pending review becomes its executor; completed rows reject reassignment.
 - **Scorecards**: exactly one active per case type; saved reviews embed `rules_snapshot` and score against it, never live rules. `error_name` on saved items is immutable.
+- **Autofail**: for a scored review, an Autofail requires a reason and sets the final score to zero. The selected scorecard deductions are kept.
 - **Bad Feedback and Refund Check**: separate case trackers with the same per-agent cards, queue, completion, and Excel import workflow. Neither is scored or quota-counted. Views group by calendar month of `completed_at`; pending records are visible in every month.
-- **Case fields**: Admin → **Case Fields** manages each tracker's field list independently. Both start with Date, Source, Customer info, Customer feedback, and Related case. Date uses the key `fb_date` in Bad Feedback and `r_date` in Refund Check. Drag a handle or use the arrows to reorder fields; the order saves automatically. Changes apply to the editor, listings, and Excel mapping. Renaming or reordering keeps the same field key; archiving hides a field without deleting historical values, and restoring makes them visible again. Customer info and new fields are hidden from My Reviews unless explicitly enabled. Workflow data (assignment, status, and per-agent cards) is managed separately.
+- **Case fields**: Admin → **Case Fields** manages each tracker's field list independently. Both start with Date, Source, Customer info, Customer feedback, and Related case. Date uses the key `fb_date` in Bad Feedback and `r_date` in Refund Check. Custom fields include Integer (whole numbers) and Decimal (numbers that can include a fractional part), with validation in the editor and Excel import. Drag a handle or use the arrows to reorder fields; the order saves automatically. Changes apply to the editor, listings, and Excel mapping. Renaming or reordering keeps the same field key; archiving hides a field without deleting historical values, and restoring makes them visible again. Customer info and new fields are hidden from My Reviews unless explicitly enabled. Workflow data (assignment, status, and per-agent cards) is managed separately.
 
 ## Frontend assets
 
@@ -228,7 +240,7 @@ scripts/            # CSV import, asset vendoring
 - `/api/reviews/*` — create, AI auto-score, score preview, delegate (`/pending`, `/pending/bulk`, `/pending/mine-count`), complete/edit (PATCH), soft delete, quota, compliance
 - `/api/bad-feedback/*` and `/api/refund-check/*` — independent case CRUD, completion, and Excel import (`/import/inspect`, `/import`); configurable values use the `field_values` object keyed by stable field keys
 - `/api/assignments/*` — Supervisor/Admin QA staffing
-- `/api/ai/*` — refactor QA notes / Bad Feedback comments, score notes into a scorecard, draft notes from ticked deductions (OpenRouter)
+- `/api/ai/*` — refactor QA notes or comments in either tracker, score notes into a scorecard, and draft notes from selected deductions (OpenRouter)
 - `/api/bug-reports/preview` and `/api/bug-reports` — authenticated same-origin JSON `POST`s with `X-Bug-Report: 1`. Preview returns `{title, body, token}`; publishing accepts only `{token}` and returns `{number, url}`. Expected errors return a `code` and, for `invalid_report` or `needs_details`, may include `fields`. Other codes are `reporting_disabled`, `invalid_request`, `rate_limited`, `preview_unavailable`, `privacy_unavailable`, `expired_preview`, `github_unavailable`, and `publication_uncertain`.
 - `/api/system-prompts/*` — Admin-only LLM prompt management
 - `/partials/*`, `/admin/*` — RBAC-guarded HTML fragments consumed by HTMX
