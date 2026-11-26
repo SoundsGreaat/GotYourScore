@@ -101,6 +101,7 @@
 .gys-bug-report__field-error {
     margin-block-start: 0.25rem;
     font-size: 0.875rem;
+    font-weight: 600;
 }
 
 .gys-bug-report__output {
@@ -137,7 +138,7 @@
 }
 
 .gys-bug-trigger:focus-visible,
-.gys-bug-report :is(button, input, textarea, a):focus-visible {
+.gys-bug-report :is(button, input, textarea, a, #bug-report-validation):focus-visible {
     outline: 2px solid currentColor;
     outline-offset: 2px;
 }

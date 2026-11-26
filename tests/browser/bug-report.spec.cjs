@@ -155,7 +155,9 @@ test("the mobile dark-mode form keeps actionable validation and never shows upst
   const { opener, dialog } = await openDashboard(page, {
     preview: (route, count) => {
       if (count === 1) return route.fulfill({
-        status: 422, json: { code: "needs_details", fields: ["steps", privateDetail], detail: privateDetail },
+        status: 422, json: {
+          code: "needs_details", fields: ["steps", "actual", privateDetail], detail: privateDetail,
+        },
       });
       if (count === 2) return route.fulfill({
         status: 503, json: { code: "unknown-fixture-code", body: privateDetail, detail: privateDetail },
@@ -182,13 +184,26 @@ test("the mobile dark-mode form keeps actionable validation and never shows upst
 
   const previewButton = dialog.getByRole("button", { name: "Preview report" });
   const steps = dialog.getByLabel(/^Steps to reproduce/);
+  const actual = dialog.getByLabel(/^What happened/);
+  const summary = dialog.getByRole("group", { name: "Preview not created" });
   await expect(steps).toHaveAccessibleDescription(/open the Demo list, then select Archived/);
   await previewButton.press("Enter");
+  await expect(summary).toBeFocused();
+  await expect(summary).toHaveAccessibleDescription(/isn’t enough detail to reproduce.*Nothing was published/);
+  await expect(summary.getByRole("link")).toHaveCount(2);
+  await expect(dialog.getByText(privateDetail)).toHaveCount(0);
+  const previousHash = new URL(page.url()).hash;
+  await summary.getByRole("link", { name: "Steps to reproduce" }).press("Enter");
   await expect(steps).toBeFocused();
+  expect(new URL(page.url()).hash).toBe(previousHash);
   await expect(steps).toHaveAttribute("aria-invalid", "true");
-  await expect(steps).toHaveAccessibleDescription(/List the steps someone can follow/);
+  await expect(steps).toHaveAccessibleDescription(/Include the starting screen and the actions in order/);
   await steps.fill(draft.steps + "\n3. Read the list.");
   await expect(steps).not.toHaveAttribute("aria-invalid");
+  await expect(steps).not.toHaveAccessibleDescription(/Include the starting screen/);
+  await expect(summary.getByRole("link")).toHaveCount(1);
+  await actual.fill("The demo list still shows active items after choosing Archived.");
+  await expect(summary).toBeHidden();
 
   await previewButton.press("Enter");
   await expect(dialog.getByRole("alert")).toHaveText("Unable to preview report: Server error.");

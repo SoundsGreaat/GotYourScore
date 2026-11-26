@@ -11,6 +11,9 @@
     const issueBody = document.getElementById('bug-report-issue-body');
     const issueLink = document.getElementById('bug-report-issue-link');
     const fields = Array.from(draft.querySelectorAll('input, textarea'));
+    const validation = document.getElementById('bug-report-validation');
+    const validationReason = document.getElementById('bug-report-validation-reason');
+    const validationList = validation.querySelector('ul');
     const draftSubmit = draft.querySelector('[type="submit"]');
     const publish = preview.querySelector('[type="submit"]');
     let step = draft;
@@ -19,10 +22,10 @@
     let successSeen = false;
 
     const fieldHints = {
-        title: 'Enter a short, specific bug title.',
-        steps: 'List the steps someone can follow to see the bug.',
-        actual: 'Describe what happened after following the steps.',
-        expected: 'Describe what should have happened instead.',
+        title: 'Name the affected feature and symptom. Example: “Archived filter shows active items.”',
+        steps: 'Include the starting screen and the actions in order. Example: “Open Demo → select Archived.”',
+        actual: 'Say what you actually saw. Example: “The list still showed active items.”',
+        expected: 'Say what the same steps should produce. Example: “Only archived items should be listed.”',
         environment: 'Check the browser and device description.',
         context: 'Check the additional context for anything irrelevant or confidential.',
     };
@@ -78,24 +81,36 @@
 
     function fieldError(field, text) {
         const error = document.getElementById(`${field.id}-error`);
+        const ids = field.getAttribute('aria-describedby').split(/\s+/).filter((id) => id !== error.id);
         if (text) field.setAttribute('aria-invalid', 'true');
         else field.removeAttribute('aria-invalid');
         error.textContent = text;
         error.hidden = !text;
+        if (text) ids.push(error.id);
+        field.setAttribute('aria-describedby', ids.join(' '));
     }
 
-    function showFieldErrors(names, invalid) {
-        let first;
-        for (const field of fields) {
-            if (!names.includes(field.name)) continue;
-            const text = invalid
-                ? `Check this field (maximum ${field.maxLength} characters).`
-                : fieldHints[field.name];
+    function showFieldErrors(names, reason, messageFor) {
+        const invalid = fields.filter((field) => names.includes(field.name));
+        validationReason.textContent = reason;
+        validationList.replaceChildren();
+        for (const field of invalid) {
+            const text = messageFor(field);
             fieldError(field, text);
-            first ||= field;
+            const item = document.createElement('li');
+            const link = document.createElement('a');
+            link.className = 'link';
+            link.href = `#${field.id}`;
+            link.textContent = field.labels[0].firstChild.textContent.trim();
+            link.addEventListener('click', (event) => {
+                event.preventDefault(); // The dashboard uses the URL fragment for navigation.
+                field.focus();
+            });
+            item.append(link);
+            validationList.append(item);
         }
-        if (dialog.open) first?.focus();
-        return Boolean(first);
+        validation.hidden = false;
+        if (dialog.open) validation.focus();
     }
 
     async function post(form, values) {
@@ -145,9 +160,14 @@
         const names = Array.isArray(data?.fields) ? data.fields : [];
         switch (data?.code) {
             case 'invalid_report':
-                return showFieldErrors(names, true) ? '' : 'Check the required fields and length limits, then try again.';
+                showFieldErrors(names, 'Check the required fields and length limits, then try again.',
+                    (field) => `Enter a valid value of no more than ${field.maxLength} characters.`);
+                return '';
             case 'needs_details':
-                return showFieldErrors(names, false) ? '' : 'Add more specific steps and describe what happened and what you expected.';
+                showFieldErrors(names,
+                    'There isn’t enough detail to reproduce the bug. Replace placeholders like “Test title” with specific, non-confidential details, then try again. Nothing was published.',
+                    (field) => fieldHints[field.name]);
+                return '';
             case 'privacy_unavailable':
                 return 'The AI privacy check is unavailable. Nothing was published. Try previewing later.';
             case 'preview_unavailable':
@@ -191,7 +211,13 @@
     }
 
     for (const field of fields) {
-        field.addEventListener('input', () => fieldError(field, ''));
+        field.addEventListener('input', () => {
+            fieldError(field, '');
+            const link = validationList.querySelector(`a[href="#${field.id}"]`);
+            if (!link) return;
+            link.parentElement.remove();
+            if (!validationList.hasChildNodes()) validation.hidden = true;
+        });
     }
 
     trigger.addEventListener('click', () => {
@@ -211,6 +237,8 @@
         if (pending) return;
         const alert = draft.querySelector('[role="alert"]');
         alert.textContent = '';
+        validation.hidden = true;
+        validationList.replaceChildren();
         const values = {};
         const blanks = [];
         for (const field of fields) {
@@ -219,7 +247,11 @@
             if (field.required && !value) blanks.push(field.name);
             if (value) values[field.name] = value;
         }
-        if (showFieldErrors(blanks, false)) return;
+        if (blanks.length) {
+            showFieldErrors(blanks, 'Fill in the required fields below.',
+                () => 'This field is required. Enter more than spaces.');
+            return;
+        }
 
         clearPreview();
         setPending(true);

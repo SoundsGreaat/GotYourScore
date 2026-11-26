@@ -19,47 +19,54 @@
             The GitHub Issues API doesn't support uploads from this form, so don't include screenshots or links to them.
         </p>
 
+        <div id="bug-report-validation" class="gys-bug-report__error" role="group" tabindex="-1"
+             aria-labelledby="bug-report-validation-heading" aria-describedby="bug-report-validation-reason" hidden>
+            <h3 id="bug-report-validation-heading" class="font-semibold">Preview not created</h3>
+            <p id="bug-report-validation-reason"></p>
+            <ul class="mt-2 list-disc ps-5"></ul>
+        </div>
+
         <div class="gys-bug-report__fields">
             <div>
                 <label for="bug-report-title">Title <span>(required)</span></label>
                 <p id="bug-report-title-hint" class="gys-bug-report__hint">Summarize the symptom in one line.</p>
                 <input id="bug-report-title" class="input" name="title" type="text" maxlength="120" required autofocus
-                       aria-describedby="bug-report-warning bug-report-title-hint bug-report-title-error">
+                       aria-describedby="bug-report-warning bug-report-title-hint">
                 <p id="bug-report-title-error" class="gys-bug-report__field-error" hidden></p>
             </div>
             <div>
                 <label for="bug-report-steps">Steps to reproduce <span>(required)</span></label>
                 <p id="bug-report-steps-hint" class="gys-bug-report__hint">List steps in order, for example: open the Demo list, then select Archived.</p>
                 <textarea id="bug-report-steps" class="textarea" name="steps" maxlength="2500" rows="3" required
-                          aria-describedby="bug-report-steps-hint bug-report-steps-error"></textarea>
+                          aria-describedby="bug-report-steps-hint"></textarea>
                 <p id="bug-report-steps-error" class="gys-bug-report__field-error" hidden></p>
             </div>
             <div>
                 <label for="bug-report-actual">What happened <span>(required)</span></label>
                 <p id="bug-report-actual-hint" class="gys-bug-report__hint">Describe the result, how often it happens, and the exact error text if safe to share.</p>
                 <textarea id="bug-report-actual" class="textarea" name="actual" maxlength="1500" rows="2" required
-                          aria-describedby="bug-report-actual-hint bug-report-actual-error"></textarea>
+                          aria-describedby="bug-report-actual-hint"></textarea>
                 <p id="bug-report-actual-error" class="gys-bug-report__field-error" hidden></p>
             </div>
             <div>
                 <label for="bug-report-expected">What you expected <span>(required)</span></label>
                 <p id="bug-report-expected-hint" class="gys-bug-report__hint">Describe the result you should have seen instead.</p>
                 <textarea id="bug-report-expected" class="textarea" name="expected" maxlength="1500" rows="2" required
-                          aria-describedby="bug-report-expected-hint bug-report-expected-error"></textarea>
+                          aria-describedby="bug-report-expected-hint"></textarea>
                 <p id="bug-report-expected-error" class="gys-bug-report__field-error" hidden></p>
             </div>
             <div>
                 <label for="bug-report-environment">Browser and device <span>(optional)</span></label>
                 <p id="bug-report-environment-hint" class="gys-bug-report__hint">Include the browser version, device type, and operating system version if known.</p>
                 <input id="bug-report-environment" class="input" name="environment" type="text" maxlength="250"
-                       aria-describedby="bug-report-environment-hint bug-report-environment-error">
+                       aria-describedby="bug-report-environment-hint">
                 <p id="bug-report-environment-error" class="gys-bug-report__field-error" hidden></p>
             </div>
             <div>
                 <label for="bug-report-context">Additional context <span>(optional)</span></label>
                 <p id="bug-report-context-hint" class="gys-bug-report__hint">Mention relevant settings, workarounds, or when the issue first appeared.</p>
                 <textarea id="bug-report-context" class="textarea" name="context" maxlength="1500" rows="2"
-                          aria-describedby="bug-report-context-hint bug-report-context-error"></textarea>
+                          aria-describedby="bug-report-context-hint"></textarea>
                 <p id="bug-report-context-error" class="gys-bug-report__field-error" hidden></p>
             </div>
         </div>
