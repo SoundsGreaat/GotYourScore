@@ -7,6 +7,14 @@
 /* Resize from the current rendered height or a height captured immediately
  * before a DOM swap. Return to natural sizing when the motion ends, and
  * return the animation to callers that need to finalize a collapse. */
+function gysMotionOptions(element) {
+    var css = getComputedStyle(element);
+    var speed = css.getPropertyValue('--gys-speed').trim();
+    return {
+        duration: parseFloat(speed) * (speed.endsWith('ms') ? 1 : 1000),
+        easing: css.getPropertyValue('--gys-ease').trim(),
+    };
+}
 var gysResizeAnimations = new WeakMap();
 window.gysResizePanel = function (panel, update, fromHeight) {
     var previous = gysResizeAnimations.get(panel);
@@ -18,15 +26,10 @@ window.gysResizePanel = function (panel, update, fromHeight) {
 
     var end = panel.getBoundingClientRect().height;
     if (Math.abs(start - end) < 1) return;
-    var css = getComputedStyle(panel);
-    var speed = css.getPropertyValue('--gys-speed').trim();
     var animation = panel.animate([
         {height: start + 'px', overflow: 'clip'},
         {height: end + 'px', overflow: 'clip'},
-    ], {
-        duration: parseFloat(speed) * (speed.endsWith('ms') ? 1 : 1000),
-        easing: css.getPropertyValue('--gys-ease').trim(),
-    });
+    ], gysMotionOptions(panel));
     gysResizeAnimations.set(panel, animation);
     animation.finished.then(function () {
         if (gysResizeAnimations.get(panel) === animation) gysResizeAnimations.delete(panel);
@@ -59,10 +62,30 @@ window.gysFloatNote = function (content, kind, timeout, trustedHtml) {
     } else {
         note.textContent = content;
     }
-    stack.appendChild(note);
+    var row = document.createElement('div');
+    row.className = 'gys-float-row';
+    row.appendChild(note);
+    stack.appendChild(row);
     window.setTimeout(function () {
+        function finish() {
+            row.remove();
+            if (!stack.firstElementChild) stack.remove();
+        }
+        if (!row.isConnected || !row.animate || !row.getClientRects().length
+            || !matchMedia('(prefers-reduced-motion: no-preference)').matches) {
+            finish();
+            return;
+        }
+        // Let the departing row give up its space gradually. Live sibling
+        // rows follow the flex layout even when several notes expire together.
+        var height = row.getBoundingClientRect().height + 'px';
+        var spacing = getComputedStyle(row).marginBlockStart;
         note.classList.add('gys-leaving');
-        window.setTimeout(function () { note.remove(); }, 250);
+        var collapse = row.animate([
+            {height: height, marginBlockStart: spacing, overflow: 'clip'},
+            {height: '0px', marginBlockStart: '0px', overflow: 'clip'},
+        ], {...gysMotionOptions(row), fill: 'forwards'});
+        collapse.finished.then(finish, finish);
     }, timeout || 3500);
 };
 
