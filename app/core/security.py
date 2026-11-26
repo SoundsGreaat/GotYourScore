@@ -5,13 +5,21 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
 from authlib.integrations.starlette_client import OAuth
+from httpx import Request as OutboundRequest
 
 from app.core.config import get_settings
+from app.core.observability import current_request_id
 from app.db.database import AsyncSession, get_db
 from app.models import RoleEnum, User
 
 # Session key under which the authenticated user's id is stored.
 SESSION_USER_ID_KEY = "user_id"
+
+
+async def _correlate_oauth_exchange(request: OutboundRequest) -> None:
+    correlation_id = current_request_id()
+    if correlation_id != "-":
+        request.headers["X-Request-ID"] = correlation_id
 
 
 @lru_cache
@@ -29,7 +37,11 @@ def get_oauth() -> OAuth:
         client_id=settings.GOOGLE_CLIENT_ID,
         client_secret=settings.GOOGLE_CLIENT_SECRET,
         server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
-        client_kwargs={"scope": "openid email profile", "prompt": "select_account"},
+        client_kwargs={
+            "scope": "openid email profile",
+            "prompt": "select_account",
+            "event_hooks": {"request": [_correlate_oauth_exchange]},
+        },
     )
     return oauth
 

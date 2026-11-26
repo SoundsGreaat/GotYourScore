@@ -27,10 +27,13 @@ services:
     environment:
       # Inside the compose network the DB host is the service name.
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/gotyourscore
+      APP_LOG_FILE: /var/log/gotyourscore/app.jsonl
     env_file:
       - ${APP_ENV_FILE:-.env}
     ports:
       - "8000:8000"
+    volumes:
+      - gotyourscore_logs:/var/log/gotyourscore
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ping')"]
       interval: 10s
@@ -39,3 +42,4 @@ services:
 
 volumes:
   gotyourscore_pgdata:
+  gotyourscore_logs:

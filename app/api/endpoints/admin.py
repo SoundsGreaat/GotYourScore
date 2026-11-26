@@ -19,6 +19,7 @@ bottom-center, like every other notification.
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -37,6 +38,7 @@ from app.api.endpoints.pages import (
     _session_user,
     templates,
 )
+from app.core.observability import log_event
 from app.db.database import get_db
 from app.models import (
     BadFeedback,
@@ -59,11 +61,23 @@ from app.services import (
 )
 
 router = APIRouter(tags=["admin"])
+logger = logging.getLogger(__name__)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 # Valid role values for the roles form (RoleEnum VALUES as strings).
 _ROLE_VALUES = [role.value for role in RoleEnum]
+
+
+def _log_admin_commit(request: Request, auth: User) -> None:
+    """Record a successful admin mutation without logging form values."""
+    log_event(
+        logger,
+        "admin.mutation.committed",
+        "success",
+        user_id=auth.id,
+        operation=getattr(request.scope.get("route"), "name", "admin_operation"),
+    )
 
 
 async def get_admin_user_or_redirect(
@@ -218,6 +232,7 @@ async def create_prompt(
 
     await system_prompt_service.create_active_version(db, key, content)
     await db.commit()
+    _log_admin_commit(request, auth)
 
     return templates.TemplateResponse(
         request=request,
@@ -244,6 +259,7 @@ async def activate_prompt(
 
     await system_prompt_service.activate_version(db, prompt)
     await db.commit()
+    _log_admin_commit(request, auth)
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_prompts.html",
@@ -270,6 +286,7 @@ async def delete_prompt(
 
     await db.delete(prompt)
     await db.commit()
+    _log_admin_commit(request, auth)
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_prompts.html",
@@ -399,6 +416,7 @@ async def create_scorecard(
             str(form.get("name", "")), str(form.get("case_type", "")), db
         )
         await db.commit()
+        _log_admin_commit(request, auth)
     except ValueError as exc:
         return _error_json(str(exc))
 
@@ -485,6 +503,7 @@ async def save_scorecard(
             deletions=deletions,
         )
         await db.commit()
+        _log_admin_commit(request, auth)
     except scorecard_service.AutofailRuleError as exc:
         # This exception uses only fixed messages, not submitted values.
         await db.rollback()
@@ -537,6 +556,7 @@ async def toggle_scorecard(
         )
         states = dict(rows.tuples().all())
         await db.commit()
+        _log_admin_commit(request, auth)
     except ValueError as exc:
         return _error_json(str(exc))
 
@@ -628,6 +648,7 @@ async def save_ai_provider(
         db, app_setting_service.OPENROUTER_PROVIDER_KEY, value
     )
     await db.commit()
+    _log_admin_commit(request, auth)
 
     return templates.TemplateResponse(
         request=request,
@@ -649,6 +670,7 @@ async def reset_ai_provider(
         db, app_setting_service.OPENROUTER_PROVIDER_KEY
     )
     await db.commit()
+    _log_admin_commit(request, auth)
 
     return templates.TemplateResponse(
         request=request,
@@ -684,6 +706,7 @@ async def save_ai_request(
             db, app_setting_service.OPENROUTER_REQUEST_KEY
         )
     await db.commit()
+    _log_admin_commit(request, auth)
 
     return templates.TemplateResponse(
         request=request,
@@ -705,6 +728,7 @@ async def reset_ai_request(
         db, app_setting_service.OPENROUTER_REQUEST_KEY
     )
     await db.commit()
+    _log_admin_commit(request, auth)
 
     return templates.TemplateResponse(
         request=request,
@@ -832,6 +856,7 @@ async def create_case_field(
             required_for_import=form.get("required_for_import") == "true",
         )
         await db.commit()
+        _log_admin_commit(request, auth)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -873,6 +898,7 @@ async def update_case_field(
             required_for_import=form.get("required_for_import") == "true",
         )
         await db.commit()
+        _log_admin_commit(request, auth)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -904,6 +930,7 @@ async def archive_case_field(
     try:
         await tracker_fields.archive_field(db, tracker, field_id)
         await db.commit()
+        _log_admin_commit(request, auth)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -935,6 +962,7 @@ async def restore_case_field(
     try:
         await tracker_fields.restore_field(db, tracker, field_id)
         await db.commit()
+        _log_admin_commit(request, auth)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -972,6 +1000,7 @@ async def reorder_case_fields(
             raise ValueError("Field order must be a JSON array of field IDs.")
         await tracker_fields.reorder_fields(db, tracker, field_ids)
         await db.commit()
+        _log_admin_commit(request, auth)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -1089,6 +1118,7 @@ async def update_user_roles(
     for value in values:
         db.add(UserRole(user_id=target.id, role=RoleEnum(value)))
     await db.commit()
+    _log_admin_commit(request, auth)
 
     # Refresh the identity-map instance so the partial shows fresh roles.
     await db.execute(
@@ -1146,6 +1176,7 @@ async def create_user(
         )
     )
     await db.commit()
+    _log_admin_commit(request, auth)
 
     return _render_users(
         request,
@@ -1191,6 +1222,7 @@ async def delete_user(
 
     target.deleted_at = datetime.now(timezone.utc)
     await db.commit()
+    _log_admin_commit(request, auth)
 
     return _render_users(
         request, await _users_context(db, current_user=auth)
@@ -1259,6 +1291,7 @@ async def restore_user(
     if target.is_deleted:
         target.deleted_at = None
         await db.commit()
+        _log_admin_commit(request, auth)
 
     return await _render_deleted_users(request, db)
 
@@ -1368,6 +1401,7 @@ async def restore_review(
             update(Review).where(Review.id == review_id).values(deleted_at=None)
         )
         await db.commit()
+        _log_admin_commit(request, auth)
 
     return await _render_deleted_reviews(request, db)
 
@@ -1467,4 +1501,5 @@ async def restore_tracker_record(
     if record.deleted_at is not None:
         record.deleted_at = None
         await db.commit()
+        _log_admin_commit(request, auth)
     return await _render_deleted_tracker(request, db, tracker)
