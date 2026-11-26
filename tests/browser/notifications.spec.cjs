@@ -10,6 +10,8 @@ async function setup(page, reducedMotion) {
   const dialog = page.getByRole("dialog", { name: "New Refund Check" });
   const cancel = dialog.getByRole("button", { name: "Cancel" });
   await cancel.focus();
+  // Measure the toast stack only after the dialog has finished moving.
+  await dialog.evaluate((node) => Promise.allSettled(node.getAnimations().map((animation) => animation.finished)));
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
   const stack = dialog.locator(":scope > .gys-float-stack");
   await page.evaluate(() => {
