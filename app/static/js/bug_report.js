@@ -52,7 +52,7 @@
     function show(next) {
         step = next;
         for (const panel of [draft, preview, success]) panel.hidden = panel !== next;
-        if (dialog.open) {
+        if (dialog.open && !dialog.hasAttribute('data-closing')) {
             if (step === success) successSeen = true;
             dialog.scrollTop = 0;
             step.querySelector('h2').focus({ preventScroll: true });
@@ -110,7 +110,7 @@
             validationList.append(item);
         }
         validation.hidden = false;
-        if (dialog.open) validation.focus();
+        if (dialog.open && !dialog.hasAttribute('data-closing')) validation.focus();
     }
 
     async function post(form, values) {
@@ -221,14 +221,16 @@
     }
 
     trigger.addEventListener('click', () => {
+        if (dialog.open) return;
         if (step === success && successSeen) {
             issueLink.removeAttribute('href');
             issueLink.textContent = '';
             successSeen = false;
             show(draft);
         }
-        dialog.showModal();
-        if (step !== draft) show(step);
+        window.gysModal.open(dialog, () => {
+            if (step !== draft) show(step);
+        });
     });
     trigger.hidden = false;
 

@@ -1,29 +1,47 @@
-/* Keep full selector specificity so the shared halo replaces daisyUI's
-   default outline rather than doubling up with it. */
-.input:focus, .input:focus-within,
-.textarea:focus, .select:focus,
+/* Text entry uses one shared halo, not a second native or component outline.
+   Draw the rich-text editor's halo on its wrapper so it is not clipped. */
+:is(.input:focus-within, .glow-shell:focus-within, .textarea:focus, .select:focus, .file-input:focus,
+    textarea:focus, select:focus,
+    input:where(:not([type]), [type="text"], [type="search"], [type="email"], [type="url"],
+        [type="tel"], [type="password"], [type="number"], [type="date"], [type="datetime-local"],
+        [type="month"], [type="time"], [type="week"]):focus) {
+    --gys-field-halo: var(--color-primary);
+    outline: none;
+    border-color: color-mix(in oklab, var(--gys-field-halo) 45%, var(--color-base-content));
+    box-shadow:
+        0 0 0 3px color-mix(in oklab, var(--gys-field-halo) 22%, transparent),
+        0 0 12px color-mix(in oklab, var(--gys-field-halo) 30%, transparent);
+}
+:is(.input, .textarea, .select, input, textarea, select)[aria-invalid="true"]:focus,
+.input:has(> [aria-invalid="true"]:focus) {
+    --gys-field-halo: var(--color-error);
+}
+/* A wrapped input uses its parent halo, not a second shadow on the input. */
+.input > input:focus {
+    box-shadow: none;
+}
+@media (forced-colors: active) {
+    :is(.input:focus-within, .glow-shell:focus-within, .textarea:focus-visible, .select:focus-visible, .file-input:focus-visible,
+        textarea:focus-visible, select:focus-visible,
+        input:where(:not([type]), [type="text"], [type="search"], [type="email"], [type="url"],
+            [type="tel"], [type="password"], [type="number"], [type="date"], [type="datetime-local"],
+            [type="month"], [type="time"], [type="week"]):focus-visible) {
+        outline: 2px solid CanvasText;
+        outline-offset: 2px;
+    }
+    .input > input:focus-visible {
+        outline: none;
+    }
+}
+
 .checkbox:focus-visible, .radio:focus-visible,
 .toggle:focus-visible,
 .toggle:has(:focus-visible),
 .focus-halo:focus-visible,
-.ql-editor:focus, .glow-shell:focus-within {
+.ql-editor:focus {
     outline: none;
 }
-.input:focus, .input:focus-within,
-.textarea:focus, .select:focus {
-    border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
-    box-shadow:
-        0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
-        0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
-}
 
-/* Draw the Quill halo on its wrapper so overflow does not clip the glow. */
-.glow-shell:focus-within {
-    border-color: color-mix(in oklab, var(--color-primary) 65%, var(--color-base-content));
-    box-shadow:
-        0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent),
-        0 0 12px color-mix(in oklab, var(--color-primary) 30%, transparent);
-}
 .btn:focus-visible,
 .btn:has(:focus-visible) {
     outline-style: none;
@@ -35,7 +53,7 @@
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 22%, transparent);
 }
 
-.input, .textarea, .select, .checkbox, .radio, .toggle,
+.input, .textarea, .select, .file-input, .checkbox, .radio, .toggle,
 .focus-halo, .glow-shell, .ql-editor {
     transition:
         border-color var(--gys-speed) var(--gys-ease),
@@ -47,7 +65,8 @@
 /* Use the same outset shadow shape at rest so the halo can interpolate. */
 .input:not(:focus):not(:focus-within),
 .textarea:not(:focus),
-.select:not(:focus) {
+.select:not(:focus),
+.file-input:not(:focus) {
     box-shadow:
         0 0 0 3px #0000,
         0 0 12px 0 #0000;
@@ -69,16 +88,6 @@
     grid-template-columns: 1fr 1fr 0fr;
     background-color: var(--color-base-100);
     --input-color: var(--color-base-content);
-}
-
-/* Avoid scaling the dialog, which makes its border look uneven mid-transition. */
-.modal .modal-box,
-.modal[open] > .modal-box {
-    transition:
-        translate var(--gys-speed) var(--gys-ease),
-        opacity var(--gys-speed) var(--gys-ease),
-        box-shadow var(--gys-speed) var(--gys-ease);
-    scale: none;
 }
 
 /* Crossfade the theme snapshots instead of animating the whole live page. */

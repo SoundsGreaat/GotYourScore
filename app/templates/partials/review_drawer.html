@@ -1,14 +1,11 @@
 {% import "macros/dropdowns.html" as dd %}
-<div class="drawer drawer-end">
-    <input id="review-drawer-toggle" type="checkbox" class="drawer-toggle" />
-    <div class="drawer-content"></div>
-    <div class="drawer-side">
-        <label for="review-drawer-toggle" aria-label="close drawer" class="drawer-overlay"></label>
-        <aside class="gys-drawer-panel flex h-full w-[28rem] max-w-full flex-col bg-base-100">
-            <div class="flex shrink-0 items-center justify-between border-b border-base-300 p-4">
-                <h2 id="review-drawer-title" class="text-lg font-semibold">New Review</h2>
-                <label for="review-drawer-toggle" class="btn btn-ghost btn-sm">Close</label>
-            </div>
+{% import "macros/modals.html" as modals %}
+<dialog class="gys-modal gys-modal--side js-review-drawer" closedby="closerequest" aria-labelledby="review-drawer-title">
+        <div class="flex h-full min-w-0 flex-col">
+            <header class="gys-modal-header shrink-0 border-b border-base-300 p-4">
+                <h1 id="review-drawer-title" class="text-lg font-semibold">New Review</h1>
+                {{ modals.close_button('Close review', autofocus=true) }}
+            </header>
 
             <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 [scrollbar-gutter:stable]">
 
@@ -142,11 +139,9 @@
                 <button class="js-save-changes btn btn-ghost btn-block hidden" type="button">Save Changes</button>
                 <button class="js-save-review btn btn-primary btn-block" type="button" disabled>Save Review</button>
             </div>
-        </aside>
-    </div>
-</div>
+        </div>
 
-<ul class="js-ai-context-menu menu menu-sm absolute z-[100] hidden w-52 origin-top-left animate-menu-pop rounded-box border border-base-300 bg-base-100 p-1 shadow-md">
+<ul class="js-ai-context-menu menu menu-sm fixed z-[100] hidden w-52 origin-top-left animate-menu-pop rounded-box border border-base-300 bg-base-100 p-1 shadow-md">
     <li>
         <button id="ai-refactor-action" type="button">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -196,6 +191,7 @@
         </button>
     </li>
 </ul>
+</dialog>
 
 <script>
 // Thin wrapper over the shared picker (app/static/js/dropdowns.js):
@@ -233,21 +229,19 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         applyEntry(review, mode);
     };
 
-    var editorContainer = document.getElementById('quill-editor');
-    var menu = document.querySelector('.js-ai-context-menu');
+    var drawerMount = document.getElementById('drawer-container');
+    var drawer = drawerMount.querySelector('.js-review-drawer');
+    var editorContainer = drawer.querySelector('#quill-editor');
+    var menu = drawer.querySelector('.js-ai-context-menu');
 
-    var drawerToggle = document.getElementById('review-drawer-toggle');
     requestAnimationFrame(function () {
-        requestAnimationFrame(function () {
-            drawerToggle.checked = true;
-        });
+        if (drawer.isConnected) window.gysModal.open(drawer);
     });
 
     if (!editorContainer || !menu || !window.Quill) return;
 
     var controller = new AbortController();
     var disposed = false;
-    var drawerMount = editorContainer.closest('.drawer').parentElement;
     var draftKey = 'gotyourscore:review-draft:new';
     var draftTimer;
     var hookFallbackTimer = null;
@@ -410,39 +404,44 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         // review must never overwrite the user's pending new-review draft.
         if (drawerState.mode !== 'create') return;
         window.clearTimeout(draftTimer);
-        draftTimer = window.setTimeout(function () {
-            try {
-                // Autosave other form edits without persisting an in-progress reveal.
-                var notesHtml = notesDraftRequest ? notesDraftRequest.originalHtml : quill.root.innerHTML;
-                var hasNotesText = notesDraftRequest ? notesDraftRequest.hasOriginalText : !!quill.getText().trim();
-                var pristine = !hasNotesText
-                    && !document.getElementById('review-agent').value
-                    && !document.getElementById('case-number').value
-                    && document.getElementById('case-type').value === 'Initial Fix'
-                    && document.getElementById('review-period').value === initialPeriod
-                    && !isAutofail()
-                    && Object.keys(collectDeductions()).length === 0;
-                if (pristine) {
-                    window.localStorage.removeItem(draftKey);
-                } else {
-                    window.localStorage.setItem(draftKey, JSON.stringify({
-                        v: 1,
-                        notes_html: sanitizeHtml(notesHtml),
-                        agent_id: document.getElementById('review-agent').value,
-                        agent_name: document.querySelector('.js-review-agent-display').textContent,
-                        case_number: document.getElementById('case-number').value,
-                        case_type: document.getElementById('case-type').value,
-                        autofail: isAutofail(),
-                        autofail_reason: isAutofail() ? autofailReason.value : null,
-                        period: document.getElementById('review-period').value,
-                        period_label: (document.querySelector('.js-review-period-display') || {}).textContent || '',
-                        deductions: pendingDeductions || collectDeductions()
-                    }));
-                }
-            } catch (error) {
-                // Storage can be unavailable in private browsing or restricted frames.
+        draftTimer = window.setTimeout(writeDraft, 300);
+    }
+
+    function writeDraft() {
+        window.clearTimeout(draftTimer);
+        draftTimer = null;
+        if (drawerState.mode !== 'create' || !quill || !drawer.isConnected) return;
+        try {
+            // Autosave other form edits without persisting an in-progress reveal.
+            var notesHtml = notesDraftRequest ? notesDraftRequest.originalHtml : quill.root.innerHTML;
+            var hasNotesText = notesDraftRequest ? notesDraftRequest.hasOriginalText : !!quill.getText().trim();
+            var pristine = !hasNotesText
+                && !document.getElementById('review-agent').value
+                && !document.getElementById('case-number').value
+                && document.getElementById('case-type').value === 'Initial Fix'
+                && document.getElementById('review-period').value === initialPeriod
+                && !isAutofail()
+                && Object.keys(collectDeductions()).length === 0;
+            if (pristine) {
+                window.localStorage.removeItem(draftKey);
+            } else {
+                window.localStorage.setItem(draftKey, JSON.stringify({
+                    v: 1,
+                    notes_html: sanitizeHtml(notesHtml),
+                    agent_id: document.getElementById('review-agent').value,
+                    agent_name: document.querySelector('.js-review-agent-display').textContent,
+                    case_number: document.getElementById('case-number').value,
+                    case_type: document.getElementById('case-type').value,
+                    autofail: isAutofail(),
+                    autofail_reason: isAutofail() ? autofailReason.value : null,
+                    period: document.getElementById('review-period').value,
+                    period_label: (document.querySelector('.js-review-period-display') || {}).textContent || '',
+                    deductions: pendingDeductions || collectDeductions()
+                }));
             }
-        }, 300);
+        } catch (error) {
+            // Storage can be unavailable in private browsing or restricted frames.
+        }
     }
 
     function loadDraft() {
@@ -460,6 +459,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
 
     function clearDraft() {
         window.clearTimeout(draftTimer);
+        draftTimer = null;
         try { window.localStorage.removeItem(draftKey); } catch (error) { }
     }
 
@@ -485,6 +485,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     function dispose() {
         if (disposed) return;
         disposed = true;
+        if (draftTimer != null) writeDraft();
         cleanup();
         controller.abort();
         if (rulesController) rulesController.abort();
@@ -1033,10 +1034,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         event.preventDefault();
         menuOpenedAt = Date.now();
         menu.classList.remove('hidden');
-        var left = Math.min(event.clientX, window.innerWidth - menu.offsetWidth - 8);
-        var top = Math.min(event.clientY, window.innerHeight - menu.offsetHeight - 8);
-        menu.style.left = Math.max(8, left + window.scrollX) + 'px';
-        menu.style.top = Math.max(8, top + window.scrollY) + 'px';
+        var panel = drawer.getBoundingClientRect();
+        var left = Math.min(event.clientX, panel.right - menu.offsetWidth - 8);
+        var top = Math.min(event.clientY, panel.bottom - menu.offsetHeight - 8);
+        menu.style.left = Math.max(panel.left + 8, left) + 'px';
+        menu.style.top = Math.max(panel.top + 8, top) + 'px';
     });
 
     menu.addEventListener('click', function (event) { event.stopPropagation(); });
@@ -1044,10 +1046,23 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         if (Date.now() - menuOpenedAt < 200) return;
         hideMenu();
     }, { signal: controller.signal });
-    document.addEventListener('keydown', function (event) { if (event.key === 'Escape') hideMenu(); }, { signal: controller.signal });
-    window.addEventListener('scroll', function (event) {
-        var target = event.target;
-        if (target instanceof Element && target.closest('.drawer-content')) return;
+    drawer.querySelector('[data-gys-modal-close]').addEventListener('click', function () {
+        hideMenu(true);
+    }, { signal: controller.signal });
+    drawer.addEventListener('cancel', function (event) {
+        if (!menu.classList.contains('hidden')) {
+            event.preventDefault();
+            hideMenu(true);
+        } else if (savingReview) {
+            event.preventDefault();
+        }
+    }, { signal: controller.signal });
+    drawer.addEventListener('close', function () {
+        if (drawer.open) return;
+        hideMenu(true);
+        if (draftTimer != null) writeDraft();
+    }, { signal: controller.signal });
+    drawer.addEventListener('scroll', function () {
         hideMenu();
     }, { capture: true, signal: controller.signal });
 
@@ -1091,7 +1106,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
     }
 
     function reviewContextIsCurrent(context, current) {
-        if (disposed || !drawerToggle.checked) return false;
+        if (disposed || !drawer.open || drawer.hasAttribute('data-closing')) return false;
         return Object.keys(context).every(function (key) { return context[key] === current[key]; });
     }
 
@@ -1148,7 +1163,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             });
             if (!response.ok) throw window.gysAiResponseError(response);
             var result = await response.json();
-            if (disposed || !drawerToggle.checked || autofailAtRequest.rules !== rulesSeq) return;
+            if (disposed || !drawer.open || drawer.hasAttribute('data-closing') || autofailAtRequest.rules !== rulesSeq) return;
             if (quill.root.innerHTML !== submittedNotes) {
                 hideMenu(true);
                 showToast('Notes changed while scoring. Generate the score again.');
@@ -1349,7 +1364,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 scratch.setAttribute('readonly', '');
                 scratch.style.position = 'fixed';
                 scratch.style.opacity = '0';
-                document.body.appendChild(scratch);
+                drawer.appendChild(scratch);
                 scratch.select();
                 try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
                 finally {
@@ -1397,7 +1412,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
         function cancelIfStale() { if (!isCurrent()) cancel(); }
         controller.signal.addEventListener('abort', cancel, { once: true, signal: request.signal });
         [
-            [drawerToggle, 'change'],
+            [drawer, 'close'],
             [document, 'review-agent-change'], [document, 'case-type-change'],
             [document.getElementById('case-number'), 'input']
         ].forEach(function (listener) {
@@ -1444,7 +1459,7 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
             drafted = true;
             showToast('Notes drafted from the current score.', 'alert-success');
         } catch (error) {
-            if (!disposed && drawerToggle.checked) {
+            if (!disposed && drawer.open && !drawer.hasAttribute('data-closing')) {
                 if (!isCurrent()) showToast('The review changed while notes were drafting. Try again.');
                 else if (!request.signal.aborted) showToast(aiErrorMessage(error));
             }
@@ -1519,9 +1534,9 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 throw new GysRequestError(response.status,
                     response.status === 409 && drawerState.isPending ? pendingConflict : null);
             }
+            await window.gysModal.close(drawer);
             document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
             showToast(completing ? 'Delegated case completed.' : 'Review updated.', 'alert-success');
-            document.getElementById('review-drawer-toggle').checked = false;
         } catch (error) {
             showDrawerError(window.gysRequestErrorMessage(error, 'Unable to save the review.'));
         } finally {
@@ -1574,11 +1589,11 @@ window.updateCustomDropdown = function(inputId, displayId, value, text, buttonEl
                 throw new GysRequestError(response.status, response.status === 409 ? conflict : null);
             }
             clearDraft();
+            await window.gysModal.close(drawer);
             document.body.dispatchEvent(new CustomEvent('reviews-changed', { bubbles: true }));
             showToast(saveForLater
                 ? 'Saved for later — find it in To-review.'
                 : 'Review saved.', 'alert-success');
-            document.getElementById('review-drawer-toggle').checked = false;
         } catch (error) {
             showToast(window.gysRequestErrorMessage(error, 'Unable to save the review.'));
         } finally {

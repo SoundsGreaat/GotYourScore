@@ -47,7 +47,7 @@ window.gysFloatNote = function (content, kind, timeout, trustedHtml) {
     // paints OVER anything appended to <body> (z-index is powerless
     // against it), so the stack must be created inside the open dialog
     // whenever one exists — that keeps notes visible above its glass.
-    var host = document.querySelector('dialog[open]') || document.body;
+    var host = window.gysModal.active() || document.body;
     var stack = host.querySelector(':scope > .gys-float-stack');
     if (!stack) {
         stack = document.createElement('div');
@@ -248,7 +248,7 @@ function mountTrackerEditor(tracker, query) {
         // A newer open superseded this one — let its mount win.
         if (epoch !== window.__trackerEditorEpoch) return;
         var modal = target.querySelector('.js-bf-edit-modal');
-        if (modal && !modal.open) modal.showModal();
+        window.gysModal.open(modal);
     }).catch(function () {
         if (epoch === window.__trackerEditorEpoch) window.gysToast('Unable to open the editor.');
     });

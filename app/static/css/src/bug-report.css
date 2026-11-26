@@ -3,38 +3,7 @@
 }
 
 .gys-bug-report {
-    position: fixed;
-    inset: 0;
-    margin: auto;
-    inline-size: min(34rem, calc(100% - 1.5rem));
-    max-block-size: calc(100vh - 1.5rem);
-    max-block-size: calc(100dvh - 1.5rem);
-    overflow: auto;
-    scroll-padding-block: 0.75rem;
-    padding: clamp(0.875rem, 4vw, 1.5rem);
-    border: 1px solid var(--color-base-300);
-    border-radius: var(--radius-box);
-    background: var(--color-base-100);
-    color: var(--color-base-content);
-    box-shadow: 0 20px 50px rgb(0 0 0 / 25%);
-}
-
-.gys-bug-report:modal {
-    overscroll-behavior: contain;
-}
-
-.gys-bug-report::backdrop {
-    background: rgb(0 0 0 / 55%);
-    overflow: hidden;
-    overscroll-behavior: contain;
-}
-
-.gys-bug-report__header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.5rem;
-    margin-block-end: 0.75rem;
+    --gys-modal-width: 34rem;
 }
 
 .gys-bug-report__step > * + * {
@@ -86,6 +55,9 @@
     inline-size: 100%;
     font: inherit;
     font-size: max(1rem, 1em);
+}
+
+.gys-bug-report__fields :is(.input, .textarea):where(:not(:focus)) {
     border-color: color-mix(in oklab, var(--color-base-content) 55%, var(--color-base-100));
 }
 
@@ -94,7 +66,7 @@
     vertical-align: top;
 }
 
-.gys-bug-report__fields [aria-invalid="true"] {
+.gys-bug-report__fields [aria-invalid="true"]:where(:not(:focus)) {
     border-color: var(--color-error);
 }
 
@@ -138,14 +110,14 @@
 }
 
 .gys-bug-trigger:focus-visible,
-.gys-bug-report :is(button, input, textarea, a, #bug-report-validation):focus-visible {
+.gys-bug-report :is(a, #bug-report-validation):focus-visible {
     outline: 2px solid currentColor;
     outline-offset: 2px;
 }
 
 @media (pointer: coarse) {
     .gys-bug-trigger,
-    .gys-bug-report :is(.btn, .input) {
+    .gys-bug-report :is(.btn, .input):not(.gys-modal-close) {
         min-block-size: 3rem;
         min-inline-size: 3rem;
     }

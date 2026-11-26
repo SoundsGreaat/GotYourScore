@@ -3,13 +3,6 @@
     opacity: 0.55;
 }
 
-/* Bad Feedback dialog: give the standard fade a slightly longer rise. */
-@media (prefers-reduced-motion: no-preference) {
-    .js-bf-edit-modal > .modal-box {
-        translate: 0 12px;
-    }
-}
-
 /* Put the agent picker on its own line until the editor row has room. */
 .js-bf-agent {
     container-type: inline-size;

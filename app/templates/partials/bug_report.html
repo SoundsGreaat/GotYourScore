@@ -1,13 +1,8 @@
-<dialog id="bug-report-dialog" class="gys-bug-report" aria-labelledby="bug-report-heading">
-    <header class="gys-bug-report__header">
+{% import "macros/modals.html" as modals %}
+<dialog id="bug-report-dialog" class="gys-modal gys-bug-report" closedby="closerequest" aria-labelledby="bug-report-heading">
+    <header class="gys-modal-header mb-3">
         <h1 id="bug-report-heading" class="text-xl font-bold">Report a bug</h1>
-        <form method="dialog">
-            <button type="submit" class="btn btn-ghost btn-square btn-sm" aria-label="Close report">
-                <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" d="m6 6 12 12M18 6 6 18" />
-                </svg>
-            </button>
-        </form>
+        {{ modals.close_button('Close report') }}
     </header>
 
     <form id="bug-report-draft" class="gys-bug-report__step" action="/api/bug-reports/preview" method="post"
@@ -103,8 +98,8 @@
     <div id="bug-report-success" class="gys-bug-report__step" hidden>
         <h2 id="bug-report-success-heading" class="font-semibold" tabindex="-1">Bug report published</h2>
         <p><a id="bug-report-issue-link" class="link" target="_blank" rel="noopener noreferrer"></a></p>
-        <form method="dialog" class="gys-bug-report__actions">
-            <button type="submit" class="btn btn-primary">Done</button>
-        </form>
+        <div class="gys-bug-report__actions">
+            <button type="button" class="btn btn-primary" data-gys-modal-close>Done</button>
+        </div>
     </div>
 </dialog>

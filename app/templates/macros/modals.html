@@ -5,14 +5,24 @@
    template[data-notes-for] and opens the dialog. #}
 {% import "macros/icons.html" as icons %}
 
-{% macro close_button(label='Close') -%}
-<form method="dialog">
-    <button type="submit" class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" aria-label="{{ label }}">{{ icons.x() }}</button>
-</form>
+{% macro close_button(label='Close', autofocus=false) -%}
+<button type="button" class="btn btn-sm btn-square btn-ghost gys-modal-close"
+        data-gys-modal-close aria-label="{{ label }}"{% if autofocus %} autofocus{% endif %}>{{ icons.x() }}</button>
 {%- endmacro %}
 
-{% macro backdrop() -%}
-<form method="dialog" class="modal-backdrop"><button type="submit">close</button></form>
+{% macro confirm_dialog() -%}
+<dialog id="gys-confirm-dialog" class="gys-modal gys-modal--confirm" closedby="closerequest"
+        aria-labelledby="gys-confirm-title" aria-describedby="gys-confirm-message">
+    <header class="gys-modal-header">
+        <h1 id="gys-confirm-title" class="text-lg font-bold">Confirm deletion</h1>
+        {{ close_button('Close confirmation') }}
+    </header>
+    <p id="gys-confirm-message" class="mt-2 text-sm"></p>
+    <div class="mt-4 flex flex-wrap justify-end gap-2">
+        <button type="button" class="btn btn-ghost" data-gys-modal-close autofocus>Cancel</button>
+        <button type="button" class="btn btn-error" data-gys-confirm>Delete</button>
+    </div>
+</dialog>
 {%- endmacro %}
 
 {% macro tracker_note_badge(tracker, tracker_label, record_id, entry_id, case_label, subject, comment, title, fault=none, editable=false) -%}
@@ -33,13 +43,12 @@
 {%- endmacro %}
 
 {% macro notes_modal() -%}
-<dialog class="modal js-notes-modal">
-    <div class="modal-box w-11/12 max-w-2xl">
-        {{ close_button() }}
-        <h3 class="js-notes-title pr-8 text-lg font-bold"></h3>
-        <div class="js-notes-body mt-3 max-h-[60vh] overflow-y-auto text-sm leading-relaxed [&_p]:my-2 [&_ul]:pl-5 [&_ul]:[list-style-type:disc] [&_ol]:pl-5 [&_ol]:[list-style-type:decimal]"></div>
-        <div class="js-notes-actions mt-4 flex justify-end"><button type="button" class="btn btn-outline btn-sm gap-2 js-notes-edit hidden">{{ icons.edit() }}<span class="js-notes-edit-label">Edit review</span></button></div>
-    </div>
-    {{ backdrop() }}
+<dialog class="gys-modal js-notes-modal" closedby="closerequest" aria-labelledby="gys-notes-title">
+    <header class="gys-modal-header">
+        <h1 id="gys-notes-title" class="js-notes-title min-w-0 wrap-anywhere text-lg font-bold"></h1>
+        {{ close_button('Close notes', autofocus=true) }}
+    </header>
+    <div class="js-notes-body mt-3 max-h-[60vh] overflow-y-auto text-sm leading-relaxed [&_p]:my-2 [&_ul]:pl-5 [&_ul]:[list-style-type:disc] [&_ol]:pl-5 [&_ol]:[list-style-type:decimal]" role="region" aria-labelledby="gys-notes-title" tabindex="0"></div>
+    <div class="js-notes-actions mt-4 flex justify-end"><button type="button" class="btn btn-outline btn-sm gap-2 js-notes-edit hidden">{{ icons.edit() }}<span class="js-notes-edit-label">Edit review</span></button></div>
 </dialog>
 {%- endmacro %}

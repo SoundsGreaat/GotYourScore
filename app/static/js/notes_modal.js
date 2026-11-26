@@ -4,7 +4,7 @@
    htmx swaps need no re-init.
 
    Markup contract (see macros/modals.html):
-     <dialog class="modal js-notes-modal">          — one per section
+     <dialog class="gys-modal js-notes-modal">      — one per section
        .js-notes-title / .js-notes-body
        .js-notes-actions > .js-notes-edit           — "Edit review",
          shown only when the clicked row is editable
@@ -25,7 +25,7 @@
         var section = button.closest('section');
         if (!section || !section.contains(button)) return;
         var modal = section.querySelector('.js-notes-modal');
-        if (!modal) return;
+        if (!modal || modal.open) return;
         var titleElement = modal.querySelector('.js-notes-title');
         var bodyElement = modal.querySelector('.js-notes-body');
         if (!titleElement || !bodyElement) return;
@@ -80,23 +80,28 @@
                 editButton.classList.add('hidden');
             }
         }
-        modal.showModal();
+        bodyElement.scrollTop = 0;
+        window.gysModal.open(modal);
     });
 
-    document.addEventListener('click', function (event) {
+    document.addEventListener('click', async function (event) {
         var button = event.target.closest ? event.target.closest('.js-notes-modal .js-notes-edit') : null;
         if (!button || !button.dataset.reviewId) return;
         var openModal = button.closest('.js-notes-modal[open]');
-        if (openModal) openModal.close();
+        if (!openModal) return;
+        var id = button.dataset.reviewId;
+        var mode = button.dataset.reviewMode || 'edit';
         var tracker = button.dataset.notesKind === 'bf' ? 'bad-feedback' : button.dataset.notesKind;
+        await window.gysModal.close(openModal);
+        if (!openModal.isConnected) return;
         if (tracker === 'bad-feedback' || tracker === 'refund-check') {
             if (typeof window.openTrackerEditor === 'function') {
-                window.openTrackerEditor(tracker, button.dataset.reviewId);
+                window.openTrackerEditor(tracker, id);
             }
             return;
         }
         if (typeof window.openReviewDrawer === 'function') {
-            window.openReviewDrawer(button.dataset.reviewId, button.dataset.reviewMode || 'edit');
+            window.openReviewDrawer(id, mode);
         }
     });
 })();

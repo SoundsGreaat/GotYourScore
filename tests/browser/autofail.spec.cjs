@@ -261,7 +261,7 @@ test("Autofail previews instantly, validates on save, and stays separate from ge
       raw_scorecard: {}, autofail: true, autofail_reason: reasonText, save_for_later: false,
     });
     expect(review).toMatchObject({ autofail: true, autofail_reason: reasonText, final_score: 0 });
-    await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+    await expect(page.locator(".js-review-drawer")).toBeHidden();
     expect(failures).toEqual([]);
   } finally {
     await page.request.delete(`${base}/api/reviews/${review.id}`);
@@ -313,7 +313,7 @@ test("Autofail survives draft resume and completion without losing regular scori
     expect(draft).toMatchObject({
       status: "pending", final_score: null, autofail: true, autofail_reason: reasonText,
     });
-    await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+    await expect(page.locator(".js-review-drawer")).toBeHidden();
 
     await page.getByRole("link", { name: /To review/i }).click();
     const open = page.locator("#to-review-view").getByRole("button", {
@@ -346,7 +346,7 @@ test("Autofail survives draft resume and completion without losing regular scori
       status: "pending", autofail: true, autofail_reason: reasonText,
     });
 
-    await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+    await expect(page.locator(".js-review-drawer")).toBeHidden();
     await open.click();
     await expect(reason).toHaveValue(reasonText);
     const completion = nextResponse(page, `/api/reviews/${reviewId}`, "PATCH");
@@ -361,7 +361,7 @@ test("Autofail survives draft resume and completion without losing regular scori
         multiplier_exemptions: [ruleKey],
       },
     });
-    await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+    await expect(page.locator(".js-review-drawer")).toBeHidden();
 
     await page.getByRole("link", { name: /All reviews/i }).click();
     const row = page.getByRole("row").filter({ hasText: caseNumber });
@@ -413,7 +413,7 @@ test("a saved No Cases review can become an Autofail-only scored review", async 
   try {
     expect(created.request().postDataJSON()).toMatchObject({ autofail: false, autofail_reason: null });
     expect(review).toMatchObject({ case_type: "No Cases", autofail: false, autofail_reason: null, final_score: null });
-    await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+    await expect(page.locator(".js-review-drawer")).toBeHidden();
 
     await page.getByRole("link", { name: /All reviews/i }).click();
     await page.getByRole("button", { name: `Edit review ${review.id}`, exact: true }).click();
@@ -454,7 +454,7 @@ test("Autofail keeps a legacy regular deduction named breakdown selected", async
     await page.route(`**${path}`, (route) => route.fulfill({
       json: { ...review, scorecard_data: review.scorecard_data.breakdown },
     }));
-    await page.locator(".gys-drawer-panel").getByText("Close", { exact: true }).click();
+    await page.locator(".js-review-drawer").getByRole("button", { name: "Close review" }).click();
     await page.getByRole("link", { name: /All reviews/i }).click();
     await page.getByRole("button", { name: `Edit review ${review.id}`, exact: true }).click();
     const rule = page.getByRole("checkbox", { name: "Regular error", exact: true });

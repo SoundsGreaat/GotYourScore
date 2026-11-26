@@ -60,7 +60,7 @@ function expectJsonPost(call, data) {
   expect(call.data).toEqual(data);
 }
 
-test("keyboard users review the exact public payload before separately publishing it", async ({ page }) => {
+test("keyboard users review the exact public payload before separately publishing it", async ({ page, browserName }) => {
   let releasePreview;
   let releasePublish;
   const previewHeld = new Promise((resolve) => { releasePreview = resolve; });
@@ -135,7 +135,9 @@ test("keyboard users review the exact public payload before separately publishin
     const link = dialog.getByRole("link", { name: /View issue #42 on GitHub/ });
     await expect(link).toHaveAttribute("href", issue.url);
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    await page.keyboard.press("Tab");
+    // WebKit may skip links in the tab order depending on platform settings.
+    if (browserName === "webkit") await link.focus();
+    else await page.keyboard.press("Tab");
     await expect(link).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Done" })).toBeFocused();
@@ -175,6 +177,8 @@ test("the mobile dark-mode form keeps actionable validation and never shows upst
   });
   await opener.click();
   await expect(dialog).toBeVisible();
+  await page.mouse.click(2, 2);
+  await expect(dialog).toBeVisible();
   const horizontalOverflow = () => dialog.evaluate((node) => Math.max(
     node.scrollWidth - node.clientWidth,
     document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -186,6 +190,15 @@ test("the mobile dark-mode form keeps actionable validation and never shows upst
   const steps = dialog.getByLabel(/^Steps to reproduce/);
   const actual = dialog.getByLabel(/^What happened/);
   const summary = dialog.getByRole("group", { name: "Preview not created" });
+  await dialog.getByLabel(/^Title/).focus();
+  await page.keyboard.press("Tab");
+  await expect(steps).toBeFocused();
+  await expect(steps).toHaveCSS("outline-style", "none");
+  await expect(steps).toHaveCSS("box-shadow", /0px 0px 0px 3px/);
+  await page.emulateMedia({ forcedColors: "active" });
+  await expect(steps).toHaveCSS("outline-style", "solid");
+  await expect(steps).toHaveCSS("outline-width", "2px");
+  await page.emulateMedia({ forcedColors: "none" });
   await expect(steps).toHaveAccessibleDescription(/open the Demo list, then select Archived/);
   await previewButton.press("Enter");
   await expect(summary).toBeFocused();

@@ -136,10 +136,11 @@
     {{ modals.notes_modal() }}
 
     <!-- ===== Import modal: upload → mapping → report ===== -->
-    <dialog class="modal js-tracker-import-modal" aria-labelledby="bf-import-title">
-        <div class="modal-box max-w-2xl">
-            {{ modals.close_button('Close import') }}
-            <h3 id="bf-import-title" class="mb-1 pr-8 text-lg font-bold">Import {{ tracker_label }}</h3>
+    <dialog class="gys-modal js-tracker-import-modal" closedby="closerequest" aria-labelledby="bf-import-title">
+            <header class="gys-modal-header mb-1">
+                <h1 id="bf-import-title" class="text-lg font-bold">Import {{ tracker_label }}</h1>
+                {{ modals.close_button('Close import') }}
+            </header>
             <p class="mb-4 text-sm text-base-content/70">
                 Upload an .xlsx file, confirm which column holds what, and the rows
                 become pending records. Uncheck rows you do not want to import.
@@ -205,11 +206,9 @@
             <div class="js-bf-step-report hidden">
                 <div class="js-bf-report-body"></div>
                 <div class="mt-4 flex justify-end">
-                     <form method="dialog"><button class="btn btn-primary btn-sm js-bf-done">Done</button></form>
+                    <button type="button" class="btn btn-primary btn-sm js-bf-done" data-gys-modal-close>Done</button>
                 </div>
             </div>
-        </div>
-        {{ modals.backdrop() }}
     </dialog>
 
     <!-- Edit modal is an on-demand partial (partials/bad_feedback_editor.html)
@@ -302,7 +301,7 @@
                 commitButton.disabled = pending;
                 commitButton.textContent = pending ? 'Importing…' : 'Import';
                 backButton.disabled = pending;
-                importModal.querySelectorAll('form[method="dialog"] button').forEach(function (button) {
+                importModal.querySelectorAll('[data-gys-modal-close]').forEach(function (button) {
                     button.disabled = pending;
                 });
             }
@@ -317,9 +316,6 @@
             section.addEventListener('htmx:before:swap', deferRefresh);
             importModal.addEventListener('cancel', function (event) {
                 if (committing) event.preventDefault();
-            });
-            importModal.addEventListener('submit', function (event) {
-                if (committing && event.target.method === 'dialog') event.preventDefault();
             });
 
             fileInput.addEventListener('change', function () {
@@ -346,7 +342,8 @@
                 fetch('/api/' + tracker + '/import/inspect', {method: 'POST', credentials: 'same-origin', body: form})
                     .then(readImportResponse)
                     .then(function (data) {
-                        if (token !== analysisToken || !importModal.isConnected || !importModal.open || file !== analyzedFile) return;
+                        if (token !== analysisToken || !importModal.isConnected || !importModal.open
+                            || importModal.hasAttribute('data-closing') || file !== analyzedFile) return;
                         inspectData = data;
                         buildMapping(data);
                         step('map');
@@ -561,6 +558,7 @@
             }
 
             section.querySelector('[data-tracker-import]').addEventListener('click', function () {
+                if (importModal.open) return;
                 analysisToken++;
                 file = null;
                 inspectData = null;
@@ -572,7 +570,7 @@
                 window.setDropdownValue('bf-import-assignee', '#bf-import-assignee-display',
                     importModal.querySelector('#bf-import-assignee-menu [data-opt-value=""]'));
                 step('upload');
-                importModal.showModal();
+                window.gysModal.open(importModal);
             });
 
             importModal.addEventListener('close', function () {
@@ -599,7 +597,7 @@
             });
 
             /* ---------- edit flow (on-demand editor partial) ---------- */
-            section.addEventListener('click', function (event) {
+            section.addEventListener('click', async function (event) {
                 var editBtn = event.target.closest('[data-tracker-edit]');
                 if (editBtn) {
                     window.openTrackerEditor(tracker, editBtn.getAttribute('data-tracker-edit'));
@@ -609,9 +607,10 @@
                 if (deleteBtn) {
                     var deleteId = deleteBtn.getAttribute('data-tracker-delete');
                     if (deleting.has(deleteId)) return;
-                    if (!window.confirm('Delete this ' + trackerLabel + ' record?')) return;
+                    if (!await window.gysModal.confirm({ message: 'Delete this ' + trackerLabel + ' record?' })
+                        || !deleteBtn.isConnected) return;
                     deleting.add(deleteId);
-                    deleteBtn.disabled = true;
+                    deleteBtn.setAttribute('aria-disabled', 'true');
                     fetch('/api/' + tracker + '/' + deleteId, {method: 'DELETE', credentials: 'same-origin'})
                         .then(function (response) {
                             if (!response.ok) throw new GysRequestError(response.status);
@@ -621,7 +620,7 @@
                         .catch(function (error) { showToast('Unable to delete the record. ' + window.gysRequestErrorMessage(error)); })
                         .finally(function () {
                             deleting.delete(deleteId);
-                            if (deleteBtn.isConnected) deleteBtn.disabled = false;
+                            deleteBtn.removeAttribute('aria-disabled');
                         });
                 }
             });

@@ -40,6 +40,7 @@
     <script defer src="/static/js/dropdowns.js?v={{ asset_v }}"></script>
 
     <!-- Shared partial helpers (toast, drawer handoff, escaping). -->
+    <script defer src="/static/js/modals.js?v={{ asset_v }}"></script>
     <script defer src="/static/js/common.js?v={{ asset_v }}"></script>
     <!-- Streaming AI insertion: token-by-token reveal into Quill for the
          /api/ai/*/stream NDJSON endpoints (drawer Refactor/Score->Notes,
@@ -77,5 +78,7 @@
 
 <body class="min-h-screen bg-base-200 text-base-content">
 {% block content %}{% endblock %}
+{% import "macros/modals.html" as modals %}
+{{ modals.confirm_dialog() }}
 </body>
 </html>

@@ -271,7 +271,7 @@ test("the review drawer restores the delegated QA and can clear the assignment",
   const { created: [{ id }] } = await (await delegation).json();
 
   try {
-    await modal.getByRole("button", { name: "Close", exact: true }).click();
+    await modal.getByRole("button", { name: "Close delegation" }).click();
     await page.getByRole("link", { name: /To review/ }).click();
     const row = page.locator("#to-review-view").getByRole("row").filter({ hasText: caseNumber });
     const open = row.getByRole("button", { name: `Complete delegated case ${caseNumber}`, exact: true });
@@ -331,7 +331,7 @@ test("Save For Later restores the author as assignee even without the QA role", 
     expect(response.status()).toBe(200);
     expect((await response.json()).assigned_qa_id).toBe(me.id);
 
-    await expect(page.locator("#review-drawer-toggle")).not.toBeChecked();
+    await expect(page.locator(".js-review-drawer")).toBeHidden();
     await open.click();
     const completion = nextResponse(page, `/api/reviews/${id}`, "PATCH");
     await page.getByRole("button", { name: "Complete review", exact: true }).click();
