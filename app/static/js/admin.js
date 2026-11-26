@@ -211,22 +211,34 @@
         syncMoveButtons();
     }).observe(panel, {childList: true, subtree: true});
 
-    // Let details open/close natively before animating the measured box.
-    // Holding content-visibility open would leave closed controls tabbable.
-    var disclosureStarts = new WeakMap();
     panel.addEventListener('click', function (event) {
-        var details = event.target.closest('.gys-admin-disclosure > summary')?.parentElement;
-        if (details && !reducedMotion.matches && typeof details.animate === 'function') {
-            disclosureStarts.set(details, details.getBoundingClientRect().height);
+        var summary = event.target.closest('.gys-admin-disclosure > summary');
+        var details = summary?.parentElement;
+        var content = details?.querySelector(':scope > .gys-admin-disclosure-content');
+        if (!content || event.defaultPrevented) return;
+        event.preventDefault();
+
+        var wasOpen = details.open;
+        var opening = !wasOpen || content.inert;
+        if (!opening && content.contains(document.activeElement)) {
+            summary.focus({preventScroll: true});
         }
+        // Measure on both sides of the state change, as in the Autofail drawer.
+        // While closing, keep the content drawn but remove it from interaction.
+        var resize = window.gysResizePanel(content, function () {
+            details.open = true;
+            content.inert = !opening;
+        }, wasOpen ? undefined : 0);
+        if (opening) return;
+
+        function finishCollapse() {
+            if (!content.inert || content.parentElement !== details) return;
+            details.open = false;
+            content.inert = false;
+        }
+        if (resize) resize.finished.then(finishCollapse, function () { /* Reopened. */ });
+        else finishCollapse();
     });
-    panel.addEventListener('toggle', function (event) {
-        var details = event.target;
-        if (!disclosureStarts.has(details)) return;
-        var start = disclosureStarts.get(details);
-        disclosureStarts.delete(details);
-        window.gysResizePanel(details, null, start);
-    }, true);
 
     function animateReorder(startPositions) {
         startPositions.forEach(function (start) {
@@ -494,7 +506,9 @@
 
     function keepDisclosures(scope, fragment) {
         scope.querySelectorAll('details[id]').forEach(function (details) {
-            fragment.getElementById(details.id)?.toggleAttribute('open', details.open);
+            // A collapsing disclosure still has [open] for painting only.
+            var closing = details.querySelector(':scope > .gys-admin-disclosure-content[inert]');
+            fragment.getElementById(details.id)?.toggleAttribute('open', details.open && !closing);
         });
     }
 

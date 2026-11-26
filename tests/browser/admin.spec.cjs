@@ -84,32 +84,71 @@ test("admin animates new panels and disclosures only when motion is allowed", as
 
   const add = page.locator("#add-user-summary");
   const form = page.getByRole("form", { name: "Add user" });
-  const transition = await add.evaluate(async (summary) => {
+  const heights = await add.evaluate((summary) => {
     const details = summary.parentElement;
-    const started = new Promise((resolve) => details.addEventListener("toggle", () => {
-      resolve(details.getAnimations().some((item) => item.effect.getKeyframes()[0].height));
-    }, { once: true }));
+    const content = summary.nextElementSibling;
+    const height = () => details.getBoundingClientRect().height;
+    const sampleMidpoint = () => {
+      const animation = content.getAnimations().find((item) => item.effect.getKeyframes()[0].height);
+      animation.pause();
+      animation.currentTime = animation.effect.getTiming().duration / 2;
+      return animation;
+    };
+    const closed = height();
     summary.click();
-    return started;
+    const openStart = height();
+    const opening = sampleMidpoint();
+    const openMiddle = height();
+    opening.finish();
+    const expanded = height();
+
+    summary.click();
+    const closeStart = height();
+    sampleMidpoint();
+    return { closed, openStart, openMiddle, expanded, closeStart, closeMiddle: height(), stillOpen: details.open };
   });
-  expect(transition).toBe(true);
+  expect(heights.openStart).toBeCloseTo(heights.closed, 0);
+  expect(heights.openMiddle).toBeGreaterThan(heights.closed);
+  expect(heights.openMiddle).toBeLessThan(heights.expanded);
+  expect(heights.closeStart).toBeCloseTo(heights.expanded, 0);
+  expect(heights.closeMiddle).toBeLessThan(heights.expanded);
+  expect(heights.closeMiddle).toBeGreaterThan(heights.closed);
+  expect(heights.stillOpen).toBe(true);
+  await add.focus();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("searchbox")).toBeFocused();
+
+  const reversal = await add.evaluate((summary) => {
+    const details = summary.parentElement;
+    const height = () => details.getBoundingClientRect().height;
+    const before = height();
+    summary.click();
+    const after = height();
+    summary.nextElementSibling.getAnimations().forEach((animation) => animation.finish());
+    return [before, after, height()];
+  });
+  expect(reversal[1]).toBeCloseTo(reversal[0], 0);
+  expect(reversal[2]).toBeCloseTo(heights.expanded, 0);
   await expect(form).toBeVisible();
   await add.focus();
   await page.keyboard.press("Enter");
-  await page.keyboard.press("Tab");
+  await expect(add.locator("..")).not.toHaveAttribute("open", "");
   await expect(form).toBeHidden();
-  await expect(page.getByRole("searchbox")).toBeFocused();
 
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.getByRole("tab", { name: "Prompts", exact: true }).click();
   const prompts = page.locator("#admin-prompts-root");
   await expect(prompts).toHaveCSS("transition-duration", "0s");
-  const reduced = await prompts.locator("details.gys-admin-disclosure").first().evaluate(async (details) => {
-    const toggled = new Promise((resolve) => details.addEventListener("toggle", () => resolve(details.getAnimations().length), { once: true }));
-    details.querySelector("summary").click();
-    return toggled;
+  const reduced = await prompts.locator("details.gys-admin-disclosure > summary").first().evaluate((summary) => {
+    const details = summary.parentElement;
+    const content = summary.nextElementSibling;
+    summary.click();
+    const opened = details.open && content.clientHeight > 0;
+    const animations = content.getAnimations().length;
+    summary.click();
+    return { opened, closed: !details.open, animations };
   });
-  expect(reduced).toBe(0);
+  expect(reduced).toEqual({ opened: true, closed: true, animations: 0 });
 });
 
 test("admin text fields use a single focus glow and keep a high contrast outline", async ({ page }) => {

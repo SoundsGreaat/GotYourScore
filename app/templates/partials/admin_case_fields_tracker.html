@@ -62,12 +62,14 @@
                 Add field
                 {{ admin.chevron() }}
             </summary>
-            <form method="post" action="{{ url }}/create" hx-post="{{ url }}/create"
-                  hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="create"
-                  aria-label="Add {{ tracker_label }} field" class="space-y-3 border-t border-base-300 p-3">
-                {{ field_inputs(scope ~ '-new') }}
-                <button type="submit" id="{{ scope }}-add-submit" class="btn btn-primary btn-sm">Add field</button>
-            </form>
+            <div class="gys-admin-disclosure-content">
+                <form method="post" action="{{ url }}/create" hx-post="{{ url }}/create"
+                      hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="create"
+                      aria-label="Add {{ tracker_label }} field" class="space-y-3 border-t border-base-300 p-3">
+                    {{ field_inputs(scope ~ '-new') }}
+                    <button type="submit" id="{{ scope }}-add-submit" class="btn btn-primary btn-sm">Add field</button>
+                </form>
+            </div>
         </details>
 
         <p id="{{ scope }}-move-status" data-admin-move-status role="status" class="sr-only"></p>
@@ -98,21 +100,23 @@
                             <span class="hidden sm:group-open:inline max-[26rem]:pointer-coarse:group-open:inline">Close</span>
                         </span>
                     </summary>
-                    <form method="post" action="{{ url }}/{{ field.id }}/update" hx-post="{{ url }}/{{ field.id }}/update"
-                          hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="update"
-                          aria-labelledby="{{ key }}-action {{ key }}-name"
-                          class="mt-1 space-y-3 rounded-field bg-base-200 p-3">
-                        {{ field_inputs(key, field) }}
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                            <button type="submit" id="{{ key }}-save" class="btn gys-btn-secondary btn-sm">Save changes</button>
-                            <button type="submit" form="{{ key }}-archive" id="{{ key }}-archive-submit"
-                                    class="btn btn-outline btn-error btn-sm"
-                                    aria-label="Archive {{ field.label }}">Archive</button>
-                        </div>
-                    </form>
-                    <form id="{{ key }}-archive" method="post" action="{{ url }}/{{ field.id }}/archive"
-                          hx-post="{{ url }}/{{ field.id }}/archive" hx-target="#{{ scope }}" hx-swap="outerMorph"
-                          data-case-field-action="archive"></form>
+                    <div class="gys-admin-disclosure-content">
+                        <form method="post" action="{{ url }}/{{ field.id }}/update" hx-post="{{ url }}/{{ field.id }}/update"
+                              hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="update"
+                              aria-labelledby="{{ key }}-action {{ key }}-name"
+                              class="mt-1 space-y-3 rounded-field bg-base-200 p-3">
+                            {{ field_inputs(key, field) }}
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <button type="submit" id="{{ key }}-save" class="btn gys-btn-secondary btn-sm">Save changes</button>
+                                <button type="submit" form="{{ key }}-archive" id="{{ key }}-archive-submit"
+                                        class="btn btn-outline btn-error btn-sm"
+                                        aria-label="Archive {{ field.label }}">Archive</button>
+                            </div>
+                        </form>
+                        <form id="{{ key }}-archive" method="post" action="{{ url }}/{{ field.id }}/archive"
+                              hx-post="{{ url }}/{{ field.id }}/archive" hx-target="#{{ scope }}" hx-swap="outerMorph"
+                              data-case-field-action="archive"></form>
+                    </div>
                 </details>
                 <div class="absolute end-0 top-2 z-10 flex h-12 items-center"
                      role="group" aria-label="Reorder {{ field.label }}">
@@ -131,27 +135,29 @@
                 <span class="flex items-center gap-2">Archived fields <span class="badge badge-ghost badge-sm">{{ archived|length }}</span></span>
                 {{ admin.chevron() }}
             </summary>
-            {% if archived %}
-            <ul id="{{ scope }}-archived-list" class="divide-y divide-base-300 border-t border-base-300 px-3">
-                {% for field in archived %}
-                {% set key = scope ~ '-' ~ field.id %}
-                <li id="{{ key }}-archived" data-case-field-row class="flex flex-wrap items-center justify-between gap-2 py-2">
-                    <div class="min-w-0">
-                        <span class="block wrap-anywhere text-sm font-semibold">{{ field.label }}</span>
-                        <code class="block wrap-anywhere text-xs text-base-content/75">{{ field.key }}</code>
-                        <span class="badge badge-ghost badge-sm">{{ type_labels[field.field_type] }}</span>
-                    </div>
-                    <form method="post" action="{{ url }}/{{ field.id }}/restore" hx-post="{{ url }}/{{ field.id }}/restore"
-                          hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="restore">
-                        <button type="submit" id="{{ key }}-restore" data-case-row-focus class="btn gys-btn-secondary btn-sm"
-                                aria-label="Restore {{ field.label }}">Restore</button>
-                    </form>
-                </li>
-                {% endfor %}
-            </ul>
-            {% else %}
-            <p class="border-t border-base-300 p-3 text-sm text-base-content/75">No archived fields.</p>
-            {% endif %}
+            <div class="gys-admin-disclosure-content">
+                {% if archived %}
+                <ul id="{{ scope }}-archived-list" class="divide-y divide-base-300 border-t border-base-300 px-3">
+                    {% for field in archived %}
+                    {% set key = scope ~ '-' ~ field.id %}
+                    <li id="{{ key }}-archived" data-case-field-row class="flex flex-wrap items-center justify-between gap-2 py-2">
+                        <div class="min-w-0">
+                            <span class="block wrap-anywhere text-sm font-semibold">{{ field.label }}</span>
+                            <code class="block wrap-anywhere text-xs text-base-content/75">{{ field.key }}</code>
+                            <span class="badge badge-ghost badge-sm">{{ type_labels[field.field_type] }}</span>
+                        </div>
+                        <form method="post" action="{{ url }}/{{ field.id }}/restore" hx-post="{{ url }}/{{ field.id }}/restore"
+                              hx-target="#{{ scope }}" hx-swap="outerMorph" data-case-field-action="restore">
+                            <button type="submit" id="{{ key }}-restore" data-case-row-focus class="btn gys-btn-secondary btn-sm"
+                                    aria-label="Restore {{ field.label }}">Restore</button>
+                        </form>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="border-t border-base-300 p-3 text-sm text-base-content/75">No archived fields.</p>
+                {% endif %}
+            </div>
         </details>
     </div>
 </section>

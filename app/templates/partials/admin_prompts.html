@@ -30,44 +30,48 @@
             </form>
 
             <details id="prompt-history-{{ slot.key }}" class="gys-admin-disclosure border-t border-base-300 pt-3">
-                 <summary data-admin-state-focus class="flex items-center gap-2 rounded-field px-3 py-3 text-sm font-medium">
+                <summary data-admin-state-focus class="flex items-center gap-2 rounded-field px-3 py-3 text-sm font-medium">
                     Version history
                     <span class="badge badge-ghost badge-sm">{{ slot.versions | length }}</span>
                     <span class="ms-auto">{{ admin.chevron() }}</span>
                 </summary>
-                {% if slot.versions %}
-            <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300 overflow-hidden">
-                {% for v in slot.versions %}
-                <li id="prompt-version-{{ v.id }}" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 {{ 'bg-success/5' if slot.active_id == v.id }}">
-                    <span class="whitespace-nowrap text-xs tabular-nums text-base-content/60">{{ v.created_at.strftime('%b %d, %Y %H:%M') }}</span>
-                    {% if slot.active_id == v.id %}
-                    <span class="badge badge-success badge-soft badge-sm">Active</span>
-                    {% else %}
-                    <span class="badge badge-ghost badge-sm">v{{ slot.versions | length - loop.index0 }}</span>
-                    {% endif %}
-                    <details id="prompt-preview-{{ v.id }}" class="gys-admin-disclosure min-w-0 grow basis-48">
-                        <summary class="flex items-center gap-2 rounded-field text-xs font-medium px-3 py-3">
-                            <span class="min-w-0 grow truncate font-mono">{{ v.content | truncate(90) }}</span>
-                            <span class="sr-only">Read full prompt</span>
-                            {{ admin.chevron() }}
-                        </summary>
-                        <pre class="mt-2 whitespace-pre-wrap wrap-anywhere rounded-field bg-base-200 p-3 text-xs">{{ v.content }}</pre>
-                    </details>
-                    <span class="flex shrink-0 items-center gap-1">
-                        {% if slot.active_id != v.id %}
+                <div class="gys-admin-disclosure-content">
+                    {% if slot.versions %}
+                    <ul class="mt-2 divide-y divide-base-300 rounded-box border border-base-300 overflow-hidden">
+                        {% for v in slot.versions %}
+                        <li id="prompt-version-{{ v.id }}" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 {{ 'bg-success/5' if slot.active_id == v.id }}">
+                            <span class="whitespace-nowrap text-xs tabular-nums text-base-content/60">{{ v.created_at.strftime('%b %d, %Y %H:%M') }}</span>
+                            {% if slot.active_id == v.id %}
+                            <span class="badge badge-success badge-soft badge-sm">Active</span>
+                            {% else %}
+                            <span class="badge badge-ghost badge-sm">v{{ slot.versions | length - loop.index0 }}</span>
+                            {% endif %}
+                            <details id="prompt-preview-{{ v.id }}" class="gys-admin-disclosure min-w-0 grow basis-48">
+                                <summary class="flex items-center gap-2 rounded-field text-xs font-medium px-3 py-3">
+                                    <span class="min-w-0 grow truncate font-mono">{{ v.content | truncate(90) }}</span>
+                                    <span class="sr-only">Read full prompt</span>
+                                    {{ admin.chevron() }}
+                                </summary>
+                                <div class="gys-admin-disclosure-content">
+                                    <pre class="mt-2 whitespace-pre-wrap wrap-anywhere rounded-field bg-base-200 p-3 text-xs">{{ v.content }}</pre>
+                                </div>
+                            </details>
+                            <span class="flex shrink-0 items-center gap-1">
+                                {% if slot.active_id != v.id %}
                                 <button id="prompt-activate-{{ v.id }}" type="button" class="btn btn-ghost btn-xs"
-                                hx-post="/admin/prompts/{{ v.id }}/activate">Activate</button>
-                        {% endif %}
-                        <button id="prompt-delete-{{ v.id }}" type="button" class="btn btn-outline btn-error btn-xs"
-                                hx-post="/admin/prompts/{{ v.id }}/delete"
-                                hx-confirm="{{ 'Delete the active version and use the built-in default?' if slot.active_id == v.id else 'Delete this prompt version?' }}">Delete</button>
-                    </span>
-                </li>
-                {% endfor %}
-            </ul>
-            {% else %}
-                <p class="mt-2 px-3 pb-2 text-sm text-base-content/75">No stored versions yet — the built-in default prompt is used.</p>
-                {% endif %}
+                                        hx-post="/admin/prompts/{{ v.id }}/activate">Activate</button>
+                                {% endif %}
+                                <button id="prompt-delete-{{ v.id }}" type="button" class="btn btn-outline btn-error btn-xs"
+                                        hx-post="/admin/prompts/{{ v.id }}/delete"
+                                        hx-confirm="{{ 'Delete the active version and use the built-in default?' if slot.active_id == v.id else 'Delete this prompt version?' }}">Delete</button>
+                            </span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="mt-2 px-3 pb-2 text-sm text-base-content/75">No stored versions yet — the built-in default prompt is used.</p>
+                    {% endif %}
+                </div>
             </details>
         </div>
     </section>

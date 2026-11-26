@@ -12,17 +12,19 @@
             Add user
             {{ admin.chevron() }}
         </summary>
-        <form id="add-user-form" data-admin-keep-form method="post" action="/admin/users/create" hx-post="/admin/users/create"
-              aria-labelledby="add-user-summary" class="space-y-3 border-t border-base-300 p-4">
-            <div class="grid gap-1">
-                <label for="new-user-nickname" class="text-sm font-medium">Nickname <span class="text-xs text-base-content/75">(required)</span></label>
-                <input id="new-user-nickname" type="text" name="nickname" maxlength="50" required
-                       aria-describedby="new-user-help" class="input gys-admin-field w-full sm:max-w-xs">
-                <p id="new-user-help" class="text-sm text-base-content/75">Use the part of their work email before the @. The account is linked on their first Google sign-in.</p>
-            </div>
-            {{ admin.role_choices(role_choices, [default_role]) }}
-            <button type="submit" class="btn btn-primary btn-sm">Add user</button>
-        </form>
+        <div class="gys-admin-disclosure-content">
+            <form id="add-user-form" data-admin-keep-form method="post" action="/admin/users/create" hx-post="/admin/users/create"
+                  aria-labelledby="add-user-summary" class="space-y-3 border-t border-base-300 p-4">
+                <div class="grid gap-1">
+                    <label for="new-user-nickname" class="text-sm font-medium">Nickname <span class="text-xs text-base-content/75">(required)</span></label>
+                    <input id="new-user-nickname" type="text" name="nickname" maxlength="50" required
+                           aria-describedby="new-user-help" class="input gys-admin-field w-full sm:max-w-xs">
+                    <p id="new-user-help" class="text-sm text-base-content/75">Use the part of their work email before the @. The account is linked on their first Google sign-in.</p>
+                </div>
+                {{ admin.role_choices(role_choices, [default_role]) }}
+                <button type="submit" class="btn btn-primary btn-sm">Add user</button>
+            </form>
+        </div>
     </details>
 
     <section class="gys-admin-surface" aria-labelledby="user-directory-title">
@@ -69,22 +71,24 @@
                             {{ admin.chevron() }}
                         </span>
                     </summary>
-                    <form id="user-{{ user_id }}-form" data-admin-keep-form method="post" action="/admin/users/{{ user_id }}/roles"
-                          hx-post="/admin/users/{{ user_id }}/roles" aria-labelledby="user-{{ user_id }}-action user-{{ user_id }}-name"
-                          class="space-y-3 border-t border-base-300 bg-base-200 p-4">
-                        {{ admin.role_choices(role_choices, roles, own_account) }}
-                        {% if own_account %}
-                        <p class="text-xs text-base-content/75">You can edit your other roles, but your Admin access stays on.</p>
-                        {% endif %}
-                        <div class="flex flex-wrap items-center justify-between gap-2">
-                            <button type="submit" class="btn gys-btn-secondary btn-sm">Save roles</button>
-                            {% if not own_account %}
-                            <button type="button" class="btn btn-outline btn-error btn-sm"
-                                    hx-post="/admin/users/{{ user_id }}/delete"
-                                    hx-confirm="Delete {{ row.name or row.u.nickname }}? Their past reviews stay intact.">Delete user</button>
+                    <div class="gys-admin-disclosure-content">
+                        <form id="user-{{ user_id }}-form" data-admin-keep-form method="post" action="/admin/users/{{ user_id }}/roles"
+                              hx-post="/admin/users/{{ user_id }}/roles" aria-labelledby="user-{{ user_id }}-action user-{{ user_id }}-name"
+                              class="space-y-3 border-t border-base-300 bg-base-200 p-4">
+                            {{ admin.role_choices(role_choices, roles, own_account) }}
+                            {% if own_account %}
+                            <p class="text-xs text-base-content/75">You can edit your other roles, but your Admin access stays on.</p>
                             {% endif %}
-                        </div>
-                    </form>
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <button type="submit" class="btn gys-btn-secondary btn-sm">Save roles</button>
+                                {% if not own_account %}
+                                <button type="button" class="btn btn-outline btn-error btn-sm"
+                                        hx-post="/admin/users/{{ user_id }}/delete"
+                                        hx-confirm="Delete {{ row.name or row.u.nickname }}? Their past reviews stay intact.">Delete user</button>
+                                {% endif %}
+                            </div>
+                        </form>
+                    </div>
                 </details>
             </li>
             {% endfor %}

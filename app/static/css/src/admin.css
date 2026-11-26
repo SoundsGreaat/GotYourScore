@@ -163,8 +163,17 @@
     display: none;
 }
 
-.gys-admin-disclosure[open] > summary .gys-admin-chevron {
+.gys-admin-disclosure[open]:not(:has(> .gys-admin-disclosure-content[inert])) > summary .gys-admin-chevron {
     rotate: 180deg;
+}
+
+.gys-admin-disclosure-content {
+    /* Keep child margins inside the measured height. */
+    display: flow-root;
+}
+
+.gys-admin-disclosure-content[inert] {
+    height: 0;
 }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -30,16 +30,18 @@
                     Supported JSON fields
                     {{ admin.chevron() }}
                 </summary>
-                <p class="px-3 pb-3 text-sm text-base-content/75 wrap-anywhere">
-                order / only / ignore / quantizations (lists of strings),
-                allow_fallbacks / require_parameters / zdr /
-                enforce_distillable_text (booleans),
-                data_collection ("allow" | "deny"),
-                sort ("price" | "throughput" | "latency" or an object
-                with by + optional partition),
-                preferred_min_throughput / preferred_max_latency
-                (number or p50/p75/p90/p99 object), max_price (object).
-                </p>
+                <div class="gys-admin-disclosure-content">
+                    <p class="px-3 pb-3 text-sm text-base-content/75 wrap-anywhere">
+                        order / only / ignore / quantizations (lists of strings),
+                        allow_fallbacks / require_parameters / zdr /
+                        enforce_distillable_text (booleans),
+                        data_collection ("allow" | "deny"),
+                        sort ("price" | "throughput" | "latency" or an object
+                        with by + optional partition),
+                        preferred_min_throughput / preferred_max_latency
+                        (number or p50/p75/p90/p99 object), max_price (object).
+                    </p>
+                </div>
             </details>
 
             <form id="admin-ai-provider-form" method="post" action="/admin/ai/provider" hx-post="/admin/ai/provider"
