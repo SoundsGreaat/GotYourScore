@@ -60,7 +60,7 @@ function expectJsonPost(call, data) {
   expect(call.data).toEqual(data);
 }
 
-test("keyboard users review the exact public payload before separately publishing it", async ({ page }) => {
+test("keyboard users review the exact public payload before separately publishing it", async ({ page, browserName }) => {
   let releasePreview;
   let releasePublish;
   const previewHeld = new Promise((resolve) => { releasePreview = resolve; });
@@ -135,7 +135,9 @@ test("keyboard users review the exact public payload before separately publishin
     const link = dialog.getByRole("link", { name: /View issue #42 on GitHub/ });
     await expect(link).toHaveAttribute("href", issue.url);
     await expect(link).toHaveAttribute("rel", "noopener noreferrer");
-    await page.keyboard.press("Tab");
+    // WebKit may skip links in the tab order depending on platform settings.
+    if (browserName === "webkit") await link.focus();
+    else await page.keyboard.press("Tab");
     await expect(link).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(dialog.getByRole("button", { name: "Done" })).toBeFocused();
