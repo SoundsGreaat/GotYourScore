@@ -12,6 +12,7 @@
 @import "./dropdowns.css";
 @import "./notifications.css";
 @import "./reviews.css";
+@import "./bug-report.css";
 
 /* Scan only application templates and scripts for utility classes. */
 @source "../../../templates";

@@ -32,6 +32,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import and_, extract, func, or_, select
 from sqlalchemy.sql.elements import ColumnElement
 
+from app.core.config import get_settings
 from app.core.security import get_current_user, is_reviewer
 from app.db.database import AsyncSession, get_db
 from app.models import (
@@ -401,6 +402,7 @@ async def dashboard(
             "is_admin": auth.has_role(RoleEnum.ADMIN),
             "is_reviewer": reviewer,
             "mine_pending_count": int(mine_pending_count),
+            "bug_reporting_enabled": get_settings().bug_reporting_enabled,
         },
     )
 

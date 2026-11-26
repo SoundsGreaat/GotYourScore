@@ -4,9 +4,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from app.models import CaseTypeEnum
 from app.api.endpoints import admin
 from app.api.endpoints import ai as ai_endpoint
+from app.models import CaseTypeEnum
 from app.schemas.ai import ScoreIn
 from app.services import ai_service, system_prompt_service
 
@@ -161,7 +161,7 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(invalid=repr(invalid)):
                 self.assertIsNone(ai_service._sanitize_autofail_reason(invalid))
 
-    def test_prompt_default_is_registered_only_for_autofail_slot(self):
+    def test_autofail_default_is_only_registered_for_its_own_slot(self):
         slots = system_prompt_service.PROMPT_SLOTS
         autofail_slot = next(
             slot for slot in slots if slot["key"] == "autofail_detection"
@@ -172,7 +172,8 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(
             any(
-                "default_content" in slot
+                slot.get("default_content")
+                == system_prompt_service.AUTOFAIL_DETECTION_SYSTEM_PROMPT
                 for slot in slots
                 if slot["key"] != "autofail_detection"
             )
@@ -185,7 +186,7 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
         legacy_prompt = ai_service._build_scoring_prompt([])
         self.assertIn("single flat JSON object", legacy_prompt)
 
-    async def test_admin_prompt_context_forwards_only_registered_default(self):
+    async def test_admin_prompt_context_forwards_defaults_by_registered_slot(self):
         with patch.object(
             system_prompt_service,
             "grouped_versions",
@@ -199,12 +200,13 @@ class AutofailDetectionTests(unittest.IsolatedAsyncioTestCase):
             autofail_slot["default_content"],
             system_prompt_service.AUTOFAIL_DETECTION_SYSTEM_PROMPT,
         )
-        self.assertFalse(
-            any(
-                "default_content" in slot
-                for slot in context["slots"]
-                if slot["key"] != "autofail_detection"
-            )
+        self.assertEqual(
+            {slot["key"]: slot["default_content"] for slot in context["slots"] if "default_content" in slot},
+            {
+                slot["key"]: slot["default_content"]
+                for slot in system_prompt_service.PROMPT_SLOTS
+                if "default_content" in slot
+            },
         )
 
     async def test_score_api_computes_zero_without_moving_reason_into_scorecard(self):
