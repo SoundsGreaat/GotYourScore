@@ -153,10 +153,14 @@ function htmxErrorMessage(ctx) {
     return requestErrorText(status);
 }
 
-/* Error responses do not swap (see the HTMX config in base.html).
- * Show their messages as text; standalone fetch flows handle their own errors. */
-document.addEventListener('htmx:response:error', function (evt) {
-    window.gysToast(htmxErrorMessage(evt.detail.ctx), 'alert-error');
+/* Stop failed responses before HTMX processes out-of-band content. Its
+ * noSwap config suppresses only the main swap, not OOB or response headers. */
+document.addEventListener('htmx:after:request', function (evt) {
+    var ctx = evt.detail.ctx;
+    if (!(ctx.response?.status >= 400)) return;
+    evt.preventDefault();
+    if (ctx.hx) delete ctx.hx.trigger; // HTMX otherwise dispatches this in finally.
+    window.gysToast(htmxErrorMessage(ctx), 'alert-error');
 });
 document.addEventListener('htmx:error', function (evt) {
     var ctx = evt.detail.ctx;

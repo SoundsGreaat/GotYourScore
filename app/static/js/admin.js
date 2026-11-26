@@ -8,7 +8,9 @@
             loading.textContent = 'Could not load this section. Select a section or reload the page.';
         }
     }
-    document.addEventListener('htmx:response:error', showInitialError);
+    document.addEventListener('htmx:after:request', function (event) {
+        if (event.detail.ctx.response?.status >= 400) showInitialError(event);
+    });
     document.addEventListener('htmx:error', showInitialError);
 
     function filterUsers(input) {

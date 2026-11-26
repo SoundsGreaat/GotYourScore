@@ -19,7 +19,8 @@ test("admin tabs scroll on mobile and select only after a successful swap", asyn
 
   await page.route("**/admin/partials/deleted-refund-check", (route) => route.fulfill({
     status: 503,
-    json: { detail: "Temporarily unavailable." },
+    contentType: "text/html",
+    body: '<div id="admin-prompts-root" hx-swap-oob="true">Temporarily unavailable.</div>',
   }), { times: 1 });
   await page.keyboard.press("Enter");
   await expect(page.getByRole("alert").filter({ hasText: /^Server error$/ })).toBeVisible();
