@@ -3,6 +3,7 @@
 import re
 import unicodedata
 from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -11,7 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import BadFeedback, RefundCheck, TrackerField
 
 TRACKERS = frozenset({"bad-feedback", "refund-check"})
-FIELD_TYPES = frozenset({"date", "text", "textarea"})
+NUMERIC_FIELD_TYPES = frozenset({"integer", "decimal"})
+FIELD_TYPES = frozenset({"date", "text", "textarea"}) | NUMERIC_FIELD_TYPES
 DATE_FIELD_KEYS = {"bad-feedback": "fb_date", "refund-check": "r_date"}
 _SHARED_FIELD_KEYS = frozenset({"customer_info", "source", "customer_feedback", "related_case"})
 MAX_FIELD_LABEL_LENGTH = 200
@@ -34,6 +36,18 @@ _FIELD_LOCK_NAMESPACE = 0x47595346  # GYSF
 _FIELD_LOCK_KEYS = {"bad-feedback": 1, "refund-check": 2}
 _CUSTOM_KEY_SLUG_RE = re.compile(r"[^a-z0-9_]+")
 _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_NUMBER_RE = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?")
+
+
+class InvalidNumericFieldValue(ValueError):
+    """An invalid number, with a stable field-specific error code."""
+
+    def __init__(self, field_type: str, field_key: str):
+        self.code = f"invalid_{field_type}"
+        self.field_key = field_key
+        super().__init__(
+            "Enter a whole number." if field_type == "integer" else "Enter a finite number."
+        )
 
 
 def canonical_field_keys(tracker: str) -> frozenset[str]:
@@ -61,7 +75,7 @@ def _validate_label(label: str) -> str:
 
 def _validate_type(field_type: str) -> str:
     if not isinstance(field_type, str) or field_type not in FIELD_TYPES:
-        raise ValueError("Field type must be one of: date, text, textarea.")
+        raise ValueError(f"Field type must be one of: {', '.join(sorted(FIELD_TYPES))}.")
     return field_type
 
 
@@ -93,6 +107,28 @@ def field_value_limit(key: str) -> int:
         MAX_FIELD_VALUE_LENGTH,
         _CANONICAL_FIELD_MAX_LENGTHS.get(key, MAX_FIELD_VALUE_LENGTH),
     )
+
+
+def validate_numeric_value(key: str, field_type: str, value: object) -> str | None:
+    """Validate a number exactly and keep it as text in the existing JSONB contract."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
+        raise InvalidNumericFieldValue(field_type, key)
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) > field_value_limit(key) or not _NUMBER_RE.fullmatch(text):
+        raise InvalidNumericFieldValue(field_type, key)
+    try:
+        number = Decimal(text)
+    except InvalidOperation as exc:
+        raise InvalidNumericFieldValue(field_type, key) from exc
+    if not number.is_finite() or (
+        field_type == "integer" and number != number.to_integral_value()
+    ):
+        raise InvalidNumericFieldValue(field_type, key)
+    return text
 
 
 def _new_key(label: str) -> str:
@@ -183,30 +219,38 @@ async def _field_or_error(
     return field
 
 
-async def _ensure_existing_values_fit_date(
-    db: AsyncSession, tracker: str, key: str
+async def _ensure_existing_values_fit_type(
+    db: AsyncSession, tracker: str, key: str, field_type: str
 ) -> None:
-    """Reject a text-to-date conversion if existing values are incompatible."""
+    """Validate stored values before changing the field definition in place."""
     model = _RECORD_MODELS[tracker]
     column = (
         getattr(model, key) if key in canonical_field_keys(tracker)
         else model.field_values_data[key].astext
     )
     result = await db.execute(select(column).where(column.is_not(None)))
+    if field_type == "date":
+        error = (
+            "This field cannot be changed to a date while it contains "
+            "values that are not valid YYYY-MM-DD dates. Clear or correct "
+            "those values first."
+        )
+    else:
+        expected = "whole numbers" if field_type == "integer" else "finite numbers"
+        error = (
+            f"This field cannot be changed to {field_type} while it contains "
+            f"values that are not {expected}. Clear or correct those values first."
+        )
     for value in result.scalars():
-        if not isinstance(value, str):
-            raise ValueError(
-                "This field cannot be changed to a date because it has "
-                "non-text values."
-            )
+        if field_type == "date" and not isinstance(value, str):
+            raise ValueError("This field cannot be changed to a date because it has non-text values.")
         try:
-            _parse_iso_date(value)
+            if field_type == "date":
+                _parse_iso_date(value)
+            else:
+                validate_numeric_value(key, field_type, value)
         except ValueError as exc:
-            raise ValueError(
-                "This field cannot be changed to a date while it contains "
-                "values that are not valid YYYY-MM-DD dates. Clear or correct "
-                "those values first."
-            ) from exc
+            raise ValueError(error) from exc
 
 
 async def update_field(
@@ -222,10 +266,8 @@ async def update_field(
 ) -> TrackerField:
     """Update a field's label, type and order; caller commits.
 
-    Text and textarea are interchangeable. A change to ``date`` is
-    allowed only when every stored non-null value is a valid ISO
-    calendar date. This prevents a configuration edit from making
-    existing values uninterpretable.
+    Changes to date or numeric types require compatible stored values.
+    Only the metadata changes; existing records keep their original values.
     """
     tracker = _tracker_name(tracker)
     new_label = _validate_label(label)
@@ -241,8 +283,10 @@ async def update_field(
         raise ValueError(
             "The built-in Date field must remain a date."
         )
-    if new_type == "date" and field.field_type != "date":
-        await _ensure_existing_values_fit_date(db, tracker, field.key)
+    if new_type in NUMERIC_FIELD_TYPES and field.key in canonical_field_keys(tracker):
+        raise ValueError("Only custom fields can use numeric types.")
+    if new_type != field.field_type and (new_type == "date" or new_type in NUMERIC_FIELD_TYPES):
+        await _ensure_existing_values_fit_type(db, tracker, field.key, new_type)
     field.label = new_label
     field.field_type = new_type
     if show_in_my_reviews is not None:
@@ -311,7 +355,7 @@ async def restore_field(
 
 
 async def validate_field_values(
-    db: AsyncSession, tracker: str, values: dict[str, str | None]
+    db: AsyncSession, tracker: str, values: dict[str, object]
 ) -> dict[str, str | None]:
     """Validate incoming case values against the tracker's active fields.
 
@@ -333,6 +377,10 @@ async def validate_field_values(
 
     validated: dict[str, str | None] = {}
     for key, value in values.items():
+        field_type = fields[key].field_type
+        if field_type in NUMERIC_FIELD_TYPES:
+            validated[key] = validate_numeric_value(key, field_type, value)
+            continue
         if value is not None and not isinstance(value, str):
             raise ValueError(f"Value for field {key!r} must be text or null.")
         max_length = field_value_limit(key)
@@ -340,7 +388,7 @@ async def validate_field_values(
             raise ValueError(
                 f"Value for field {key!r} exceeds {max_length} characters."
             )
-        if value is not None and fields[key].field_type == "date":
+        if value is not None and field_type == "date":
             _parse_iso_date(value)
         validated[key] = value
     return validated

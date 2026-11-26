@@ -108,6 +108,11 @@ class GysRequestError extends Error {
 window.gysRequestErrorMessage = function (error, fallback) {
     return error instanceof GysRequestError ? error.message : (fallback || 'Request error');
 };
+function gysTrackerNumericErrorMessage(code) {
+    if (code === 'invalid_integer') return 'Enter a valid whole number.';
+    if (code === 'invalid_decimal') return 'Enter a valid number using a dot for decimals.';
+    return null;
+}
 window.gysAiResponseError = function (response) {
     if (response.status !== 429) return new GysRequestError(response.status);
     var retryAfter = Number(response.headers.get('Retry-After'));
@@ -121,15 +126,18 @@ window.gysAiResponseError = function (response) {
 const gysCaseFieldErrors = new Set([
     'Field label cannot be blank.',
     'Field label must be at most 200 characters.',
-    'Field type must be one of: date, text, textarea.',
+    'Field type must be one of: date, decimal, integer, text, textarea.',
     'Field position must be a whole number.',
     'Field position must be an integer from 0 to 100000.',
     'Tracker field was not found.',
     'The tracker has reached its active field limit.',
     'The built-in Date field must remain a date.',
+    'Only custom fields can use numeric types.',
     'Restore the archived field before changing it.',
     'This field cannot be changed to a date because it has non-text values.',
     'This field cannot be changed to a date while it contains values that are not valid YYYY-MM-DD dates. Clear or correct those values first.',
+    'This field cannot be changed to integer while it contains values that are not whole numbers. Clear or correct those values first.',
+    'This field cannot be changed to decimal while it contains values that are not finite numbers. Clear or correct those values first.',
     'The field list is out of date. Refresh the tracker fields and try again.',
 ]);
 const gysScorecardErrors = new Set([

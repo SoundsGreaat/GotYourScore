@@ -6,8 +6,11 @@ from datetime import UTC, datetime
 from io import BytesIO
 from threading import Barrier
 from uuid import uuid4
+from xml.etree import ElementTree
+from zipfile import ZipFile
 
 from openpyxl import Workbook
+from openpyxl.xml.constants import SHEET_MAIN_NS
 from sqlalchemy import func, select
 
 from app.db.database import async_session_factory
@@ -19,16 +22,34 @@ REFUND = "/api/refund-check"
 FEEDBACK = "/api/bad-feedback"
 
 
-def excel_upload(*rows):
+def excel_upload(*rows, numeric_tokens=None):
     workbook = Workbook()
     try:
         for row in rows:
             workbook.active.append(row)
         with BytesIO() as buffer:
             workbook.save(buffer)
-            return {"file": ("tracker.xlsx", buffer.getvalue())}
+            content = buffer.getvalue()
     finally:
         workbook.close()
+    if numeric_tokens:
+        # The writer rounds native numbers itself, so set the exact OOXML
+        # tokens after saving. Formula caches also have to be set in the XML.
+        with ZipFile(BytesIO(content)) as source, BytesIO() as buffer:
+            with ZipFile(buffer, "w") as target:
+                for name in source.namelist():
+                    data = source.read(name)
+                    if name == "xl/worksheets/sheet1.xml":
+                        sheet = ElementTree.fromstring(data)
+                        for coordinate, value in numeric_tokens.items():
+                            cell = sheet.find(f".//{{{SHEET_MAIN_NS}}}c[@r='{coordinate}']")
+                            if value is None:  # A formula cached an empty string.
+                                cell.set("t", "str")
+                            cell.find(f"{{{SHEET_MAIN_NS}}}v").text = value
+                        data = ElementTree.tostring(sheet)
+                    target.writestr(name, data)
+            content = buffer.getvalue()
+    return {"file": ("tracker.xlsx", content)}
 
 
 class TrackerTests(PostgresTestCase):
@@ -73,6 +94,233 @@ class TrackerTests(PostgresTestCase):
                 return await db.scalar(select(func.count()).select_from(User))
 
         return self.client.portal.call(count)
+
+    def test_numeric_values_round_trip_exactly_and_reject_invalid_input(self):
+        qa = self.session(self.create_user(RoleEnum.QA))
+        json_headers = {**qa, "Content-Type": "application/json"}
+        precise = "9007199254740993.123456789012345678900"
+        for endpoint in (FEEDBACK, REFUND):
+            with self.subTest(endpoint=endpoint):
+                tracker = endpoint.rsplit("/", 1)[-1]
+                quantity, = self.case_fields(tracker, "Quantity", field_type="integer")
+                amount, = self.case_fields(tracker, "Amount", field_type="decimal")
+                record = self.assert_status(
+                    self.client.post(
+                        endpoint,
+                        headers=json_headers,
+                        content=f'{{"field_values":{{"{quantity.key}":0,"{amount.key}":{precise}}}}}',
+                    ),
+                    201,
+                ).json()
+                path = f"{endpoint}/{record['id']}"
+                self.addCleanup(self.client.delete, path, headers=qa)
+                expected = {quantity.key: "0", amount.key: precise}
+                self.assertEqual({key: record["field_values"][key] for key in expected}, expected)
+                self.assertEqual(
+                    self.assert_status(self.client.get(path, headers=qa), 200).json()["field_values"],
+                    {**record["field_values"], **expected},
+                )
+
+                for field, invalid_token, error_code in (
+                    (quantity, "1.000000000000000000001", "invalid_integer"),
+                    (quantity, '"Infinity"', "invalid_integer"),
+                    (amount, '"not a number"', "invalid_decimal"),
+                    (amount, "NaN", "invalid_decimal"),
+                ):
+                    with self.subTest(field=field.label, invalid=invalid_token):
+                        invalid = self.assert_status(
+                            self.client.patch(
+                                path,
+                                headers=json_headers,
+                                content=f'{{"field_values":{{"{field.key}":{invalid_token}}}}}',
+                            ),
+                            400,
+                        ).json()
+                        self.assertEqual(
+                            invalid["detail"], {"code": error_code, "field_key": field.key}
+                        )
+                self.assert_status(
+                    self.client.patch(path, headers=qa, json={"field_values": {amount.key: True}}),
+                    422,
+                )
+
+                updated = self.assert_status(
+                    self.client.patch(
+                        path, headers=qa, json={"field_values": {quantity.key: "-23", amount.key: "  "}},
+                    ),
+                    200,
+                ).json()
+                self.assertEqual(updated["field_values"][quantity.key], "-23")
+                self.assertIsNone(updated["field_values"].get(amount.key))
+                stored = self.assert_status(self.client.get(path, headers=qa), 200).json()
+                self.assertEqual(stored["field_values"], updated["field_values"])
+
+    def test_excel_import_numeric_mapping_reports_invalid_rows_and_keeps_valid_rows(self):
+        qa = self.session(self.create_user(RoleEnum.QA))
+        precise = "0.123456789012345678900"
+        for endpoint in (FEEDBACK, REFUND):
+            with self.subTest(endpoint=endpoint):
+                tracker = endpoint.rsplit("/", 1)[-1]
+                quantity, = self.case_fields(tracker, "Quantity", field_type="integer")
+                amount, = self.case_fields(tracker, "Amount", field_type="decimal")
+                upload = excel_upload(
+                    [quantity.label, amount.label],
+                    [0, None],
+                    [1, 12],
+                    [None, "NaN"],
+                    [-12, 1],
+                    [None, 0.1],
+                    [None, False],
+                    [None, "=1+2"],
+                    [None, "=1/4"],
+                    [17, '=""'],
+                    numeric_tokens={
+                        "A3": "1.0000000000000001", "B5": precise, "B9": "0.25", "B10": None,
+                    },
+                )
+                preview = self.assert_status(
+                    self.client.post(f"{endpoint}/import/inspect", headers=qa, files=upload), 200
+                ).json()
+                mapping = {quantity.key: quantity.label, amount.key: amount.label}
+                for key, label in mapping.items():
+                    self.assertEqual(preview["suggestions"][key], label)
+                preview_rows = {row["row_number"]: row["values"] for row in preview["preview"]}
+                self.assertEqual(preview_rows[5][1], precise)
+                self.assertEqual(preview_rows[8][1], "Formula has no saved result")
+                self.assertEqual(preview_rows[10][1], "")
+                report = self.assert_status(
+                    self.client.post(
+                        f"{endpoint}/import",
+                        headers=qa,
+                        files=upload,
+                        data={"mapping": json.dumps(mapping)},
+                    ),
+                    200,
+                ).json()
+                self.assertEqual(report["created_count"], 5)
+                for row, expected in zip(
+                    report["created"],
+                    [("0", None), ("-12", precise), (None, "0.1"), (None, "0.25"), ("17", None)],
+                    strict=True,
+                ):
+                    path = f"{endpoint}/{row['id']}"
+                    self.addCleanup(self.client.delete, path, headers=qa)
+                    values = self.assert_status(self.client.get(path, headers=qa), 200).json()["field_values"]
+                    self.assertEqual((values.get(quantity.key), values.get(amount.key)), expected)
+                self.assertEqual(report["skipped_count"], 4)
+                for row, (number, field, code) in zip(
+                    report["skipped"],
+                    [
+                        (3, quantity, "invalid_integer"),
+                        (4, amount, "invalid_decimal"),
+                        (7, amount, "invalid_decimal"),
+                        (8, amount, "invalid_decimal"),
+                    ],
+                    strict=True,
+                ):
+                    self.assertEqual(row["row_number"], number)
+                    self.assertEqual(row["field_key"], field.key)
+                    self.assertEqual(row["code"], code)
+                    self.assertIn(field.label, row["reason"])
+                    self.assertNotIn("NaN", row["reason"])
+
+                sparse_upload = excel_upload([], [0, 1.25])
+                sparse = self.assert_status(
+                    self.client.post(
+                        f"{endpoint}/import/inspect", headers=qa, files=sparse_upload,
+                    ),
+                    200,
+                ).json()
+                self.assertEqual(sparse["headers"], ["Column 1", "Column 2"])
+                self.assertEqual(sparse["preview"], [{"row_number": 2, "values": ["0", "1.25"]}])
+                imported = self.assert_status(
+                    self.client.post(
+                        f"{endpoint}/import",
+                        headers=qa,
+                        files=sparse_upload,
+                        data={"mapping": json.dumps({quantity.key: "Column 1", amount.key: "Column 2"})},
+                    ),
+                    200,
+                ).json()
+                self.assertEqual(imported["created_count"], 1)
+                self.addCleanup(
+                    self.client.delete, f"{endpoint}/{imported['created'][0]['id']}", headers=qa
+                )
+
+    def test_admin_numeric_field_assignments_control_import_and_my_reviews(self):
+        admin = self.session(self.create_user(RoleEnum.ADMIN), htmx=True)
+        qa = self.session(self.create_user(RoleEnum.QA))
+        agent = self.create_user(RoleEnum.SUPPORT)
+        label = f"Required quantity {uuid4().hex[:8]}"
+        form = {"label": label, "field_type": "integer", "position": 1}
+        for tracker, other in (("bad-feedback", "refund-check"), ("refund-check", "bad-feedback")):
+            with self.subTest(tracker=tracker):
+                admin_path = f"/admin/case-fields/{tracker}"
+                api_path = f"/api/{tracker}"
+                self.assert_status(
+                    self.client.post(
+                        f"{admin_path}/create", headers=admin,
+                        data={**form, "required_for_import": "true", "show_in_my_reviews": "true"},
+                    ),
+                    200,
+                )
+
+                async def get_field():
+                    async with async_session_factory() as db:
+                        return (await list_fields(db, tracker))[1]
+
+                field = self.client.portal.call(get_field)
+                self.addCleanup(self.client.post, f"{admin_path}/{field.id}/archive", headers=admin)
+                self.assertEqual(field.label, label)
+                self.assertTrue(field.required_for_import)
+                self.assertTrue(field.show_in_my_reviews)
+                upload = excel_upload([label, "Source"], [0, "Workshop"], [None, "Missing quantity"])
+
+                def inspect(tracker_name):
+                    return self.assert_status(
+                        self.client.post(f"/api/{tracker_name}/import/inspect", headers=qa, files=upload),
+                        200,
+                    ).json()
+
+                self.assertIn(field.key, inspect(tracker)["required_fields"])
+                self.assertNotIn(field.key, inspect(other)["field_labels"])
+                report = self.assert_status(
+                    self.client.post(
+                        f"{api_path}/import", headers=qa, files=upload,
+                        data={"mapping": json.dumps({field.key: label, "source": "Source"})},
+                    ),
+                    200,
+                ).json()
+                self.assertEqual(report["created_count"], 1)
+                self.assertEqual(
+                    report["skipped"], [{"row_number": 3, "reason": f"Missing required values: {label}"}],
+                )
+                record_path = f"{api_path}/{report['created'][0]['id']}"
+                self.addCleanup(self.client.delete, record_path, headers=qa)
+                assigned = self.assert_status(
+                    self.client.patch(
+                        record_path, headers=qa,
+                        json={"agents": [{"user_id": agent.id, "kind": "Support"}]},
+                    ),
+                    200,
+                ).json()
+                self.assertEqual(assigned["field_values"][field.key], "0")
+
+                def my_reviews():
+                    return self.assert_status(
+                        self.client.get(
+                            "/partials/my-reviews", headers=self.session(agent), params={"cat": tracker}
+                        ),
+                        200,
+                    ).text
+
+                personal_view = my_reviews()
+                self.assertIn(f"{label}:</span> 0", personal_view)
+                self.assert_status(
+                    self.client.post(f"{admin_path}/{field.id}/update", headers=admin, data=form), 200
+                )
+                self.assertNotIn(field.key, inspect(tracker)["required_fields"])
+                self.assertNotIn(label, my_reviews())
 
     def test_tracker_lifecycle_respects_tracker_specific_date_keys(self):
         qa_user = self.create_user(RoleEnum.QA)

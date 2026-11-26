@@ -45,7 +45,7 @@
             <div class="flex flex-wrap items-center gap-2">
                 {% for field in tracker_fields %}
                 {% set field_value = values.get(field.key) %}
-                {% if field_value %}<span class="min-w-0 break-words text-sm {% if field.field_type == 'textarea' %}basis-full whitespace-pre-line{% endif %}">
+                {% if field_value is not none and field_value != '' %}<span class="min-w-0 break-words text-sm {% if field.field_type == 'textarea' %}basis-full whitespace-pre-line{% endif %}">
                     <span class="font-medium">{{ field.label }}:</span> {{ field_value }}
                 </span>{% endif %}
                 {% endfor %}

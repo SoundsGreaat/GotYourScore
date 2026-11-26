@@ -34,7 +34,7 @@ class TrackerField(Base):
             name="ck_tracker_fields_tracker",
         ),
         CheckConstraint(
-            "field_type IN ('date', 'text', 'textarea')",
+            "field_type IN ('date', 'decimal', 'integer', 'text', 'textarea')",
             name="ck_tracker_fields_type",
         ),
         CheckConstraint(

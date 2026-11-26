@@ -75,8 +75,9 @@
                     <tr>
                         {% for field in tracker_fields %}
                         {% set field_value = values.get(field.key) %}
-                        <td class="min-w-36 max-w-48 {% if field.field_type == 'date' %}whitespace-nowrap{% else %}truncate{% endif %}" title="{{ field_value or '' }}">
-                            {% if not field_value %}
+                        {% set unset = field_value is none or field_value == '' %}
+                        <td class="min-w-36 max-w-48 {% if field.field_type == 'date' %}whitespace-nowrap{% else %}truncate{% endif %}" title="{{ '' if unset else field_value }}">
+                            {% if unset %}
                             <span class="text-base-content/50">&mdash;</span>
                             {% elif field.field_type == 'text' and field_value.strip().lower().startswith(('https://', 'http://')) %}
                             <a href="{{ field_value.strip() }}" target="_blank" rel="noopener noreferrer"
@@ -206,7 +207,8 @@
             <div class="js-bf-step-report hidden">
                 <div class="js-bf-report-body"></div>
                 <div class="mt-4 flex justify-end">
-                    <button type="button" class="btn btn-primary btn-sm js-bf-done" data-gys-modal-close>Done</button>
+                    <button type="button" class="btn btn-primary btn-sm js-bf-done"
+                            aria-describedby="bf-import-summary" data-gys-modal-close>Done</button>
                 </div>
             </div>
     </dialog>
@@ -517,7 +519,7 @@
                             return;
                         }
                         refreshOnClose = true;
-                        renderReport(data);
+                        renderReport(data, mapping);
                         step('report');
                         setCommitPending(false);
                         importModal.querySelector('.js-bf-done').focus();
@@ -529,10 +531,12 @@
                     });
             });
 
-            function renderReport(data) {
+            function renderReport(data, mapping) {
                 var body = importModal.querySelector('.js-bf-report-body');
                 var summary = document.createElement('p');
-                summary.className = 'mb-3 alert alert-success py-2 text-sm';
+                summary.id = 'bf-import-summary';
+                summary.className = 'mb-3 alert py-2 text-sm';
+                summary.classList.add(data.skipped_count ? 'alert-warning' : 'alert-success');
                 summary.textContent = data.created_count + ' record(s) imported.'
                     + (data.skipped_count ? ' ' + data.skipped_count + ' skipped.' : '');
                 body.replaceChildren(summary);
@@ -543,7 +547,7 @@
                     label.className = 'mb-1 text-xs font-semibold uppercase tracking-wide text-base-content/60';
                     label.textContent = title;
                     var list = document.createElement('ul');
-                    list.className = 'mb-3 list-disc pl-5 text-sm';
+                    list.className = 'mb-3 list-disc pl-5 text-sm wrap-anywhere';
                     items.forEach(function (text) {
                         var item = document.createElement('li');
                         item.textContent = text;
@@ -552,8 +556,19 @@
                     body.append(label, list);
                 }
                 addList('New users created', data.created_users);
-                addList('Skipped rows', data.skipped.map(function (row) {
-                    return 'Row ' + row.row_number + ': ' + row.reason;
+                addList('Skipped rows', data.skipped.filter(function (row) {
+                    return Number.isSafeInteger(row.row_number) && row.row_number > 0;
+                }).map(function (row) {
+                    var reason = row.reason;
+                    if (row.code != null) {
+                        var message = gysTrackerNumericErrorMessage(row.code);
+                        var key = row.field_key;
+                        var labels = inspectData.field_labels;
+                        var label = typeof key === 'string' && Object.hasOwn(mapping, key) && mapping[key]
+                            && Object.hasOwn(labels, key) ? labels[key] : null;
+                        reason = message && label ? label + ' — ' + message : 'Check the values in the mapped columns.';
+                    }
+                    return 'Row ' + row.row_number + ': ' + reason;
                 }));
             }
 

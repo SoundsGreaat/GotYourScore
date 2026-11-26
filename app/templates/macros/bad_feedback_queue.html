@@ -35,7 +35,8 @@
                     <tr>
                         {% for field in tracker_fields %}
                         {% set field_value = values.get(field.key) %}
-                        <td class="min-w-36 max-w-48 truncate" title="{{ field_value or '' }}">{{ field_value or '—' }}</td>
+                        {% set unset = field_value is none or field_value == '' %}
+                        <td class="min-w-36 max-w-48 truncate" title="{{ '' if unset else field_value }}">{{ '—' if unset else field_value }}</td>
                         {% endfor %}
                         <td class="truncate">
                             <span class="flex flex-wrap gap-1">

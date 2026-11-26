@@ -152,6 +152,56 @@ class CaseFieldTests(PostgresTestCase):
             400,
         )
 
+    def test_numeric_type_changes_validate_existing_values_without_rewriting_them(self):
+        admin = self.session(self.create_user(RoleEnum.ADMIN), htmx=True)
+        qa = self.session(self.create_user(RoleEnum.QA))
+        label = f"Existing case data {uuid4().hex[:8]}"
+        self.assert_status(
+            self.client.post(
+                f"{REFUND_FIELDS}/create", headers=admin,
+                data={"label": label, "field_type": "text"},
+            ),
+            200,
+        )
+        field = next(field for field in self.fields().values() if field.label == label)
+        field_path = f"{REFUND_FIELDS}/{field.id}"
+        self.addCleanup(self.client.post, f"{field_path}/archive", headers=admin)
+        key = field.key
+        record = self.assert_status(
+            self.client.post(REFUND_API, headers=qa, json={"field_values": {key: "Unknown"}}),
+            201,
+        ).json()
+        record_path = f"{REFUND_API}/{record['id']}"
+        self.addCleanup(self.client.delete, record_path, headers=qa)
+
+        def change_type(field_type, expected_status):
+            self.assert_status(
+                self.client.post(
+                    f"{field_path}/update", headers=admin,
+                    data={"label": label, "field_type": field_type},
+                ),
+                expected_status,
+            )
+
+        change_type("decimal", 400)
+        self.assertEqual(self.fields()[key].field_type, "text")
+        for value, compatible_type in ((" 0004.25 ", "decimal"), ("0004.000", "integer")):
+            self.assert_status(
+                self.client.patch(record_path, headers=qa, json={"field_values": {key: value}}),
+                200,
+            )
+            original = self.assert_status(
+                self.client.get(record_path, headers=qa), 200
+            ).json()["field_values"][key]
+            change_type(compatible_type, 200)
+            self.assertEqual(self.fields()[key].field_type, compatible_type)
+            stored = self.assert_status(self.client.get(record_path, headers=qa), 200).json()
+            self.assertEqual(stored["field_values"][key], original)
+            if compatible_type == "decimal":
+                self.assertEqual(original, value)
+                change_type("integer", 400)
+                self.assertEqual(self.fields()[key].field_type, "decimal")
+
     def test_archived_builtin_field_hides_saved_values_and_rejects_flat_writes(self):
         admin = self.session(self.create_user(RoleEnum.ADMIN), htmx=True)
         qa = self.session(self.create_user(RoleEnum.QA))

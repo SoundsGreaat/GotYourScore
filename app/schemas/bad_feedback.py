@@ -3,9 +3,12 @@
 from datetime import date as date_type
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictFloat, StrictInt, field_validator
 
 from app.models.enums import AgentKindEnum, FaultEnum, ReviewStatusEnum
+
+
+TrackerFieldInput = str | StrictInt | StrictFloat | None
 
 
 class BadFeedbackAgentIn(BaseModel):
@@ -60,9 +63,10 @@ class _TrackerCreate(BaseModel):
     customer_info: str | None = Field(default=None, max_length=2000)
     customer_feedback: str | None = Field(default=None, max_length=10_000)
     related_case: str | None = Field(default=None, max_length=255)
-    # Stable field key -> string/null. Legacy flat fields remain supported;
+    # Stable field key -> string, number (numeric fields), or null.
+    # Legacy flat fields remain supported;
     # when both forms provide the same key, this mapping takes precedence.
-    field_values: dict[str, str | None] = Field(default_factory=dict)
+    field_values: dict[str, TrackerFieldInput] = Field(default_factory=dict)
     assigned_qa_id: int | None = None
     agents: list[BadFeedbackAgentIn] = Field(default_factory=list, max_length=50)
     complete: bool = False
@@ -105,7 +109,7 @@ class _TrackerUpdate(BaseModel):
     related_case: str | None = Field(default=None, max_length=255)
     # PATCH semantics are per-key merge: omitted keys are untouched and a
     # present null clears that configured field.
-    field_values: dict[str, str | None] = Field(default_factory=dict)
+    field_values: dict[str, TrackerFieldInput] = Field(default_factory=dict)
     assigned_qa_id: int | None = None
     agents: list[BadFeedbackAgentIn] | None = Field(default=None, max_length=50)
 
@@ -134,6 +138,7 @@ class _TrackerRead(BaseModel):
     related_case: str | None = None
     # Canonical values use their stable keys (dates are YYYY-MM-DD/null);
     # custom values are included, including values retained for archived keys.
+    # Numeric values use strings so clients can round-trip their full precision.
     field_values: dict[str, str | None] = Field(default_factory=dict)
     qa_comment: str | None = None
     status: ReviewStatusEnum = ReviewStatusEnum.PENDING
@@ -192,6 +197,8 @@ class ImportSkippedRow(BaseModel):
 
     row_number: int
     reason: str
+    code: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    field_key: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class ImportCommitResponse(BaseModel):

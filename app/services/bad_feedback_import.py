@@ -30,7 +30,9 @@ from xml.etree.ElementTree import ParseError
 from zipfile import BadZipFile
 
 from openpyxl import load_workbook
+from openpyxl.utils.cell import coordinate_to_tuple
 from openpyxl.utils.exceptions import InvalidFileException
+from openpyxl.worksheet._reader import FORMULA_TAG, VALUE_TAG, WorkSheetParser, _cast_number
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,9 +51,16 @@ from app.schemas.bad_feedback import (
     ImportCommitResponse,
     ImportInspectResponse,
     ImportPreviewRow,
+    ImportSkippedRow,
 )
 from app.services import user_service
-from app.services.tracker_fields import apply_field_values, field_value_limit
+from app.services.tracker_fields import (
+    NUMERIC_FIELD_TYPES,
+    InvalidNumericFieldValue,
+    apply_field_values,
+    field_value_limit,
+    validate_numeric_value,
+)
 
 
 class ImportValidationError(ValueError):
@@ -69,6 +78,7 @@ WORKBOOK_PARSE_ERRORS = (
     EOFError,
 )
 _WORKBOOK_OPEN_ERRORS = (*WORKBOOK_PARSE_ERRORS, KeyError, OSError, ValueError)
+_UNCACHED_FORMULA = object()
 
 
 def _load_workbook(content: bytes):
@@ -76,6 +86,70 @@ def _load_workbook(content: bytes):
         return load_workbook(BytesIO(content), data_only=True, read_only=True)
     except _WORKBOOK_OPEN_ERRORS as exc:
         raise WorkbookParseError from exc
+
+
+class _ExactNumber(str):
+    """The original Excel number, before conversion for a legacy mapping."""
+
+
+class _ExactNumberParser(WorkSheetParser):
+    """Keep the stored numeric token before openpyxl casts it to a float."""
+
+    def __init__(self, source, sheet, columns: set[int] | None):
+        workbook = sheet.parent
+        super().__init__(
+            source,
+            sheet._shared_strings,
+            data_only=True,
+            epoch=workbook.epoch,
+            date_formats=workbook._date_formats,
+            timedelta_formats=workbook._timedelta_formats,
+        )
+        self.columns = columns
+
+    def parse_cell(self, element):
+        if self.row_counter == 1:
+            return super().parse_cell(element)  # Keep header labels unchanged.
+        if self.columns is not None:
+            coordinate = element.get("r")
+            column = coordinate_to_tuple(coordinate)[1] if coordinate else self.col_counter + 1
+            if column not in self.columns:
+                return super().parse_cell(element)
+
+        value = element.findtext(VALUE_TAG)
+        data_type = element.get("t", "n")
+        no_saved_result = value is None or (value == "" and data_type != "str")
+        if no_saved_result and element.find(FORMULA_TAG) is not None:
+            cell = super().parse_cell(element)
+            cell["value"] = _UNCACHED_FORMULA
+            return cell
+        if value and data_type == "n":
+            style_id = int(element.get("s") or 0)
+            if style_id not in self.date_formats:
+                element.set("t", "str")
+                cell = super().parse_cell(element)
+                cell["value"] = _ExactNumber(value)
+                return cell
+        return super().parse_cell(element)
+
+
+def _rows_with_exact_numbers(sheet, columns: set[int] | None = None):
+    # The public iterator doesn't expose raw tokens. Reuse openpyxl's
+    # read-only parser for strings, dates, and cached formulas, overriding
+    # just numeric decoding within the selected columns (all for preview).
+    next_row = 1
+    max_row = sheet.max_row
+    max_column = sheet.max_column
+    empty_row = (None,) * (max_column or 0)
+    with sheet._get_source() as source:
+        for row_number, cells in _ExactNumberParser(source, sheet, columns).parse():
+            if max_row is not None and row_number > max_row:
+                break
+            for _ in range(next_row, row_number):
+                yield empty_row
+            if row_number >= next_row:
+                yield sheet._get_row(cells, 1, max_column, values_only=True)
+                next_row = row_number + 1
 
 
 # Canonical importable fields. ``support_agents``/``sales_agents`` are
@@ -181,6 +255,8 @@ def _display(value: Any) -> str | None:
     """Normalize any Excel cell to a trimmed display string or None."""
     if value is None:
         return None
+    if value is _UNCACHED_FORMULA:
+        return "Formula has no saved result"
     if isinstance(value, datetime):
         return value.date().isoformat()
     if isinstance(value, date):
@@ -472,7 +548,11 @@ def inspect_workbook(
         if not workbook.sheetnames:
             raise ImportValidationError("The workbook contains no sheets.")
         sheet = workbook[workbook.sheetnames[0]]
-        rows = sheet.iter_rows(values_only=True)
+        rows = (
+            _rows_with_exact_numbers(sheet)
+            if any(field.field_type in NUMERIC_FIELD_TYPES for field in fields or ())
+            else sheet.iter_rows(values_only=True)
+        )
         try:
             header_row = next(rows)
         except StopIteration:
@@ -558,6 +638,7 @@ async def commit_import(
         field_specs = [
             (field.key, field.key, field.field_type) for field in fields
         ]
+    field_labels = import_field_labels(fields or ())
     required_fields = _required_field_labels(fields or ())
 
     workbook = _load_workbook(content)
@@ -606,29 +687,51 @@ async def commit_import(
             headers, mapping.get("support_agents")
         )
         columns["sales_agents"] = _header_index(headers, mapping.get("sales_agents"))
+        numeric_fields = {
+            key for key, _, field_type in field_specs if field_type in NUMERIC_FIELD_TYPES
+        }
+        numeric_columns = {
+            column + 1 for key in numeric_fields if (column := columns[key]) is not None
+        }
+        if numeric_columns:
+            rows.close()
+            rows = _rows_with_exact_numbers(sheet, numeric_columns)
+            next(rows)  # Already read the headers to resolve the mapping.
 
         by_email, by_nick = await _load_user_maps(db)
         today = date.today()
         created: list[BadFeedback | RefundCheck] = []
-        skipped: list[tuple[int, str]] = []
+        skipped: list[ImportSkippedRow] = []
         created_users: list[str] = []
 
         excluded_rows = excluded_rows or set()
         for row_number, values in enumerate(rows, start=2):
             if row_number - 2 >= _MAX_ROWS:
-                skipped.append((row_number, "row limit reached"))
+                skipped.append(ImportSkippedRow(row_number=row_number, reason="row limit reached"))
                 continue
             if not any(v is not None and str(v).strip() for v in values):
                 continue
             if row_number in excluded_rows:
-                skipped.append((row_number, "excluded in preview"))
+                skipped.append(ImportSkippedRow(row_number=row_number, reason="excluded in preview"))
                 continue
 
             def cell(key: str) -> Any:
                 idx = columns.get(key)
                 if idx is None or idx >= len(values):
                     return None
-                return values[idx]
+                value = values[idx]
+                if key not in numeric_fields:
+                    # A header may be mapped to more than one field. Keep
+                    # the old interpretation for any non-numeric mapping.
+                    if value is _UNCACHED_FORMULA:
+                        return None
+                    if isinstance(value, _ExactNumber):
+                        try:
+                            return _cast_number(value)
+                        except ValueError:
+                            # The numeric mapping will reject this row.
+                            return value
+                return value
 
             def text(key: str) -> str | None:
                 value = _display(cell(key))
@@ -642,23 +745,39 @@ async def commit_import(
             ]
             if missing_values:
                 skipped.append(
-                    (row_number, "Missing required values: " + ", ".join(missing_values))
+                    ImportSkippedRow(
+                        row_number=row_number,
+                        reason="Missing required values: " + ", ".join(missing_values),
+                    )
                 )
                 continue
 
             case_values: dict[str, str | None] = {}
-            invalid_date = False
-            too_long_field: str | None = None
-            too_long_limit: int | None = None
+            row_error: ImportSkippedRow | None = None
             for mapping_key, field_key, field_type in field_specs:
                 if columns[mapping_key] is None:
                     continue
                 raw_value = cell(mapping_key)
+                if field_type in NUMERIC_FIELD_TYPES:
+                    try:
+                        number = validate_numeric_value(field_key, field_type, raw_value)
+                    except InvalidNumericFieldValue as exc:
+                        row_error = ImportSkippedRow(
+                            row_number=row_number,
+                            reason=f"{field_labels[field_key]}: {exc}",
+                            code=exc.code,
+                            field_key=exc.field_key,
+                        )
+                        break
+                    if number is not None:
+                        case_values[field_key] = number
+                    continue
+
                 value = _display(raw_value)
                 if field_type == "date":
                     parsed_date = parse_feedback_date(raw_value, today)
                     if value is not None and parsed_date is None:
-                        invalid_date = True
+                        row_error = ImportSkippedRow(row_number=row_number, reason=REASON_BAD_DATE)
                         break
                     case_values[field_key] = (
                         parsed_date.isoformat() if parsed_date is not None else None
@@ -667,22 +786,15 @@ async def commit_import(
 
                 value_limit = field_value_limit(field_key)
                 if value is not None and len(value) > value_limit:
-                    too_long_field = field_key
-                    too_long_limit = value_limit
+                    row_error = ImportSkippedRow(
+                        row_number=row_number,
+                        reason=f"{REASON_FIELD_TOO_LONG}: {field_key} (maximum {value_limit} characters)",
+                    )
                     break
                 case_values[field_key] = value
 
-            if invalid_date:
-                skipped.append((row_number, REASON_BAD_DATE))
-                continue
-            if too_long_field is not None:
-                skipped.append(
-                    (
-                        row_number,
-                        f"{REASON_FIELD_TOO_LONG}: {too_long_field} "
-                        f"(maximum {too_long_limit} characters)",
-                    )
-                )
+            if row_error is not None:
+                skipped.append(row_error)
                 continue
 
             agent_rows: list[tuple[User, AgentKindEnum]] = []
@@ -700,7 +812,9 @@ async def commit_import(
                     if user is not None:
                         agent_rows.append((user, kind))
             if not agent_rows and not any(case_values.values()):
-                skipped.append((row_number, REASON_NO_MAPPED_VALUES))
+                skipped.append(
+                    ImportSkippedRow(row_number=row_number, reason=REASON_NO_MAPPED_VALUES)
+                )
                 continue
 
             feedback = record_model(
@@ -735,10 +849,7 @@ async def commit_import(
                 }
                 for fb in created
             ],
-            skipped=[
-                {"row_number": n, "reason": reason}
-                for n, reason in skipped
-            ],
+            skipped=skipped,
             created_users=created_users,
             created_count=len(created),
             skipped_count=len(skipped),
