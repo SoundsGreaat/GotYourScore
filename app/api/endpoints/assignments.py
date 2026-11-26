@@ -23,15 +23,18 @@ RBAC matrix:
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import RoleChecker
+from app.core.observability import log_event
 from app.db.database import get_db
 from app.models import QAAssignment, RoleEnum, User
 from app.schemas.assignment import QAAssignmentCreate, QAAssignmentRead
 
 router = APIRouter(prefix="/assignments", tags=["assignments"])
+logger = logging.getLogger(__name__)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -102,7 +105,7 @@ async def create_assignment(
     await _get_user_with_role_or_400(
         payload.qa_id, RoleEnum.QA, label="Assigned QA", db=db
     )
-    support_agent = await _get_user_with_role_or_400(
+    await _get_user_with_role_or_400(
         payload.support_agent_id,
         RoleEnum.SUPPORT,
         label="Support agent",
@@ -111,7 +114,7 @@ async def create_assignment(
 
     # One-agent-one-QA guard: any existing row for this agent blocks
     # creation, not just an identical pair. The UNIQUE constraint is
-    # the backstop; resolving the holder here yields a clear message.
+    # the backstop for concurrent requests.
     existing = (
         await db.execute(
             select(QAAssignment).where(
@@ -120,14 +123,19 @@ async def create_assignment(
         )
     ).scalar_one_or_none()
     if existing is not None:
-        holder = await db.get(User, existing.qa_id)
+        log_event(
+            logger,
+            "assignment.create",
+            "conflict",
+            level=logging.WARNING,
+            user_id=_current_user.id,
+            entity_id=existing.id,
+            reason_code="support_agent_already_assigned",
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
-                "message": (
-                    f"Support agent {support_agent.nickname} is already "
-                    f"assigned to QA {holder.nickname if holder else existing.qa_id}."
-                ),
+                "message": "This support agent is already assigned.",
                 "assignment_id": existing.id,
             },
         )
@@ -139,6 +147,10 @@ async def create_assignment(
     db.add(assignment)
     await db.commit()
     await db.refresh(assignment)
+    log_event(
+        logger, "assignment.create", "success",
+        user_id=_current_user.id, entity_id=assignment.id,
+    )
     return QAAssignmentRead.model_validate(assignment)
 
 
@@ -163,3 +175,7 @@ async def delete_assignment(
         )
     await db.delete(assignment)
     await db.commit()
+    log_event(
+        logger, "assignment.delete", "success",
+        user_id=_current_user.id, entity_id=assignment_id,
+    )

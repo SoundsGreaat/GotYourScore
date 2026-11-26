@@ -34,6 +34,7 @@ Streaming contract (the ``/stream`` variants): the response is
 """
 
 import json
+import logging
 from collections.abc import AsyncIterator
 from typing import Annotated
 
@@ -45,6 +46,7 @@ from app.core.ai_rate_limit import (
     AiRequestLease,
     reserve_ai_request,
 )
+from app.core.observability import log_event, safe_traceback
 from app.core.security import RoleChecker
 from app.db.database import get_db
 from app.models import CaseTypeEnum, RoleEnum, User
@@ -60,6 +62,7 @@ from app.schemas.ai import (
 from app.services import ai_service
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
 
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
@@ -75,8 +78,29 @@ _NO_API_KEY_DETAIL = (
 )
 
 
+def _log_ai_event(
+    operation: str,
+    outcome: str,
+    user_id: int,
+    *,
+    reason_code: str | None = None,
+) -> None:
+    log_event(
+        logger,
+        f"ai.{operation}",
+        outcome,
+        level=logging.INFO if outcome == "success" else logging.WARNING,
+        user_id=user_id,
+        reason_code=reason_code,
+    )
+
+
 def _ndjson_response(
-    events: AsyncIterator[tuple[str, str]], lease: AiRequestLease
+    events: AsyncIterator[tuple[str, str]],
+    lease: AiRequestLease,
+    *,
+    operation: str,
+    user_id: int,
 ) -> StreamingResponse:
     """Wrap a service event stream (see the streaming contract) as NDJSON.
 
@@ -88,9 +112,21 @@ def _ndjson_response(
         try:
             async for kind, value in events:
                 yield json.dumps({kind: value}, ensure_ascii=False) + "\n"
+                if kind == "final":
+                    _log_ai_event(operation, "success", user_id)
         except ai_service.AnalyzeError:
+            _log_ai_event(
+                operation, "failure", user_id, reason_code="ai_request_failed"
+            )
             yield json.dumps({"error": "AI request failed."}, ensure_ascii=False) + "\n"
-        except Exception:  # status is already 200 — nothing else to do
+        except Exception as exc:  # status is already 200 — nothing else to do
+            log_event(
+                logger, f"ai.{operation}", "error", level=logging.ERROR,
+                user_id=user_id,
+                error_type=type(exc).__name__,
+                safe_traceback=safe_traceback(exc),
+                reason_code="unexpected_ai_error",
+            )
             yield json.dumps(
                 {"error": "Internal server error."},
                 ensure_ascii=False,
@@ -134,11 +170,13 @@ async def refactor_notes(
         except ai_service.AnalyzeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"AI refactoring failed: {exc}",
+                detail="AI refactoring failed. Please retry.",
             ) from exc
     finally:
         await lease.release()
-    return RefactorOut(html=html)
+    result = RefactorOut(html=html)
+    _log_ai_event("refactor", "success", current_user.id)
+    return result
 
 
 @router.post("/refactor/stream")
@@ -163,7 +201,10 @@ async def refactor_notes_stream(
         ) from exc
     lease = await reserve_ai_request(current_user.id)
     return _ndjson_response(
-        ai_service.stream_refactor_qa_notes(payload.html, db), lease
+        ai_service.stream_refactor_qa_notes(payload.html, db),
+        lease,
+        operation="refactor",
+        user_id=current_user.id,
     )
 
 
@@ -195,11 +236,13 @@ async def refactor_tracker_comment(
         except ai_service.AnalyzeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"AI refactoring failed: {exc}",
+                detail="AI refactoring failed. Please retry.",
             ) from exc
     finally:
         await lease.release()
-    return RefactorOut(html=html)
+    result = RefactorOut(html=html)
+    _log_ai_event("refactor_comment", "success", current_user.id)
+    return result
 
 
 @router.post("/refactor-comment/stream")
@@ -222,7 +265,12 @@ async def refactor_tracker_comment_stream(
         ) from exc
     lease = await reserve_ai_request(current_user.id)
     return _ndjson_response(
-        ai_service.stream_refactor_tracker_comment(payload.html, db, tracker=payload.tracker), lease
+        ai_service.stream_refactor_tracker_comment(
+            payload.html, db, tracker=payload.tracker
+        ),
+        lease,
+        operation="refactor_comment",
+        user_id=current_user.id,
     )
 
 
@@ -261,13 +309,13 @@ async def score_notes(
         except ai_service.AnalyzeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"AI analysis failed: {exc}",
+                detail="AI analysis failed. Please retry.",
             ) from exc
     finally:
         await lease.release()
 
     total_deduction = sum(scorecard.values())
-    return ScoreOut(
+    result = ScoreOut(
         scorecard=scorecard,
         total_deduction=total_deduction,
         base_score=100,
@@ -276,6 +324,8 @@ async def score_notes(
         ),
         autofail_reason=autofail_reason,
     )
+    _log_ai_event("score", "success", current_user.id)
+    return result
 
 
 @router.post("/notes-from-score", response_model=NotesFromScoreOut)
@@ -304,9 +354,7 @@ async def notes_from_score(
     if payload.case_type is CaseTypeEnum.NO_CASES:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "case_type 'No Cases' has no scorecard to draft notes from."
-            ),
+            detail="case_type 'No Cases' has no scorecard to draft notes from.",
         )
     lease = await reserve_ai_request(current_user.id)
     try:
@@ -330,11 +378,13 @@ async def notes_from_score(
         except ai_service.AnalyzeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"AI note drafting failed: {exc}",
+                detail="AI note drafting failed. Please retry.",
             ) from exc
     finally:
         await lease.release()
-    return NotesFromScoreOut(notes_html=notes_html)
+    result = NotesFromScoreOut(notes_html=notes_html)
+    _log_ai_event("notes_from_score", "success", current_user.id)
+    return result
 
 
 @router.post("/notes-from-score/stream")
@@ -373,4 +423,6 @@ async def notes_from_score_stream(
             no_multiplier_keys=payload.no_multiplier_keys,
         ),
         lease,
+        operation="notes_from_score",
+        user_id=current_user.id,
     )

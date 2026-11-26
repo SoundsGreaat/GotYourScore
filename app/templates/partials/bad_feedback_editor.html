@@ -342,17 +342,20 @@
         buttons.forEach(function (button) { button.disabled = true; });
         try {
             var response = await fetch(url, options);
-            if (!response.ok) {
-                var error = await response.json();
-                throw new Error(typeof error.detail === 'string' ? error.detail : fallback);
+            if (response.status === 409 && url.endsWith('/complete')) {
+                throw new GysRequestError(409, 'This record is already completed. Reopen it to see the latest state.');
             }
+            if (response.status === 400 || response.status === 422) {
+                throw new GysRequestError(response.status, 'Check the case fields and selected agents, then try again.');
+            }
+            if (!response.ok) throw new GysRequestError(response.status);
             if (root.isConnected && !disposed) {
                 showToast(message, 'alert-success');
                 editModal.close();
             }
             document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
         } catch (error) {
-            if (root.isConnected && !disposed) showToast(error.message || fallback);
+            if (root.isConnected && !disposed) showToast(fallback + ' ' + window.gysRequestErrorMessage(error));
         } finally {
             submitting = false;
             buttons.forEach(function (button) { button.disabled = false; });

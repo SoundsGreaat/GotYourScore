@@ -51,6 +51,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.core.observability import current_request_id, log_event, safe_traceback
 from app.core.text import is_autofail_error
 from app.models import CaseTypeEnum, SystemPrompt
 from app.services import app_setting_service, multiplier_service
@@ -537,9 +538,7 @@ def _extract_html_fragment(text: str) -> str:
 def _extract_json(text: str) -> dict:
     """Parse a JSON object out of a raw model response."""
     if not isinstance(text, str):
-        raise AnalyzeError(
-            f"Model returned non-string content: {repr(text)[:200]}"
-        )
+        raise AnalyzeError("Model returned non-string content.")
 
     try:
         parsed = json.loads(text)
@@ -560,10 +559,7 @@ def _extract_json(text: str) -> dict:
         if isinstance(parsed, dict):
             return parsed
 
-    raise AnalyzeError(
-        "Could not parse the model response as a flat JSON object. "
-        f"Raw response snippet: {text[:200]!r}"
-    )
+    raise AnalyzeError("Could not parse the model response as a JSON object.")
 
 
 def _sanitize_scorecard(data: dict) -> dict[str, int]:
@@ -684,30 +680,18 @@ def _sanitize_autofail_reason(value: object) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _log_openrouter_error(exc: Exception) -> None:
-    """Log as much useful information as possible from an OpenRouter error."""
-    logger.exception(
-        "OpenRouter request failed: type=%s status_code=%s message=%s",
-        type(exc).__name__,
-        getattr(exc, "status_code", None),
-        str(exc),
+    """Log provider failure metadata only; provider messages/bodies may be sensitive."""
+    provider_status = getattr(exc, "status_code", None)
+    log_event(
+        logger,
+        "ai.provider.request",
+        "failure",
+        level=logging.ERROR,
+        error_type=type(exc).__name__,
+        provider_status=provider_status if isinstance(provider_status, int) else None,
+        safe_traceback=None if isinstance(exc, APIError) else safe_traceback(exc),
+        reason_code="openrouter_request_failed",
     )
-
-    body = getattr(exc, "body", None)
-
-    if body is not None:
-        logger.error("OpenRouter error body: %r", body)
-
-    response = getattr(exc, "response", None)
-
-    if response is not None:
-        try:
-            logger.error(
-                "OpenRouter HTTP response: status=%s body=%s",
-                getattr(response, "status_code", None),
-                response.text,
-            )
-        except Exception:
-            logger.error("Unable to read OpenRouter HTTP response body.")
 
 
 # ---------------------------------------------------------------------------
@@ -807,20 +791,16 @@ async def analyze_support_ticket(
             },
             temperature=0,
             extra_body=extra_body,
+            extra_headers={"X-Request-ID": current_request_id()},
         )
 
     except APIError as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter API error: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter API request failed.") from exc
 
     except Exception as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter request failed: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter request failed.") from exc
 
     if not response.choices:
         raise AnalyzeError(
@@ -910,20 +890,16 @@ async def _refactor_html(
             ],
             temperature=0,
             extra_body=extra_body,
+            extra_headers={"X-Request-ID": current_request_id()},
         )
 
     except APIError as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter API error: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter API request failed.") from exc
 
     except Exception as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter request failed: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter request failed.") from exc
 
     if not response.choices:
         raise AnalyzeError(
@@ -1011,21 +987,17 @@ async def _stream_completion(
             ],
             temperature=0,
             extra_body=extra_body,
+            extra_headers={"X-Request-ID": current_request_id()},
             stream=True,
         )
 
     except APIError as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter API error: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter API request failed.") from exc
 
     except Exception as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter request failed: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter request failed.") from exc
 
     try:
         async for chunk in stream:
@@ -1037,9 +1009,7 @@ async def _stream_completion(
 
     except APIError as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter API error: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter API request failed.") from exc
 
     finally:
         await stream.close()
@@ -1180,20 +1150,16 @@ async def draft_notes_from_score(
             ],
             temperature=0,
             extra_body=extra_body,
+            extra_headers={"X-Request-ID": current_request_id()},
         )
 
     except APIError as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter API error: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter API request failed.") from exc
 
     except Exception as exc:
         _log_openrouter_error(exc)
-        raise AnalyzeError(
-            f"OpenRouter request failed: "
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
+        raise AnalyzeError("OpenRouter request failed.") from exc
 
     if not response.choices:
         raise AnalyzeError(

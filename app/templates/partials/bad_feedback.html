@@ -256,6 +256,21 @@
                 importError.classList.toggle('mb-3', Boolean(message));
             }
 
+            async function readImportResponse(response) {
+                if (response.ok) return response.json();
+                if (response.status === 413) {
+                    throw new GysRequestError(413, 'Choose an Excel file no larger than 5 MB.');
+                }
+                if (response.status === 400) {
+                    var result = await response.json().catch(function () { return null; });
+                    if (typeof result?.detail === 'string' && result.detail.startsWith('Map a workbook column for each required field: ')) {
+                        throw new GysRequestError(400, 'Required mappings have changed. Analyze the workbook again and map each required field.');
+                    }
+                    throw new GysRequestError(400, 'Check the workbook, column mappings, and QA selection, then try again.');
+                }
+                throw new GysRequestError(response.status);
+            }
+
             function validateRequiredMappings() {
                 var missingLabels = [];
                 var firstMissing = null;
@@ -329,10 +344,7 @@
                 var form = new FormData();
                 form.append('file', analyzedFile);
                 fetch('/api/' + tracker + '/import/inspect', {method: 'POST', credentials: 'same-origin', body: form})
-                    .then(function (response) {
-                        if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Inspect failed'); });
-                        return response.json();
-                    })
+                    .then(readImportResponse)
                     .then(function (data) {
                         if (token !== analysisToken || !importModal.isConnected || !importModal.open || file !== analyzedFile) return;
                         inspectData = data;
@@ -342,7 +354,7 @@
                     })
                     .catch(function (error) {
                         if (token === analysisToken && importModal.open && file === analyzedFile) {
-                            setImportError(error.message || 'Unable to analyze the file.');
+                            setImportError(window.gysRequestErrorMessage(error, 'Unable to analyze the file.'));
                         }
                     })
                     .finally(function () {
@@ -501,10 +513,7 @@
                 }
                 setCommitPending(true);
                 fetch('/api/' + tracker + '/import', {method: 'POST', credentials: 'same-origin', body: form})
-                    .then(function (response) {
-                        if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Import failed'); });
-                        return response.json();
-                    })
+                    .then(readImportResponse)
                     .then(function (data) {
                         if (!importModal.open || !importModal.isConnected) {
                             document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
@@ -516,7 +525,7 @@
                         setCommitPending(false);
                         importModal.querySelector('.js-bf-done').focus();
                     })
-                    .catch(function (error) { setImportError(error.message || 'Unable to import.'); })
+                    .catch(function (error) { setImportError(window.gysRequestErrorMessage(error, 'Unable to import.')); })
                     .finally(function () {
                         setCommitPending(false);
                         if (importModal.open && importError.textContent) commitButton.focus();
@@ -605,11 +614,11 @@
                     deleteBtn.disabled = true;
                     fetch('/api/' + tracker + '/' + deleteId, {method: 'DELETE', credentials: 'same-origin'})
                         .then(function (response) {
-                            if (!response.ok) return response.json().then(function (e) { throw new Error(e.detail || 'Delete failed'); });
+                            if (!response.ok) throw new GysRequestError(response.status);
                             showToast('Record deleted.', 'alert-success');
                             document.body.dispatchEvent(new CustomEvent(eventName, {bubbles: true}));
                         })
-                        .catch(function (error) { showToast(error.message || 'Unable to delete record.'); })
+                        .catch(function (error) { showToast('Unable to delete the record. ' + window.gysRequestErrorMessage(error)); })
                         .finally(function () {
                             deleting.delete(deleteId);
                             if (deleteBtn.isConnected) deleteBtn.disabled = false;

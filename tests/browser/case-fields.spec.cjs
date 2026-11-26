@@ -150,11 +150,11 @@ test("Case Fields persists drag and arrow moves and respects reduced motion", as
   await expect(list.locator("..").getByRole("status")).toHaveText(`${first} moved up to position 1.`);
 
   await page.route(`**${path}`, (route) => route.fulfill({
-    status: 400, json: { detail: "The field order is out of date." },
+    status: 400, json: { detail: "The field list is out of date. Refresh the tracker fields and try again." },
   }), { times: 1 });
   const down = list.getByRole("button", { name: `Move ${first} down`, exact: true });
   await down.press("Enter");
-  await expect(page.getByRole("alert").filter({ hasText: "The field order is out of date." })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: "Refresh the tracker fields and try again." })).toBeVisible();
   await expect(names).toHaveText(initial);
   await expect(down).toBeFocused();
 });

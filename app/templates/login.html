@@ -18,7 +18,7 @@
                 <script>
                     (function () {
                         function fire() {
-                            window.gysToast('Sign-in failed ({{ error }}). Please try again.', 'alert-error');
+                            window.gysToast({{ ('This account is disabled. Contact an administrator.' if error == 'Account disabled' else 'Sign-in failed. Please try again.') | tojson }}, 'alert-error');
                         }
                         if (window.gysToast) fire();
                         else document.addEventListener('DOMContentLoaded', fire);

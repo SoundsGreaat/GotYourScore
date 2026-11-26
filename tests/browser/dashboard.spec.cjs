@@ -111,7 +111,8 @@ test("rapid category switches keep the newest view and errors keep the last load
   }), { times: 1 });
   const failure = nextResponse(page, "/partials/qa-matrix");
   await qaScore.click();
-  await expect(page.getByRole("alert").filter({ hasText: "Temporarily unavailable." })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /^Server error$/ })).toBeVisible();
+  await expect(page.getByText("Temporarily unavailable.", { exact: true })).toHaveCount(0);
   await expect(page.locator("#bad-feedback-view")).toBeVisible();
   await expect(page).toHaveURL(/#qa-tracker\/bad-feedback@\d{4}-\d{2}$/);
   await expect(badFeedback).toHaveAttribute("aria-selected", "true");
@@ -160,6 +161,29 @@ test("Team Quotas does not overwrite the selected review period", async ({ page 
   await page.getByRole("link", { name: "My Reviews" }).click();
   expect(new URL((await nextReviews).url()).searchParams.get("period")).toBe(period);
   await expect(page).toHaveURL(`${base}/#my-reviews/qa-score@${period}`);
+});
+
+test("assignment uses the visible agent and a safe conflict hint", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${base}/#team-quotas/qa-score`);
+  const agent = page.locator("#agent-palette [data-agent-name]").first();
+  const target = page.locator(".js-qa-agents").first();
+  await expect(agent).toBeVisible();
+  await expect.poll(() => target.evaluate((node) => Boolean(window.Sortable?.get(node)))).toBe(true);
+  const agentName = await agent.getAttribute("data-agent-name");
+  const secret = "upstream error: invalid API key";
+  await page.route("**/api/assignments", (route) => route.fulfill({
+    status: 409, json: { detail: { message: secret } },
+  }), { times: 1 });
+  await target.evaluate((node) => {
+    const from = document.getElementById("agent-palette");
+    window.Sortable.get(node).option("onAdd")({
+      from, to: node, item: from.querySelector("[data-agent-name]"),
+    });
+  });
+  const toast = page.getByRole("alert").filter({ hasText: `Unable to assign ${agentName}.` });
+  await expect(toast).toContainText("Move the existing assignment to reassign them.");
+  await expect(page.getByText(secret)).toHaveCount(0);
 });
 
 test("mobile dashboard menu is keyboard operable and does not leave the page inert", async ({ page }) => {

@@ -32,6 +32,21 @@ def excel_upload(*rows):
 
 
 class TrackerTests(PostgresTestCase):
+    def test_import_rejects_malformed_workbook_as_client_error(self):
+        qa = self.session(self.create_user(RoleEnum.QA))
+        response = self.assert_status(
+            self.client.post(
+                f"{FEEDBACK}/import/inspect",
+                headers=qa,
+                files={"file": ("invalid.xlsx", b"not-an-xlsx-workbook")},
+            ),
+            400,
+        )
+        self.assertEqual(
+            response.json()["detail"],
+            "Could not read the file as an .xlsx workbook.",
+        )
+
     def case_fields(self, tracker, *labels, field_type="text"):
         async def create():
             async with async_session_factory() as db:

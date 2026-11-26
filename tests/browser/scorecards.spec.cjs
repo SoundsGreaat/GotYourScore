@@ -66,7 +66,7 @@ test("admin scorecard saves swap scripts and validation errors leave the editor 
   await save.click();
   const response = await invalid;
   expect(response.status()).toBe(400);
-  await expect(page.getByRole("alert").filter({ hasText: "Invalid request." })).toBeVisible();
+  await expect(page.getByRole("alert").filter({ hasText: /^Request error$/ })).toBeVisible();
   await expect(rule).toHaveValue("Last edit");
   expect(failures).toEqual([`400 ${response.url()}`]);
 

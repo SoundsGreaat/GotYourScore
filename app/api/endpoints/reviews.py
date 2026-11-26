@@ -63,6 +63,7 @@ RBAC matrix:
 """
 
 from datetime import datetime, timedelta, timezone
+import logging
 import re
 from typing import Annotated, Any
 
@@ -71,6 +72,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.ai_rate_limit import reserve_ai_request
+from app.core.observability import log_event
 from app.core.security import RoleChecker, get_current_user, is_reviewer
 from app.db.database import get_db
 from app.models import (
@@ -107,6 +109,7 @@ from app.services import (
 )
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
+logger = logging.getLogger(__name__)
 
 # ReviewCreate.period wire format: the closing month of a reporting
 # period ("YYYY-MM"). Format is already enforced by the schema pattern;
@@ -234,12 +237,14 @@ async def _reject_duplicate_pending(
     if await review_service.find_pending_pairs(
         db, [(agent_id, case_number)], exclude_review_id=exclude_review_id
     ):
+        log_event(
+            logger, "review.pending.rejected", "conflict",
+            level=logging.WARNING, entity_id=agent_id,
+            reason_code="pending_review_exists",
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Support agent {agent_id} already has a pending review "
-                f"for case_number '{case_number}'."
-            ),
+            detail="This agent already has a pending review for that case number.",
         )
 
 
@@ -260,6 +265,11 @@ async def _reject_quota_reached(
         agent.id, closing_year, closing_month, db
     )
     if quota["completed"] >= quota["target"]:
+        log_event(
+            logger, "review.creation.rejected", "conflict",
+            level=logging.WARNING, entity_id=agent.id, count=quota["completed"],
+            reason_code="review_quota_reached",
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -373,6 +383,10 @@ async def _create_saved_for_later_review(
     db.add(review)
     await db.commit()
     await db.refresh(review)
+    log_event(
+        logger, "review.draft.created", "success",
+        user_id=creator.id, entity_id=review.id,
+    )
     return ReviewRead.model_validate(review)
 
 
@@ -455,6 +469,10 @@ async def create_review(
     db.add(review)
     await db.commit()
     await db.refresh(review)
+    log_event(
+        logger, "review.created", "success",
+        user_id=current_user.id, entity_id=review.id,
+    )
     return ReviewRead.model_validate(review)
 
 
@@ -578,7 +596,7 @@ async def auto_score_review(
         except ai_service.AnalyzeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"AI analysis failed: {exc}",
+                detail="AI analysis failed. Please retry.",
             ) from exc
     finally:
         await lease.release()
@@ -603,6 +621,10 @@ async def auto_score_review(
     db.add(review)
     await db.commit()
     await db.refresh(review)
+    log_event(
+        logger, "review.auto_scored", "success",
+        user_id=current_user.id, entity_id=review.id,
+    )
     return ReviewRead.model_validate(review)
 
 
@@ -680,6 +702,10 @@ async def create_pending_review(
     db.add(review)
     await db.commit()
     await db.refresh(review)
+    log_event(
+        logger, "review.delegated", "success",
+        user_id=current_user.id, entity_id=review.id,
+    )
     return ReviewRead.model_validate(review)
 
 
@@ -830,7 +856,9 @@ async def create_pending_reviews_bulk(
         ],
         skipped=[
             PendingBulkSkippedRow(
-                case_number=payload.rows[index].case_number, reason=reason
+                case_number=payload.rows[index].case_number,
+                reason=reason,
+                row_number=index + 1,
             )
             for index, reason in sorted(skip_reasons.items())
         ],
@@ -838,6 +866,18 @@ async def create_pending_reviews_bulk(
         skipped_count=len(skip_reasons),
     )
     await db.commit()
+    log_event(
+        logger,
+        "review.bulk_delegated",
+        "success" if created_reviews else "no_op",
+        user_id=current_user.id,
+        count=len(created_reviews),
+        skipped_count=len(skip_reasons),
+        reason_code=(
+            "partial_success" if skip_reasons and created_reviews else
+            "all_skipped" if skip_reasons else "all_created"
+        ),
+    )
     return response
 
 
@@ -1252,6 +1292,14 @@ async def update_review(
 
     await db.commit()
     await db.refresh(review)
+    log_event(
+        logger,
+        "review.updated",
+        "success",
+        user_id=current_user.id,
+        entity_id=review.id,
+        reason_code="completed" if completing else "pending" if is_pending else "edited",
+    )
     return ReviewRead.model_validate(review)
 
 
@@ -1279,3 +1327,7 @@ async def delete_review(
         )
     review.deleted_at = _utcnow()
     await db.commit()
+    log_event(
+        logger, "review.deleted", "success",
+        user_id=_current_user.id, entity_id=review_id,
+    )

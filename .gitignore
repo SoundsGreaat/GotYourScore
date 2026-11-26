@@ -3,6 +3,7 @@
 node_modules/
 scripts/*.csv
 docker-compose.override.yml
+/logs/
 
 # Environment files (keep .env.example tracked)
 .env

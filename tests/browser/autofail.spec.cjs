@@ -133,7 +133,7 @@ test("Score → Notes rolls back rich notes on incomplete or stale streams", asy
   }), { times: 1 });
   await editor.click({ button: "right" });
   await action.click();
-  await expect(page.getByText("AI request failed.", { exact: true })).toBeVisible();
+  await expect(page.getByText("Server error", { exact: true })).toBeVisible();
   expect(await editor.innerHTML()).toBe(originalHtml);
   await expect(reason).toHaveValue("Original reason");
 
