@@ -95,6 +95,11 @@ def _log_ai_event(
     )
 
 
+def _unavailable(operation: str, user_id: int) -> HTTPException:
+    _log_ai_event(operation, "failure", user_id, reason_code="openrouter_unavailable")
+    return HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_NO_API_KEY_DETAIL)
+
+
 def _ndjson_response(
     events: AsyncIterator[tuple[str, str]],
     lease: AiRequestLease,
@@ -114,9 +119,9 @@ def _ndjson_response(
                 yield json.dumps({kind: value}, ensure_ascii=False) + "\n"
                 if kind == "final":
                     _log_ai_event(operation, "success", user_id)
-        except ai_service.AnalyzeError:
+        except ai_service.AnalyzeError as exc:
             _log_ai_event(
-                operation, "failure", user_id, reason_code="ai_request_failed"
+                operation, "failure", user_id, reason_code=exc.reason_code
             )
             yield json.dumps({"error": "AI request failed."}, ensure_ascii=False) + "\n"
         except Exception as exc:  # status is already 200 — nothing else to do
@@ -160,14 +165,9 @@ async def refactor_notes(
         try:
             html = await ai_service.refactor_qa_notes(payload.html, db)
         except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                    "in the environment or the .env file to enable AI features."
-                ),
-            ) from exc
+            raise _unavailable("refactor", current_user.id) from exc
         except ai_service.AnalyzeError as exc:
+            _log_ai_event("refactor", "failure", current_user.id, reason_code=exc.reason_code)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="AI refactoring failed. Please retry.",
@@ -195,10 +195,7 @@ async def refactor_notes_stream(
         # so it can fail BEFORE any byte is streamed.
         ai_service.get_openrouter_client()
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_NO_API_KEY_DETAIL,
-        ) from exc
+        raise _unavailable("refactor", current_user.id) from exc
     lease = await reserve_ai_request(current_user.id)
     return _ndjson_response(
         ai_service.stream_refactor_qa_notes(payload.html, db),
@@ -226,14 +223,9 @@ async def refactor_tracker_comment(
         try:
             html = await ai_service.refactor_tracker_comment(payload.html, db, tracker=payload.tracker)
         except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                    "in the environment or the .env file to enable AI features."
-                ),
-            ) from exc
+            raise _unavailable("refactor_comment", current_user.id) from exc
         except ai_service.AnalyzeError as exc:
+            _log_ai_event("refactor_comment", "failure", current_user.id, reason_code=exc.reason_code)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="AI refactoring failed. Please retry.",
@@ -259,10 +251,7 @@ async def refactor_tracker_comment_stream(
     try:
         ai_service.get_openrouter_client()
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_NO_API_KEY_DETAIL,
-        ) from exc
+        raise _unavailable("refactor_comment", current_user.id) from exc
     lease = await reserve_ai_request(current_user.id)
     return _ndjson_response(
         ai_service.stream_refactor_tracker_comment(
@@ -299,14 +288,9 @@ async def score_notes(
                 payload.html, payload.case_type, db, detect_autofail=True
             )
         except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                    "in the environment or the .env file to enable AI features."
-                ),
-            ) from exc
+            raise _unavailable("score", current_user.id) from exc
         except ai_service.AnalyzeError as exc:
+            _log_ai_event("score", "failure", current_user.id, reason_code=exc.reason_code)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="AI analysis failed. Please retry.",
@@ -368,14 +352,9 @@ async def notes_from_score(
                 no_multiplier_keys=payload.no_multiplier_keys,
             )
         except ValueError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=(
-                    "OpenRouter API key is not configured. Set OPENROUTER_API_KEY "
-                    "in the environment or the .env file to enable AI features."
-                ),
-            ) from exc
+            raise _unavailable("notes_from_score", current_user.id) from exc
         except ai_service.AnalyzeError as exc:
+            _log_ai_event("notes_from_score", "failure", current_user.id, reason_code=exc.reason_code)
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="AI note drafting failed. Please retry.",
@@ -408,10 +387,7 @@ async def notes_from_score_stream(
     try:
         ai_service.get_openrouter_client()
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_NO_API_KEY_DETAIL,
-        ) from exc
+        raise _unavailable("notes_from_score", current_user.id) from exc
     lease = await reserve_ai_request(current_user.id)
     return _ndjson_response(
         ai_service.stream_draft_notes_from_score(

@@ -42,11 +42,12 @@ import json
 import logging
 import math
 import re
+import time
 from collections.abc import AsyncIterator, Sequence
 from functools import lru_cache
 from html.parser import HTMLParser
 
-from openai import APIError, AsyncOpenAI
+from openai import APIError, APITimeoutError, AsyncOpenAI
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -476,6 +477,12 @@ def _build_scoring_prompt(
 class AnalyzeError(Exception):
     """The AI analysis call failed or its response could not be parsed."""
 
+    def __init__(
+        self, message: str, reason_code: str = "provider_output_malformed"
+    ) -> None:
+        self.reason_code = reason_code
+        super().__init__(message)
+
 
 # ---------------------------------------------------------------------------
 # OpenRouter client
@@ -682,19 +689,29 @@ def _sanitize_autofail_reason(value: object) -> str | None:
 # Error logging
 # ---------------------------------------------------------------------------
 
-def _log_openrouter_error(exc: Exception) -> None:
+def _log_openrouter_error(
+    exc: Exception, *, operation: str, started: float,
+) -> str:
     """Log provider failure metadata only; provider messages/bodies may be sensitive."""
     provider_status = getattr(exc, "status_code", None)
+    reason = (
+        "provider_timeout" if isinstance(exc, (TimeoutError, APITimeoutError))
+        else "provider_status_error" if isinstance(exc, APIError) and provider_status
+        else "provider_transport_error"
+    )
     log_event(
         logger,
         "ai.provider.request",
         "failure",
         level=logging.ERROR,
+        operation=operation,
         error_type=type(exc).__name__,
         provider_status=provider_status if isinstance(provider_status, int) else None,
         safe_traceback=None if isinstance(exc, APIError) else safe_traceback(exc),
-        reason_code="openrouter_request_failed",
+        reason_code=reason,
+        elapsed_ms=round((time.monotonic() - started) * 1000, 2),
     )
+    return reason
 
 
 # ---------------------------------------------------------------------------
@@ -876,6 +893,7 @@ async def analyze_support_ticket(
     await db_session.commit()
 
     client = get_openrouter_client()
+    started = time.monotonic()
 
     try:
         response = await client.chat.completions.create(
@@ -901,13 +919,9 @@ async def analyze_support_ticket(
             extra_headers={"X-Request-ID": current_request_id()},
         )
 
-    except APIError as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter API request failed.") from exc
-
     except Exception as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter request failed.") from exc
+        reason = _log_openrouter_error(exc, operation="score", started=started)
+        raise AnalyzeError("OpenRouter request failed.", reason) from exc
 
     if not response.choices:
         raise AnalyzeError(
@@ -918,7 +932,7 @@ async def analyze_support_ticket(
 
     if not content:
         raise AnalyzeError(
-            "OpenRouter returned an empty response."
+            "OpenRouter returned an empty response.", "provider_output_empty"
         )
 
     parsed = _extract_json(content)
@@ -981,6 +995,7 @@ async def _refactor_html(
     await db_session.commit()
 
     client = get_openrouter_client()
+    started = time.monotonic()
 
     try:
         response = await client.chat.completions.create(
@@ -1000,13 +1015,9 @@ async def _refactor_html(
             extra_headers={"X-Request-ID": current_request_id()},
         )
 
-    except APIError as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter API request failed.") from exc
-
     except Exception as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter request failed.") from exc
+        reason = _log_openrouter_error(exc, operation="refactor", started=started)
+        raise AnalyzeError("OpenRouter request failed.", reason) from exc
 
     if not response.choices:
         raise AnalyzeError(
@@ -1017,7 +1028,7 @@ async def _refactor_html(
 
     if not content:
         raise AnalyzeError(
-            "OpenRouter returned an empty response."
+            "OpenRouter returned an empty response.", "provider_output_empty"
         )
 
     return _extract_html_fragment(content)
@@ -1078,6 +1089,7 @@ async def _stream_completion(
     await db_session.commit()
 
     client = get_openrouter_client()
+    started = time.monotonic()
 
     try:
         stream = await client.chat.completions.create(
@@ -1098,13 +1110,9 @@ async def _stream_completion(
             stream=True,
         )
 
-    except APIError as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter API request failed.") from exc
-
     except Exception as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter request failed.") from exc
+        reason = _log_openrouter_error(exc, operation="stream_open", started=started)
+        raise AnalyzeError("OpenRouter request failed.", reason) from exc
 
     try:
         async for chunk in stream:
@@ -1115,8 +1123,8 @@ async def _stream_completion(
                 yield delta.content
 
     except APIError as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter API request failed.") from exc
+        reason = _log_openrouter_error(exc, operation="stream_read", started=started)
+        raise AnalyzeError("OpenRouter request failed.", reason) from exc
 
     finally:
         await stream.close()
@@ -1155,7 +1163,7 @@ async def _stream_refactor(
 
     if not fragment:
         raise AnalyzeError(
-            "OpenRouter returned an empty response."
+            "OpenRouter returned an empty response.", "provider_output_empty"
         )
 
     yield ("final", fragment)
@@ -1241,6 +1249,7 @@ async def draft_notes_from_score(
     await db_session.commit()
 
     client = get_openrouter_client()
+    started = time.monotonic()
 
     try:
         response = await client.chat.completions.create(
@@ -1260,13 +1269,9 @@ async def draft_notes_from_score(
             extra_headers={"X-Request-ID": current_request_id()},
         )
 
-    except APIError as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter API request failed.") from exc
-
     except Exception as exc:
-        _log_openrouter_error(exc)
-        raise AnalyzeError("OpenRouter request failed.") from exc
+        reason = _log_openrouter_error(exc, operation="notes_from_score", started=started)
+        raise AnalyzeError("OpenRouter request failed.", reason) from exc
 
     if not response.choices:
         raise AnalyzeError(
@@ -1277,14 +1282,14 @@ async def draft_notes_from_score(
 
     if not content:
         raise AnalyzeError(
-            "OpenRouter returned an empty response."
+            "OpenRouter returned an empty response.", "provider_output_empty"
         )
 
     notes_html = _strip_code_fences(content)
 
     if not notes_html:
         raise AnalyzeError(
-            "OpenRouter returned an empty response."
+            "OpenRouter returned an empty response.", "provider_output_empty"
         )
 
     return notes_html
@@ -1413,7 +1418,7 @@ async def stream_draft_notes_from_score(
 
     if not notes_html:
         raise AnalyzeError(
-            "OpenRouter returned an empty response."
+            "OpenRouter returned an empty response.", "provider_output_empty"
         )
 
     yield ("final", notes_html)
