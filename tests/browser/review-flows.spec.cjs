@@ -249,6 +249,50 @@ test("cloned delegation row pickers restore their own choices when a bulk overri
   await expect(picker.getByRole("menuitemradio", { name: "Service Request" })).toBeChecked();
 });
 
+test("bulk delegation toasts keep their formatting and hide unknown response text", async ({ page }) => {
+  await signIn(page);
+  const unknownText = "<em>Unexpected response text</em>";
+  let attempts = 0;
+  await page.route("**/api/reviews/pending/bulk", (route) => {
+    if (++attempts === 1) {
+      return route.fulfill({ status: 500, json: { detail: unknownText } });
+    }
+    return route.fulfill({
+      json: {
+        created_count: 1,
+        skipped: [
+          { row_number: 2, reason: "already pending" },
+          { row_number: unknownText, reason: unknownText },
+        ],
+      },
+    });
+  });
+  await page.goto(`${base}/#qa-tracker/qa-score`);
+  await page.getByRole("button", { name: "Delegate case", exact: true }).click();
+  const modal = page.locator("#delegate-case-modal");
+  const picker = modal.locator(".gys-picker:popover-open");
+  await modal.getByRole("button", { name: "Support agent", exact: true }).first().click();
+  await picker.getByRole("menuitemradio").first().click();
+  await modal.getByRole("button", { name: "Case type", exact: true }).first().click();
+  await picker.getByRole("menuitemradio", { name: "Initial Fix", exact: true }).click();
+
+  const submit = modal.getByRole("button", { name: /^Delegate 1 case/ });
+  await submit.click();
+  const notes = modal.getByRole("alert");
+  await expect(notes.filter({ hasText: "Unable to delegate the cases." }))
+    .toHaveText("Unable to delegate the cases. Server error");
+
+  await submit.click();
+  const summary = notes.filter({ hasText: "Delegated 1 case" });
+  await expect(summary.locator("strong")).toHaveText("Delegated 1 case");
+  await expect(summary.getByText("2 skipped", { exact: true })).toBeVisible();
+  const detail = notes.filter({ hasText: "Skipped rows:" });
+  await expect(detail.getByRole("listitem")).toHaveText([
+    "Row 2 — A review is already pending",
+    "A row — Could not delegate",
+  ]);
+});
+
 test("the review drawer restores the delegated QA and can clear the assignment", async ({ page }) => {
   await signIn(page);
   const me = await (await page.request.get(`${base}/auth/me`)).json();

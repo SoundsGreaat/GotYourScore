@@ -584,22 +584,31 @@
         function renderBatchResult(data) {
             var created = Number.isSafeInteger(data.created_count) && data.created_count >= 0 ? data.created_count : 0;
             var skipped = Array.isArray(data.skipped) ? data.skipped : [];
-            var html = '<strong>Delegated ' + created + ' case'
-                + (created === 1 ? '' : 's') + '</strong>';
+            var summary = document.createDocumentFragment();
+            var heading = document.createElement('strong');
+            heading.textContent = 'Delegated ' + created + ' case' + (created === 1 ? '' : 's');
+            summary.append(heading);
             if (skipped.length) {
-                html += '<div class="mt-1 text-xs opacity-80">' + skipped.length
-                    + ' skipped</div>';
+                var count = document.createElement('div');
+                count.className = 'mt-1 text-xs opacity-80';
+                count.textContent = skipped.length + ' skipped';
+                summary.append(count);
             }
-            window.gysFloatNote(html, created ? 'alert-success' : 'alert-error', 6000, true);
+            window.gysFloatNote(summary, created ? 'alert-success' : 'alert-error', 6000);
             if (skipped.length) {
-                var detail = '<strong>Skipped rows:</strong><ul>'
-                    + skipped.map(function (row) {
-                        var label = Number.isSafeInteger(row?.row_number) && row.row_number > 0
-                            ? 'Row ' + row.row_number : 'A row';
-                        return '<li>' + label + ' \u2014 ' + (batchSkipCopy.get(row?.reason) || 'Could not delegate') + '</li>';
-                    }).join('')
-                    + '</ul>';
-                window.gysFloatNote(detail, 'alert-error', 9000, true);
+                var detail = document.createDocumentFragment();
+                var skippedHeading = document.createElement('strong');
+                skippedHeading.textContent = 'Skipped rows:';
+                var list = document.createElement('ul');
+                skipped.forEach(function (row) {
+                    var label = Number.isSafeInteger(row?.row_number) && row.row_number > 0
+                        ? 'Row ' + row.row_number : 'A row';
+                    var item = document.createElement('li');
+                    item.textContent = label + ' \u2014 ' + (batchSkipCopy.get(row?.reason) || 'Could not delegate');
+                    list.append(item);
+                });
+                detail.append(skippedHeading, list);
+                window.gysFloatNote(detail, 'alert-error', 9000);
             }
         }
 

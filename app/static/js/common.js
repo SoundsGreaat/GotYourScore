@@ -40,9 +40,9 @@ window.gysResizePanel = function (panel, update, fromHeight) {
 /* Floating notifications: every transient note surfaces bottom-center
  * as translucent gradient glass (.gys-float-note in input.css). kind:
  * 'alert-success' for the mint look, anything else renders as
- * error-tinted. Pass trustedHtml only for caller-built markup.
+ * error-tinted. Content is plain text or caller-built DOM nodes.
  * timeout overrides 3.5s. */
-window.gysFloatNote = function (content, kind, timeout, trustedHtml) {
+window.gysFloatNote = function (content, kind, timeout) {
     // Host choice matters: an open <dialog> lives in the TOP LAYER and
     // paints OVER anything appended to <body> (z-index is powerless
     // against it), so the stack must be created inside the open dialog
@@ -57,11 +57,7 @@ window.gysFloatNote = function (content, kind, timeout, trustedHtml) {
     var note = document.createElement('div');
     note.setAttribute('role', 'alert');
     note.className = 'gys-float-note' + (kind === 'alert-success' ? '' : ' gys-error');
-    if (trustedHtml) {
-        note.innerHTML = content;
-    } else {
-        note.textContent = content;
-    }
+    note.append(content ?? '');
     var row = document.createElement('div');
     row.className = 'gys-float-row';
     row.appendChild(note);
@@ -92,7 +88,7 @@ window.gysFloatNote = function (content, kind, timeout, trustedHtml) {
 /* Thin wrapper keeping the old call signature: message text plus a
  * daisyUI alert modifier ('alert-error' default, 'alert-success'). */
 window.gysToast = function (message, kind) {
-    window.gysFloatNote(message, kind);
+    window.gysFloatNote(String(message ?? ''), kind);
 };
 
 function requestErrorText(status) {
