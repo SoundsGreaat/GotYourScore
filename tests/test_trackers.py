@@ -13,6 +13,7 @@ from openpyxl import Workbook
 from openpyxl.xml.constants import SHEET_MAIN_NS
 from sqlalchemy import func, select
 
+from app.core.observability import JsonFormatter
 from app.db.database import async_session_factory
 from app.models import RefundCheck, ReviewStatusEnum, RoleEnum, User
 from app.services.tracker_fields import archive_field, create_field, list_fields
@@ -188,15 +189,18 @@ class TrackerTests(PostgresTestCase):
                 self.assertEqual(preview_rows[5][1], precise)
                 self.assertEqual(preview_rows[8][1], "Formula has no saved result")
                 self.assertEqual(preview_rows[10][1], "")
-                report = self.assert_status(
-                    self.client.post(
-                        f"{endpoint}/import",
-                        headers=qa,
-                        files=upload,
+                with self.assertLogs("app", "INFO") as captured:
+                    response = self.assert_status(self.client.post(
+                        f"{endpoint}/import", headers=qa, files=upload,
                         data={"mapping": json.dumps(mapping)},
-                    ),
-                    200,
-                ).json()
+                    ), 200)
+                summary, = [
+                    record for record in captured.records if record.event == "tracker.import.committed"
+                ]
+                self.assertEqual(summary.reason_counts, {"invalid_numeric_value": 4})
+                self.assertEqual(summary.request_id, response.headers["X-Request-ID"])
+                self.assertNotIn(precise, JsonFormatter().format(summary))
+                report = response.json()
                 self.assertEqual(report["created_count"], 5)
                 for row, expected in zip(
                     report["created"],

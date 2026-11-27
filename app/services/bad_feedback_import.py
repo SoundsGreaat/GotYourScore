@@ -22,6 +22,8 @@ unknown names are slugified (Cyrillic transliterated) into
 
 import re
 import unicodedata
+import logging
+from collections import Counter
 from difflib import SequenceMatcher
 from datetime import date, datetime
 from io import BytesIO
@@ -47,6 +49,7 @@ from app.models import (
     TrackerField,
     User,
 )
+from app.core.observability import log_event
 from app.schemas.bad_feedback import (
     ImportCommitResponse,
     ImportInspectResponse,
@@ -62,6 +65,7 @@ from app.services.tracker_fields import (
     validate_numeric_value,
 )
 
+logger = logging.getLogger(__name__)
 
 class ImportValidationError(ValueError):
     """Expected client-correctable workbook or mapping validation failure."""
@@ -702,17 +706,20 @@ async def commit_import(
         today = date.today()
         created: list[BadFeedback | RefundCheck] = []
         skipped: list[ImportSkippedRow] = []
+        reason_counts: Counter[str] = Counter()
         created_users: list[str] = []
 
         excluded_rows = excluded_rows or set()
         for row_number, values in enumerate(rows, start=2):
             if row_number - 2 >= _MAX_ROWS:
                 skipped.append(ImportSkippedRow(row_number=row_number, reason="row limit reached"))
+                reason_counts["row_limit"] += 1
                 continue
             if not any(v is not None and str(v).strip() for v in values):
                 continue
             if row_number in excluded_rows:
                 skipped.append(ImportSkippedRow(row_number=row_number, reason="excluded in preview"))
+                reason_counts["excluded_in_preview"] += 1
                 continue
 
             def cell(key: str) -> Any:
@@ -750,6 +757,7 @@ async def commit_import(
                         reason="Missing required values: " + ", ".join(missing_values),
                     )
                 )
+                reason_counts["missing_required_values"] += 1
                 continue
 
             case_values: dict[str, str | None] = {}
@@ -768,6 +776,7 @@ async def commit_import(
                             code=exc.code,
                             field_key=exc.field_key,
                         )
+                        reason_counts["invalid_numeric_value"] += 1
                         break
                     if number is not None:
                         case_values[field_key] = number
@@ -778,6 +787,7 @@ async def commit_import(
                     parsed_date = parse_feedback_date(raw_value, today)
                     if value is not None and parsed_date is None:
                         row_error = ImportSkippedRow(row_number=row_number, reason=REASON_BAD_DATE)
+                        reason_counts["invalid_date"] += 1
                         break
                     case_values[field_key] = (
                         parsed_date.isoformat() if parsed_date is not None else None
@@ -790,6 +800,7 @@ async def commit_import(
                         row_number=row_number,
                         reason=f"{REASON_FIELD_TOO_LONG}: {field_key} (maximum {value_limit} characters)",
                     )
+                    reason_counts["field_value_too_long"] += 1
                     break
                 case_values[field_key] = value
 
@@ -815,6 +826,7 @@ async def commit_import(
                 skipped.append(
                     ImportSkippedRow(row_number=row_number, reason=REASON_NO_MAPPED_VALUES)
                 )
+                reason_counts["no_mapped_values"] += 1
                 continue
 
             feedback = record_model(
@@ -840,6 +852,20 @@ async def commit_import(
             db.add(feedback)
 
         await db.commit()
+        log_event(
+            logger,
+            "tracker.import.committed" if created else "tracker.import.completed",
+            "success" if created else "no_op",
+            user_id=created_by,
+            operation=tracker,
+            count=len(created),
+            skipped_count=len(skipped),
+            reason_code=(
+                "partial_success" if skipped and created else
+                "rows_skipped" if skipped else "all_rows_imported"
+            ),
+            reason_counts=dict(sorted(reason_counts.items())),
+        )
         return ImportCommitResponse(
             created=[
                 {

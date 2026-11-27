@@ -4,9 +4,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from threading import Barrier
 from unittest.mock import AsyncMock, patch
+from uuid import uuid4
 
 from sqlalchemy import delete
 
+from app.core.observability import JsonFormatter
 from app.db.database import async_session_factory
 from app.models import CaseTypeEnum, Review, RoleEnum
 from app.models.scorecard import ScorecardItem, ScorecardTemplate
@@ -15,6 +17,26 @@ from tests.fixtures import PostgresTestCase
 
 
 class ReviewTests(PostgresTestCase):
+    def test_bulk_delegation_logs_skip_counts_without_case_numbers(self):
+        supervisor = self.create_user(RoleEnum.SUPERVISOR)
+        agent = self.create_user(RoleEnum.SUPPORT)
+        headers = self.session(supervisor)
+        case_number = f"private-{uuid4().hex}"
+        row = {"support_agent_id": agent.id, "case_type": "Initial Fix", "case_number": case_number}
+        with self.assertLogs("app", "INFO") as captured:
+            response = self.assert_status(self.client.post(
+                "/api/reviews/pending/bulk", headers=headers,
+                json={"rows": [row, row, {**row, "support_agent_id": supervisor.id}]},
+            ), 200)
+        payload = response.json()
+        self.assertEqual((payload["created_count"], payload["skipped_count"]), (1, 2))
+        review_id = payload["created"][0]["id"]
+        self.addCleanup(self.client.delete, f"/api/reviews/{review_id}", headers=headers)
+        event, = [record for record in captured.records if record.event == "review.bulk_delegated"]
+        self.assertEqual(event.reason_counts, {"duplicate_in_batch": 1, "agent_unavailable": 1})
+        self.assertEqual(event.request_id, response.headers["X-Request-ID"])
+        self.assertNotIn(case_number, JsonFormatter().format(event))
+
     def test_autofail_preview_save_and_rescore_keep_regular_deductions(self):
         agent = self.create_user(RoleEnum.SUPPORT)
         headers = self.session(self.create_user(RoleEnum.QA))
