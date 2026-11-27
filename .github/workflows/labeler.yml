@@ -1,0 +1,18 @@
+name: PR Labeler
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-24.04
+    steps:
+      # Label PRs from forks using the trusted config; do not check out PR code.
+      - uses: actions/labeler@e418da8824fe5e9edfa64aae6cd5648b895283c4 # upstream with additive label updates
+        with:
+          sync-labels: false

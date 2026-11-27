@@ -1,0 +1,67 @@
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'app/**/*.py'
+          - 'alembic/**'
+          - 'alembic.ini'
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'app/templates/**'
+          - 'app/static/js/**'
+          - 'app/static/css/src/**'
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: 'tests/**'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: 'README.md'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/workflows/**'
+          - '.github/labeler.yml'
+          - '.github/trivy-postgres-ignore.yml'
+          - 'tests/ci.env'
+          - 'tests/compose.yml'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'pyproject.toml'
+          - 'uv.lock'
+          - 'package.json'
+          - 'package-lock.json'
+          - 'tests/browser/package.json'
+          - 'tests/browser/package-lock.json'
+          - 'app/static/js/vendor/**'
+          - 'app/static/css/src/vendor/**'
+          - 'app/static/fonts/inter-*-wght-normal.woff2'
+
+docker:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'Dockerfile'
+          - '.dockerignore'
+          - 'docker-compose.yml'
+          - 'docker-compose.dev.yml'
+          - 'tests/compose.yml'
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'app/db/**'
+          - 'app/models/**'
+          - 'alembic/**'
+          - 'alembic.ini'
+
+auth:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'app/api/auth.py'
+          - 'app/core/security.py'
+          - 'app/templates/login.html'
