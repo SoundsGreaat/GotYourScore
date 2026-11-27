@@ -221,11 +221,20 @@ async def _apply_dynamic_values(
     try:
         validated = await validate_field_values(db, tracker, values)
     except InvalidNumericFieldValue as exc:
+        log_event(
+            logger, "tracker.field_value.rejected", "validation_error",
+            level=logging.WARNING, operation=tracker, reason_code=exc.code,
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={"code": exc.code, "field_key": exc.field_key},
         ) from exc
     except ValueError as exc:
+        log_event(
+            logger, "tracker.field_value.rejected", "validation_error",
+            level=logging.WARNING, operation=tracker,
+            reason_code="invalid_field_value",
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -431,6 +440,11 @@ def _tracker_router(
             feedback_id, db, record_model, display_name, for_write=True
         )
         if record.status is ReviewStatusEnum.COMPLETED:
+            log_event(
+                logger, "tracker.record.completion_rejected", "conflict",
+                level=logging.WARNING, user_id=auth.id, entity_id=record.id,
+                operation=tracker, reason_code="already_completed",
+            )
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"{display_name} record is already completed.",
@@ -486,6 +500,11 @@ def _tracker_router(
     async def import_inspect(auth, db, file):
         content = await file.read()
         if len(content) > _MAX_FILE_BYTES:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="file_too_large",
+            )
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="File is larger than 5 MB.",
@@ -498,11 +517,21 @@ def _tracker_router(
                 include_legacy_date_alias=tracker == "bad-feedback",
             )
         except bfi.ImportValidationError as exc:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="invalid_workbook_or_mapping",
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
         except _WORKBOOK_INPUT_ERRORS as exc:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="invalid_workbook",
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not read the file as an .xlsx workbook.",
@@ -525,6 +554,11 @@ def _tracker_router(
     async def import_commit(auth, db, file, mapping, excluded_rows=None, assigned_qa_id=None):
         content = await file.read()
         if len(content) > _MAX_FILE_BYTES:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="file_too_large",
+            )
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                 detail="File is larger than 5 MB.",
@@ -534,6 +568,11 @@ def _tracker_router(
             if not isinstance(mapping_dict, dict):
                 raise ValueError("mapping must be a JSON object")
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="invalid_mapping",
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="mapping must be a JSON object of field -> header.",
@@ -547,6 +586,11 @@ def _tracker_router(
                 raise ValueError
             excluded_row_numbers = set(excluded_raw)
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="invalid_excluded_rows",
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="excluded_rows must be a JSON array of spreadsheet row numbers.",
@@ -556,7 +600,7 @@ def _tracker_router(
         try:
             await lock_field_configuration(db, tracker, shared=True)
             fields = await list_fields(db, tracker)
-            result = await bfi.commit_import(
+            return await bfi.commit_import(
                 db=db,
                 content=content,
                 mapping=mapping_dict,
@@ -567,33 +611,22 @@ def _tracker_router(
                 fields=fields,
                 include_legacy_date_alias=tracker == "bad-feedback",
             )
-            log_event(
-                logger,
-                (
-                    "tracker.import.committed"
-                    if result.created_count
-                    else "tracker.import.completed"
-                ),
-                "success" if result.created_count else "no_op",
-                user_id=auth.id,
-                operation=tracker,
-                count=result.created_count,
-                skipped_count=result.skipped_count,
-                reason_code=(
-                    "partial_success"
-                    if result.skipped_count and result.created_count
-                    else "rows_skipped"
-                    if result.skipped_count
-                    else "all_rows_imported"
-                ),
-            )
-            return result
         except bfi.ImportValidationError as exc:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="invalid_workbook_or_mapping",
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=str(exc),
             ) from exc
         except _WORKBOOK_INPUT_ERRORS as exc:
+            log_event(
+                logger, "tracker.import.rejected", "validation_error",
+                level=logging.WARNING, user_id=auth.id, operation=tracker,
+                reason_code="invalid_workbook",
+            )
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Could not read the file as an .xlsx workbook.",

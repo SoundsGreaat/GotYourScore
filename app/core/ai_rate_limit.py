@@ -7,12 +7,16 @@ one authenticated account from monopolising the configured OpenRouter budget.
 
 import asyncio
 import time
+import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass
 
 from fastapi import HTTPException, status
 
 from app.core.config import get_settings
+from app.core.observability import log_event
+
+logger = logging.getLogger(__name__)
 
 
 class AiRateLimitExceeded(Exception):
@@ -53,10 +57,12 @@ class AiRateLimiter:
         max_requests: int,
         window_seconds: int,
         max_concurrent_requests: int,
+        operation: str = "openrouter",
     ) -> None:
         self.max_requests = max_requests
         self.window_seconds = window_seconds
         self.max_concurrent_requests = max_concurrent_requests
+        self.operation = operation
         self._request_times: dict[int, deque[float]] = defaultdict(deque)
         self._in_flight: dict[int, int] = defaultdict(int)
         self._lock = asyncio.Lock()
@@ -71,6 +77,11 @@ class AiRateLimiter:
                 timestamps.popleft()
 
             if self._in_flight[user_id] >= self.max_concurrent_requests:
+                log_event(
+                    logger, "ai.rate_limit", "rejected",
+                    level=logging.WARNING, user_id=user_id,
+                    reason_code="concurrency_limit", operation=self.operation,
+                )
                 raise AiRateLimitExceeded(
                     retry_after=1,
                     detail="Too many AI requests are already in progress. Please wait.",
@@ -78,6 +89,11 @@ class AiRateLimiter:
 
             if len(timestamps) >= self.max_requests:
                 retry_after = max(1, int(timestamps[0] + self.window_seconds - now) + 1)
+                log_event(
+                    logger, "ai.rate_limit", "rejected",
+                    level=logging.WARNING, user_id=user_id,
+                    reason_code="request_budget_exhausted", operation=self.operation,
+                )
                 raise AiRateLimitExceeded(
                     retry_after=retry_after,
                     detail="AI request limit reached. Please try again shortly.",

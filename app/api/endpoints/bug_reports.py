@@ -56,6 +56,7 @@ class Preview:
 _previews: dict[int, Preview] = {}
 _publication_limiter = AiRateLimiter(
     max_requests=3, window_seconds=3600, max_concurrent_requests=1,
+    operation="github_publication",
 )
 
 
@@ -107,6 +108,13 @@ def _published(issue: github_issues.GitHubIssue) -> JSONResponse:
     )
 
 
+def _report_rejected(
+    event: str, user_id: int, status: int, code: str, *, fields: tuple[str, ...] = (),
+) -> JSONResponse:
+    log_event(logger, event, "rejected", user_id=user_id, reason_code=code)
+    return _error(status, code, fields=fields)
+
+
 @router.post("/preview")
 async def preview_report(
     request: Request, user: CurrentUser, db: DbSession, settings: AppSettings,
@@ -128,7 +136,7 @@ async def preview_report(
         return _error(422, "invalid_report")
 
     if user_id not in _previews and len(_previews) >= _MAX_PREVIEWS:
-        return _error(503, "preview_unavailable")
+        return _report_rejected("bug_report.preview", user_id, 503, "preview_unavailable")
     try:
         lease = await reserve_ai_request(user_id)
     except HTTPException as exc:
@@ -138,7 +146,7 @@ async def preview_report(
     try:
         prepared = await bug_report_service.prepare_report(db, report)
     except bug_report_service.UnsuitableBugReportError as exc:
-        return _error(422, "needs_details", fields=exc.fields)
+        return _report_rejected("bug_report.preview", user_id, 422, "needs_details", fields=exc.fields)
     except bug_report_service.BugReportPreparationError:
         log_event(
             logger, "bug_report.preview", "error",
@@ -150,12 +158,16 @@ async def preview_report(
 
     previous = _previews.get(user_id)
     if previous is None and len(_previews) >= _MAX_PREVIEWS:
-        return _error(503, "preview_unavailable")
+        return _report_rejected("bug_report.preview", user_id, 503, "preview_unavailable")
     if previous is not None:
         previous.expiry.cancel()
     token = token_urlsafe(32)
     expiry = asyncio.get_running_loop().call_later(_PREVIEW_TTL_SECONDS, _previews.pop, user_id, None)
     _previews[user_id] = Preview(token, settings.BUG_REPORT_GITHUB_REPOSITORY, prepared, expiry)
+    log_event(
+        logger, "bug_report.preview", "success",
+        user_id=user_id, reason_code="preview_ready",
+    )
     return JSONResponse(
         {"title": prepared.title, "body": prepared.body, "token": token}, headers=_NO_STORE,
     )
@@ -172,7 +184,7 @@ async def publish_report(
     try:
         confirmation = await _parse(request, ConfirmReport, 1024)
     except (TimeoutError, ValueError):
-        return _error(422, "expired_preview")
+        return _report_rejected("bug_report.publish", user_id, 422, "expired_preview")
 
     preview = _previews.get(user_id)
     if (
@@ -180,23 +192,23 @@ async def publish_report(
         or not compare_digest(preview.token, confirmation.token)
         or preview.repository != settings.BUG_REPORT_GITHUB_REPOSITORY
     ):
-        return _error(409, "expired_preview")
+        return _report_rejected("bug_report.publish", user_id, 409, "expired_preview")
     if preview.issue is not None:
         return _published(preview.issue)
     if preview.report is None:
-        return _error(409, "publication_uncertain")
+        return _report_rejected("bug_report.publish", user_id, 409, "publication_uncertain")
     try:
         lease = await _publication_limiter.acquire(user_id)
     except AiRateLimitExceeded as exc:
         return _error(429, "rate_limited", retry_after=str(exc.retry_after))
     try:
         if _previews.get(user_id) is not preview:
-            return _error(409, "expired_preview")
+            return _report_rejected("bug_report.publish", user_id, 409, "expired_preview")
         if preview.issue is not None:
             return _published(preview.issue)
         prepared = preview.report
         if prepared is None:
-            return _error(409, "publication_uncertain")
+            return _report_rejected("bug_report.publish", user_id, 409, "publication_uncertain")
         # Claim before awaiting GitHub. The same preview is never posted
         # twice, even if the acknowledgement is lost.
         preview.report = None
@@ -214,8 +226,9 @@ async def publish_report(
             preview.expiry.cancel()
             del _previews[user_id]
         log_event(
-            logger, "bug_report.publish", "error",
-            level=logging.WARNING, user_id=user_id, reason_code=code,
+            logger, "bug_report.publish", "uncertain" if exc.may_have_published else "error",
+            level=logging.WARNING, user_id=user_id, reason_code=exc.reason_code,
+            provider_status=exc.provider_status,
         )
         return _error(502, code)
     finally:

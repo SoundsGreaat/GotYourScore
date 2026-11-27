@@ -1,5 +1,6 @@
 """Core security: Google OAuth client, current-user dependency, RBAC."""
 
+import logging
 from functools import lru_cache
 from typing import Annotated
 
@@ -8,12 +9,13 @@ from authlib.integrations.starlette_client import OAuth
 from httpx import Request as OutboundRequest
 
 from app.core.config import get_settings
-from app.core.observability import current_request_id
+from app.core.observability import current_request_id, log_event
 from app.db.database import AsyncSession, get_db
 from app.models import RoleEnum, User
 
 # Session key under which the authenticated user's id is stored.
 SESSION_USER_ID_KEY = "user_id"
+logger = logging.getLogger(__name__)
 
 
 async def _correlate_oauth_exchange(request: OutboundRequest) -> None:
@@ -68,6 +70,7 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User no longer exists",
         )
+    request.state.log_user_id = user.id
     return user
 
 
@@ -89,8 +92,19 @@ class RoleChecker:
     def __init__(self, allowed_roles: list[RoleEnum]) -> None:
         self.allowed_roles = allowed_roles
 
-    async def __call__(self, current_user: Annotated[User, Depends(get_current_user)]) -> User:
+    async def __call__(
+        self, request: Request, current_user: Annotated[User, Depends(get_current_user)]
+    ) -> User:
         if not any(role in current_user.roles for role in self.allowed_roles):
+            log_event(
+                logger,
+                "authz.denied",
+                "denied",
+                level=logging.WARNING,
+                user_id=current_user.id,
+                reason_code="insufficient_role",
+                route=getattr(request.scope.get("route"), "name", None),
+            )
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions",

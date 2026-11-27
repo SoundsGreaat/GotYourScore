@@ -14,6 +14,7 @@ from joserfc.jwk import RSAKey
 from app.api.endpoints import bug_reports
 from app.core.ai_rate_limit import AiRateLimiter
 from app.core.config import Settings, get_settings
+from app.core.observability import JsonFormatter
 from app.core.security import get_current_user
 from app.db.database import get_db
 from app.main import app
@@ -183,9 +184,21 @@ class BugReportApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.publish(token)).status_code, 409)
         self.create.assert_not_awaited()
         token = await self.token()
-        self.create.side_effect = github_issues.GitHubIssueError(may_have_published=True)
-        failure = await self.publish(token)
+        self.create.side_effect = github_issues.GitHubIssueError(
+            may_have_published=True, reason_code="github_issue_status_failed", provider_status=503,
+        )
+        with self.assertLogs("app", "INFO") as captured:
+            failure = await self.publish(token)
         self.assertEqual((failure.status_code, failure.json()), (502, {"code": "publication_uncertain"}))
+        event, = [record for record in captured.records if record.event == "bug_report.publish"]
+        self.assertEqual(
+            (event.outcome, event.reason_code, event.provider_status),
+            ("uncertain", "github_issue_status_failed", 503),
+        )
+        self.assertEqual(event.request_id, failure.headers["X-Request-ID"])
+        formatted = JsonFormatter().format(event)
+        self.assertNotIn(token, formatted)
+        self.assertNotIn(_REPORT["title"], formatted)
         self.assertEqual((await self.publish(token)).status_code, 409)
         self.create.assert_awaited_once()
 

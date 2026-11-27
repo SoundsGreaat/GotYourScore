@@ -89,6 +89,10 @@ async def get_system_prompt(
     """Fetch a single prompt row by id (404 if missing)."""
     prompt = await db.get(SystemPrompt, prompt_id)
     if prompt is None:
+        log_event(logger, "admin.system_prompt.rejected", "failure",
+                  level=logging.WARNING, user_id=_current_user.id,
+                  reason_code="prompt_not_found",
+                  operation="read")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"System prompt {prompt_id} not found.",
@@ -111,6 +115,10 @@ async def update_system_prompt(
     deactivates the other active rows of the same key."""
     prompt = await db.get(SystemPrompt, prompt_id)
     if prompt is None:
+        log_event(logger, "admin.system_prompt.rejected", "failure",
+                  level=logging.WARNING, user_id=_current_user.id,
+                  reason_code="prompt_not_found",
+                  operation="update")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"System prompt {prompt_id} not found.",
@@ -144,6 +152,10 @@ async def delete_system_prompt(
     """Delete a prompt row (404 if missing)."""
     prompt = await db.get(SystemPrompt, prompt_id)
     if prompt is None:
+        log_event(logger, "admin.system_prompt.rejected", "failure",
+                  level=logging.WARNING, user_id=_current_user.id,
+                  reason_code="prompt_not_found",
+                  operation="delete")
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"System prompt {prompt_id} not found.",

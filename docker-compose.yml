@@ -24,6 +24,11 @@ services:
     build: .
     container_name: gotyourscore-app
     restart: unless-stopped
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       db:
         condition: service_healthy

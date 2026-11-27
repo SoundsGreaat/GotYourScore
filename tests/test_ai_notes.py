@@ -5,8 +5,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from httpx import Request
+from openai import APITimeoutError
 from pydantic import ValidationError
 
+from app.core.observability import JsonFormatter
 from app.models import CaseTypeEnum, RoleEnum
 from app.schemas.ai import NotesFromScoreIn
 from app.services import ai_service, system_prompt_service
@@ -139,6 +142,38 @@ class NotesFromScoreTests(unittest.IsolatedAsyncioTestCase):
 
 
 class NotesFromScoreApiTests(PostgresTestCase):
+    def test_ai_refactor_logs_empty_output_and_provider_timeout_without_content(self):
+        actor = self.create_user(RoleEnum.QA)
+        headers = self.session(actor)
+        create = AsyncMock()
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+        with patch.object(ai_service, "get_openrouter_client", return_value=client):
+            for reason in ("provider_output_empty", "provider_timeout"):
+                with self.subTest(reason=reason):
+                    create.return_value = SimpleNamespace(choices=[SimpleNamespace(
+                        message=SimpleNamespace(content=""),
+                    )])
+                    create.side_effect = (
+                        APITimeoutError(Request("POST", "https://provider.invalid/private-path"))
+                        if reason == "provider_timeout" else None
+                    )
+                    with self.assertLogs("app", "INFO") as captured:
+                        response = self.assert_status(self.client.post(
+                            "/api/ai/refactor", headers=headers, json={"html": "<p>private note</p>"},
+                        ), 502)
+                    event, = [record for record in captured.records if record.event == "ai.refactor"]
+                    self.assertEqual((event.user_id, event.reason_code), (actor.id, reason))
+                    self.assertEqual(event.request_id, response.headers["X-Request-ID"])
+                    if reason == "provider_timeout":
+                        provider, = [
+                            record for record in captured.records if record.event == "ai.provider.request"
+                        ]
+                        self.assertEqual(provider.reason_code, reason)
+                        self.assertGreaterEqual(provider.elapsed_ms, 0)
+                    serialized = " ".join(JsonFormatter().format(record) for record in captured.records)
+                    for private in ("private note", "private-path", "provider.invalid"):
+                        self.assertNotIn(private, serialized)
+
     def test_auto_scoring_cannot_persist_autofail_as_a_deduction(self):
         qa = self.session(self.create_user(RoleEnum.QA))
         agent = self.create_user(RoleEnum.SUPPORT)

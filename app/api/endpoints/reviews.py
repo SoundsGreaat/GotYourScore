@@ -64,6 +64,7 @@ RBAC matrix:
 
 from datetime import datetime, timedelta, timezone
 import logging
+from collections import Counter
 import re
 from typing import Annotated, Any
 
@@ -586,6 +587,10 @@ async def auto_score_review(
                 payload.transcript, payload.case_type, db
             )
         except ValueError as exc:
+            log_event(
+                logger, "review.auto_score.rejected", "failure", level=logging.WARNING,
+                user_id=current_user.id, reason_code="openrouter_unavailable",
+            )
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=(
@@ -594,6 +599,10 @@ async def auto_score_review(
                 ),
             ) from exc
         except ai_service.AnalyzeError as exc:
+            log_event(
+                logger, "review.auto_score.rejected", "failure", level=logging.WARNING,
+                user_id=current_user.id, reason_code=exc.reason_code,
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="AI analysis failed. Please retry.",
@@ -761,12 +770,12 @@ async def create_pending_reviews_bulk(
     # occurrence competes normally, and numberless rows never collide.
     seen_pairs: set[tuple[int, str]] = set()
     candidates: list[tuple[int, PendingBulkRow]] = []
-    skip_reasons: dict[int, str] = {}
+    skip_reasons: dict[int, tuple[str, str]] = {}
     for index, row in enumerate(payload.rows):
         if row.case_number is not None:
             pair = (row.support_agent_id, row.case_number)
             if pair in seen_pairs:
-                skip_reasons[index] = "duplicate in list"
+                skip_reasons[index] = ("duplicate_in_batch", "duplicate in list")
                 continue
             seen_pairs.add(pair)
         candidates.append((index, row))
@@ -800,15 +809,15 @@ async def create_pending_reviews_bulk(
     for index, row in candidates:
         agent = users_by_id.get(row.support_agent_id)
         if agent is None or not agent.has_role(RoleEnum.SUPPORT):
-            skip_reasons[index] = "unknown or inactive agent"
+            skip_reasons[index] = ("agent_unavailable", "unknown or inactive agent")
             continue
         if row.case_type is CaseTypeEnum.NO_CASES:
-            skip_reasons[index] = "case_type 'No Cases' is not allowed"
+            skip_reasons[index] = ("invalid_case_type", "case_type 'No Cases' is not allowed")
             continue
         if row.assigned_qa_id is not None:
             assigned_qa = users_by_id.get(row.assigned_qa_id)
             if assigned_qa is None or not assigned_qa.has_role(RoleEnum.QA):
-                skip_reasons[index] = "assignee is not a QA"
+                skip_reasons[index] = ("invalid_assignee", "assignee is not a QA")
                 continue
         valid_rows.append((index, row))
 
@@ -825,7 +834,7 @@ async def create_pending_reviews_bulk(
             row.case_number is not None
             and (row.support_agent_id, row.case_number) in existing_pairs
         ):
-            skip_reasons[index] = "already pending"
+            skip_reasons[index] = ("already_pending", "already pending")
             continue
         review = Review(
             support_agent_id=row.support_agent_id,
@@ -860,7 +869,7 @@ async def create_pending_reviews_bulk(
                 reason=reason,
                 row_number=index + 1,
             )
-            for index, reason in sorted(skip_reasons.items())
+            for index, (_, reason) in sorted(skip_reasons.items())
         ],
         created_count=len(created_reviews),
         skipped_count=len(skip_reasons),
@@ -873,6 +882,7 @@ async def create_pending_reviews_bulk(
         user_id=current_user.id,
         count=len(created_reviews),
         skipped_count=len(skip_reasons),
+        reason_counts=dict(Counter(code for code, _ in skip_reasons.values())),
         reason_code=(
             "partial_success" if skip_reasons and created_reviews else
             "all_skipped" if skip_reasons else "all_created"

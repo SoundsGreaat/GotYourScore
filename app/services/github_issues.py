@@ -28,15 +28,23 @@ class GitHubIssue:
 class GitHubIssueError(Exception):
     """Do not expose credentials, report text or provider response bodies."""
 
-    def __init__(self, *, may_have_published: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        may_have_published: bool = False,
+        reason_code: str = "github_issue_failed",
+        provider_status: int | None = None,
+    ) -> None:
         super().__init__("GitHub issue creation failed")
         self.may_have_published = may_have_published
+        self.reason_code = reason_code
+        self.provider_status = provider_status
 
 
 def _app_jwt(settings: Settings) -> str:
     private_key = settings.BUG_REPORT_GITHUB_PRIVATE_KEY_BASE64
     if private_key is None or settings.BUG_REPORT_GITHUB_APP_ID is None:
-        raise GitHubIssueError()
+        raise GitHubIssueError(reason_code="github_configuration_missing")
     now = int(time.time())
     try:
         pem = base64.b64decode(private_key.get_secret_value(), validate=True)
@@ -46,14 +54,14 @@ def _app_jwt(settings: Settings) -> str:
             RSAKey.import_key(pem),
         )
     except (ValueError, TypeError, JoseError):
-        raise GitHubIssueError() from None
+        raise GitHubIssueError(reason_code="github_app_auth_invalid") from None
 
 
 async def create_issue(settings: Settings, *, title: str, body: str) -> GitHubIssue:
     repository = settings.BUG_REPORT_GITHUB_REPOSITORY
     installation_id = settings.BUG_REPORT_GITHUB_INSTALLATION_ID
     if repository is None or installation_id is None:
-        raise GitHubIssueError()
+        raise GitHubIssueError(reason_code="github_configuration_missing")
     app_jwt = _app_jwt(settings)
     async with httpx.AsyncClient(
         base_url="https://api.github.com", headers=_HEADERS,
@@ -72,9 +80,16 @@ async def create_issue(settings: Settings, *, title: str, body: str) -> GitHubIs
             response.raise_for_status()
             installation_token = response.json()["token"]
             if not isinstance(installation_token, str) or not installation_token.strip():
-                raise GitHubIssueError()
-        except (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError):
-            raise GitHubIssueError() from None
+                raise GitHubIssueError(
+                    reason_code="github_token_invalid", provider_status=response.status_code,
+                )
+        except (httpx.HTTPError, TimeoutError, ValueError, KeyError, TypeError) as exc:
+            status = getattr(exc, "response", None)
+            status = getattr(status, "status_code", None)
+            raise GitHubIssueError(
+                reason_code="github_token_failed",
+                provider_status=status if isinstance(status, int) else None,
+            ) from None
 
         # No retry: GitHub may have created the issue before a connection failed.
         try:
@@ -84,14 +99,29 @@ async def create_issue(settings: Settings, *, title: str, body: str) -> GitHubIs
                     headers={"Authorization": f"Bearer {installation_token}"},
                     json={"title": title, "body": body, "labels": ["bug"]},
                 )
-        except (httpx.HTTPError, TimeoutError):
-            raise GitHubIssueError(may_have_published=True) from None
+        except (httpx.HTTPError, TimeoutError) as exc:
+            status = getattr(exc, "response", None)
+            status = getattr(status, "status_code", None)
+            raise GitHubIssueError(
+                may_have_published=True, reason_code="github_issue_transport_failed",
+                provider_status=status if isinstance(status, int) else None,
+            ) from None
         if response.status_code != 201:
-            raise GitHubIssueError(may_have_published=response.status_code >= 500)
+            raise GitHubIssueError(
+                may_have_published=response.status_code >= 500,
+                reason_code="github_issue_status_failed",
+                provider_status=response.status_code,
+            )
         try:
             number = response.json()["number"]
         except (ValueError, KeyError, TypeError):
-            raise GitHubIssueError(may_have_published=True) from None
+            raise GitHubIssueError(
+                may_have_published=True, reason_code="github_issue_response_invalid",
+                provider_status=response.status_code,
+            ) from None
         if type(number) is not int or number <= 0:
-            raise GitHubIssueError(may_have_published=True)
+            raise GitHubIssueError(
+                may_have_published=True, reason_code="github_issue_response_invalid",
+                provider_status=response.status_code,
+            )
         return GitHubIssue(number, f"https://github.com/{repository}/issues/{number}")

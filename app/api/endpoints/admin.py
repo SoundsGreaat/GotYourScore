@@ -69,14 +69,23 @@ DbSession = Annotated[AsyncSession, Depends(get_db)]
 _ROLE_VALUES = [role.value for role in RoleEnum]
 
 
-def _log_admin_commit(request: Request, auth: User) -> None:
+def _log_admin_commit(
+    request: Request,
+    auth: User,
+    *,
+    entity_id: int | None = None,
+    operation: str | None = None,
+    tracker: str | None = None,
+) -> None:
     """Record a successful admin mutation without logging form values."""
     log_event(
         logger,
         "admin.mutation.committed",
         "success",
         user_id=auth.id,
-        operation=getattr(request.scope.get("route"), "name", "admin_operation"),
+        operation=operation or getattr(request.scope.get("route"), "name", "admin_operation"),
+        entity_id=entity_id,
+        reason_code=tracker,
     )
 
 
@@ -92,8 +101,12 @@ async def get_admin_user_or_redirect(
     """
     user = await _session_user(request, db)
     if user is None:
+        log_event(logger, "authz.admin_denied", "denied", level=logging.WARNING,
+                  reason_code="unauthenticated_admin_page")
         return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
     if not user.has_role(RoleEnum.ADMIN):
+        log_event(logger, "authz.admin_denied", "denied", level=logging.WARNING,
+                  user_id=user.id, reason_code="insufficient_role")
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     return user
 
@@ -228,9 +241,9 @@ async def create_prompt(
     if not content.strip():
         return _error_json("Prompt content cannot be empty.")
 
-    await system_prompt_service.create_active_version(db, key, content)
+    prompt = await system_prompt_service.create_active_version(db, key, content)
     await db.commit()
-    _log_admin_commit(request, auth)
+    _log_admin_commit(request, auth, entity_id=prompt.id)
 
     return templates.TemplateResponse(
         request=request,
@@ -257,7 +270,7 @@ async def activate_prompt(
 
     await system_prompt_service.activate_version(db, prompt)
     await db.commit()
-    _log_admin_commit(request, auth)
+    _log_admin_commit(request, auth, entity_id=prompt_id)
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_prompts.html",
@@ -284,7 +297,7 @@ async def delete_prompt(
 
     await db.delete(prompt)
     await db.commit()
-    _log_admin_commit(request, auth)
+    _log_admin_commit(request, auth, entity_id=prompt_id)
     return templates.TemplateResponse(
         request=request,
         name="partials/admin_prompts.html",
@@ -414,7 +427,7 @@ async def create_scorecard(
             str(form.get("name", "")), str(form.get("case_type", "")), db
         )
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=template.id)
     except ValueError as exc:
         return _error_json(str(exc))
 
@@ -501,7 +514,7 @@ async def save_scorecard(
             deletions=deletions,
         )
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=template_id)
     except scorecard_service.AutofailRuleError as exc:
         # This exception uses only fixed messages, not submitted values.
         await db.rollback()
@@ -554,7 +567,7 @@ async def toggle_scorecard(
         )
         states = dict(rows.tuples().all())
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=template_id)
     except ValueError as exc:
         return _error_json(str(exc))
 
@@ -854,7 +867,7 @@ async def create_case_field(
             required_for_import=form.get("required_for_import") == "true",
         )
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=field.id, tracker=tracker)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -896,7 +909,7 @@ async def update_case_field(
             required_for_import=form.get("required_for_import") == "true",
         )
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=field_id, tracker=tracker)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -928,7 +941,7 @@ async def archive_case_field(
     try:
         await tracker_fields.archive_field(db, tracker, field_id)
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=field_id, tracker=tracker)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -960,7 +973,7 @@ async def restore_case_field(
     try:
         await tracker_fields.restore_field(db, tracker, field_id)
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=field_id, tracker=tracker)
     except ValueError as exc:
         await db.rollback()
         return _case_field_error(exc)
@@ -1095,6 +1108,10 @@ async def update_user_roles(
 
     target = await db.get(User, user_id)
     if target is None:
+        log_event(
+            logger, "admin.mutation.rejected", "rejected", level=logging.WARNING,
+            user_id=auth.id, operation="update_roles", reason_code="target_not_found",
+        )
         return _not_found()
 
     form = await request.form()
@@ -1105,9 +1122,17 @@ async def update_user_roles(
         values.append(RoleEnum.ADMIN.value)
 
     if not values:
+        log_event(
+            logger, "admin.mutation.rejected", "rejected", level=logging.WARNING,
+            user_id=auth.id, entity_id=target.id, operation="update_roles", reason_code="roles_required",
+        )
         return _error_json("Select at least one role.")
     unknown = [value for value in values if value not in _ROLE_VALUES]
     if unknown:
+        log_event(
+            logger, "admin.mutation.rejected", "rejected", level=logging.WARNING,
+            user_id=auth.id, entity_id=target.id, operation="update_roles", reason_code="unknown_role",
+        )
         return _error_json(
             f"Unknown role(s): {', '.join(unknown)}."
         )
@@ -1116,7 +1141,7 @@ async def update_user_roles(
     for value in values:
         db.add(UserRole(user_id=target.id, role=RoleEnum(value)))
     await db.commit()
-    _log_admin_commit(request, auth)
+    _log_admin_commit(request, auth, entity_id=target.id, operation="update_roles")
 
     # Refresh the identity-map instance so the partial shows fresh roles.
     await db.execute(
@@ -1166,15 +1191,14 @@ async def create_user(
     if await user_service.is_email_taken(email, db):
         return _error_json(f"A user with email {email} already exists.")
 
-    db.add(
-        User(
-            email=email,
-            name=None,
-            roles=[RoleEnum(value) for value in values] or [RoleEnum.SUPPORT],
-        )
+    user = User(
+        email=email,
+        name=None,
+        roles=[RoleEnum(value) for value in values] or [RoleEnum.SUPPORT],
     )
+    db.add(user)
     await db.commit()
-    _log_admin_commit(request, auth)
+    _log_admin_commit(request, auth, entity_id=user.id)
 
     return _render_users(
         request,
@@ -1220,7 +1244,7 @@ async def delete_user(
 
     target.deleted_at = datetime.now(timezone.utc)
     await db.commit()
-    _log_admin_commit(request, auth)
+    _log_admin_commit(request, auth, entity_id=target.id)
 
     return _render_users(
         request, await _users_context(db, current_user=auth)
@@ -1289,7 +1313,7 @@ async def restore_user(
     if target.is_deleted:
         target.deleted_at = None
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=target.id)
 
     return await _render_deleted_users(request, db)
 
@@ -1399,7 +1423,7 @@ async def restore_review(
             update(Review).where(Review.id == review_id).values(deleted_at=None)
         )
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=review_id)
 
     return await _render_deleted_reviews(request, db)
 
@@ -1499,5 +1523,5 @@ async def restore_tracker_record(
     if record.deleted_at is not None:
         record.deleted_at = None
         await db.commit()
-        _log_admin_commit(request, auth)
+        _log_admin_commit(request, auth, entity_id=feedback_id, tracker=tracker)
     return await _render_deleted_tracker(request, db, tracker)

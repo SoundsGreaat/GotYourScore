@@ -20,10 +20,10 @@ RBAC matrix:
   for unknown ids.
 """
 
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -56,11 +56,19 @@ async def _get_user_with_role_or_400(
     """
     user = await db.get(User, user_id)
     if user is None or user.deleted_at is not None:
+        log_event(
+            logger, "assignment.create", "rejected", level=logging.WARNING,
+            reason_code=f"{label.lower().replace(' ', '_')}_not_found",
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"{label} user {user_id} not found.",
         )
     if not user.has_role(role):
+        log_event(
+            logger, "assignment.create", "rejected", level=logging.WARNING,
+            entity_id=user.id, reason_code=f"{label.lower().replace(' ', '_')}_wrong_role",
+        )
         roles = ", ".join(r.value for r in user.roles) or "none"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
