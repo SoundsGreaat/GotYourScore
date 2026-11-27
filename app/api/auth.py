@@ -116,10 +116,23 @@ async def auth_callback(
     if userinfo is None:
         # authlib >= 1.5 signature: (token, nonce, ...). Passing a falsy
         # nonce skips nonce validation (we did not send one).
-        userinfo = await oauth.google.parse_id_token(token, nonce=None)
+        try:
+            userinfo = await oauth.google.parse_id_token(token, nonce=None)
+        except Exception as exc:
+            log_event(
+                logger,
+                "auth.oauth.callback",
+                "failure",
+                level=logging.WARNING,
+                error_type=type(exc).__name__,
+                reason_code="oauth_identity_parse_failed",
+            )
+            raise
 
     email = userinfo.get("email")
     if not email or not userinfo.get("email_verified", True):
+        log_event(logger, "auth.login", "denied", level=logging.WARNING,
+                  reason_code="unverified_email")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Google account did not return a verified email address",
@@ -131,6 +144,8 @@ async def auth_callback(
     # Domain restriction: the email must end with "@<ALLOWED_DOMAIN>".
     # The "@" anchor defeats suffix tricks like user@domain.com.evil.io.
     if not email.endswith("@" + allowed_domain):
+        log_event(logger, "auth.login", "denied", level=logging.WARNING,
+                  reason_code="domain_not_allowed")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Login is restricted to @{allowed_domain} accounts",
@@ -156,6 +171,7 @@ async def auth_callback(
     await db.commit()
     request.session.clear()
     request.session[SESSION_USER_ID_KEY] = user.id
+    request.state.log_user_id = user.id
     log_event(logger, "auth.login", "success", user_id=user.id)
 
     return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
@@ -164,7 +180,9 @@ async def auth_callback(
 @router.get("/logout", summary="Clear the session and return to the login page")
 async def auth_logout(request: Request) -> RedirectResponse:
     """Log the user out."""
+    user_id = request.session.get(SESSION_USER_ID_KEY)
     request.session.clear()
+    log_event(logger, "auth.logout", "success", user_id=user_id)
     return RedirectResponse(url="/login", status_code=status.HTTP_303_SEE_OTHER)
 
 
