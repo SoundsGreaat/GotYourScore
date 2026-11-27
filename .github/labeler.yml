@@ -1,0 +1,14 @@
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'app/templates/**'
+          - 'app/static/js/**'
+          - 'app/static/css/src/**'
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file: 'tests/**'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file: 'README.md'
