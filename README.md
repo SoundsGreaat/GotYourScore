@@ -125,15 +125,19 @@ writer per file.
 
 Events include a UTC timestamp, severity, a stable operation name, an outcome,
 and the request ID returned in `X-Request-ID` and forwarded to OAuth and
-OpenRouter. When useful they include
-internal IDs, counts, timing, or a stable failure reason. Successful writes
-are logged after commit. Unexpected errors include stack locations, not
-exception messages or payloads. Routine reads and health checks are not
-logged. Uvicorn access logging is disabled in the documented commands
-because raw query strings can include OAuth codes.
+OpenRouter. Find a request by this ID: the HTTP event records the route
+name, status, duration and authenticated user ID when available. A separate
+event describes important application outcomes, such as a committed write
+or a refused role change. Batch operations include counts by stable skip
+reason. Successful writes are logged after commit. Unexpected errors include
+stack locations only. Logs exclude raw URLs, query strings, request bodies,
+prompts, provider bodies, credentials and exception messages. Successful
+liveness probes and static asset requests are omitted. Uvicorn access logging
+remains disabled.
 
 Compose writes the file inside the separate `gotyourscore_logs` volume,
-which survives rebuilding or replacing the app container:
+which survives rebuilding or replacing the app container. The app's
+Docker console logs also rotate (three 10 MiB files):
 
 ```sh
 docker compose logs -f app
