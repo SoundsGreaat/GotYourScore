@@ -180,7 +180,7 @@ Docker always runs `npm ci` and rebuilds the assets from `package-lock.json`. Th
 
 - Dependency review on PRs; `uv audit` and both npm lockfile audits. npm findings at moderate severity and above block CI. The existing low-severity Quill advisory is still printed.
 - Integration tests with PostgreSQL across the Python versions in the CI matrix: the migration of an older database preserves sample data; tests cover OAuth callback handling, sessions and role checks, review scoring and quota, both case trackers, Excel uploads and the no-key AI response. No real Google or OpenRouter credentials are used.
-- Production Docker build with regenerated assets, a clean-volume boot and restart, migration and `/ping` checks, and Chromium tests against the running container. Fixable high/critical OS findings block both the app and PostgreSQL images. The [temporary PostgreSQL libxml2 exception](.github/trivy-postgres-ignore.yml) is printed in CI, expires on December 12, 2026, and should be removed as soon as the official image includes the fix.
+- Production Docker build with regenerated assets, a clean-volume boot and restart, migration and `/ping` checks, and Chromium tests against the running container. The PostgreSQL image applies Alpine package updates at build time; fixable high/critical OS findings block both the app and PostgreSQL images.
 
 Python integration tests are grouped by feature in `tests/test_*.py` and own the server contracts (permissions, persistence, validation, and import). `tests/browser/` covers behavior that HTTP assertions cannot verify, such as keyboard and focus handling, HTMX swaps, and overlapping requests.
 

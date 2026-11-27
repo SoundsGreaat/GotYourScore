@@ -25,7 +25,6 @@ ci:
       - any-glob-to-any-file:
           - '.github/workflows/**'
           - '.github/labeler.yml'
-          - '.github/trivy-postgres-ignore.yml'
           - 'tests/ci.env'
           - 'tests/compose.yml'
 
@@ -46,6 +45,7 @@ docker:
   - changed-files:
       - any-glob-to-any-file:
           - 'Dockerfile'
+          - 'Dockerfile.postgres'
           - '.dockerignore'
           - 'docker-compose.yml'
           - 'docker-compose.dev.yml'
