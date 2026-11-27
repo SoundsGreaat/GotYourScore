@@ -86,3 +86,14 @@ class RequestLogTests(PostgresTestCase):
             self.assertNotIn(secret, " ".join(formatted))
         records = self.assert_status(self.client.get("/api/refund-check", headers=headers), 200).json()
         self.assertNotIn(private_case, [record["related_case"] for record in records])
+
+    def test_schema_rejection_is_correlated_without_the_submitted_values(self):
+        headers = self.session(self.create_user(RoleEnum.QA))
+        with self.assertLogs("app", "INFO") as captured:
+            response = self.assert_status(self.client.post(
+                "/api/ai/refactor", headers=headers, json={"html": ["private-value"]},
+            ), 422)
+        event, = [json.loads(JsonFormatter().format(record)) for record in captured.records]
+        self.assertEqual(event["request_id"], response.headers["X-Request-ID"])
+        self.assertEqual(event["reason_code"], "request_validation_error")
+        self.assertNotIn("private-value", json.dumps(event))
